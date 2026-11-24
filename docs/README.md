@@ -1,6 +1,6 @@
 # KingbaseConnector Documentation
 
-Baseline date: 2026-11-23. Last updated: 2026-11-24. The repository includes the DP01 engineering foundation and the DP03 first configuration slice: a five-target core, strongly typed connection settings, offline/live test entry points, packaging, and explicit package-asset consumers. See the progress tracker for implementation boundaries and validation evidence; no live server is accepted.
+Baseline date: 2026-11-23. Last updated: 2026-11-24. The repository includes the DP01 engineering foundation, DP03 first configuration slice, and DP04 initial PG framing/control parsers: a five-target core, strongly typed settings, offline unit/stream simulation tests, opt-in live gate, packaging, and explicit package-asset consumers. See the progress tracker for implementation boundaries and validation evidence; no live server is accepted.
 
 | Document | Purpose |
 | --- | --- |

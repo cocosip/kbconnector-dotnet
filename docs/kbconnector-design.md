@@ -316,6 +316,10 @@ The following messages belong to the primary PG backend:
 - Validate packet lengths, row/column lengths, nesting, allocation budgets, truncation, and invalid message sequences. Fragmented reads and single reads must behave consistently.
 - Track send stage, current result, transaction state, and session resynchronization per operation. Closing a partially read Reader performs bounded draining and confirms ReadyForQuery; destroy the session if recovery fails.
 
+DP04's initial offline subset uses an internal `PgWire` that owns its stream and permits one framed read/write at a time. The materialized control/small-result path caps the PG length field at 64 MiB (including its four length bytes, excluding message code), rejects lengths below four or above the cap before allocating/reading payload, and handles fragmented sync/async reads exactly. A pre-cancelled async call performs no I/O; I/O failure, truncation, malformed length or cancellation after entry closes the stream exactly once and permanently rejects further use. This conservative retirement is not query cancellation/resynchronization or the separate CancelRequest-channel closure contract. Stream cancellation support is still required; network deadlines/transport abort are DP03 work.
+
+Initial independent encoders cover PG v3 Startup (explicit user/database and UTF8), SSLRequest, CancelRequest, Simple Query, Sync and Terminate; their existence does not mean authentication, TLS, query execution or cancellation is implemented. UTF8 encoding rejects NUL and invalid Unicode. Strict parsers cover ParameterStatus, BackendKeyData, ReadyForQuery's I/T/E states, and ErrorResponse fields with a five-character uppercase/digit SQLSTATE. Raw server error fields remain internal and require explicit access; ToString only prints validated SQLSTATE. Public failure-stage/outcome exceptions, notices and state-machine dispatch remain later DP04 work. Large row/COPY streaming requires a separate bounded payload path; do not reuse this materializing helper to claim Q15/B01 support. W21 defines the standard layouts; Kingbase extensions still require profile evidence.
+
 The additional MySQL backend must independently cover the following (W14-W16 are protocol references, not Kingbase acceptance):
 
 - HandshakeV10, negotiated capabilities, packet sequence numbers, packet fragmentation/reassembly, maximum packet lengths, and bounded allocations. Negotiate only implemented features; leave compression and LOCAL INFILE disabled initially.
@@ -597,6 +601,10 @@ These six pages returned HTTP 200 with matching titles on this date. They establ
 - **W20**: [MySQL-compatible Release V009R003C010](https://help.kingbase.com.cn/v9.3.11/intro/releasenotes-external-v9/V9.3.10.html): section 4.3.3.1 explicitly states MySQL protocol compatibility; section 4.3.1.1 lists ENUM and SET among its types. The page is the C010 release entry inside the C011 documentation tree, not evidence for every R003 build, every deployment, a fixed port, or this driver's wire interoperability. Endpoint-specific authentication/reset/cancellation/catalog details remain U07.
 
 The original thirteen Kingbase references and the six protocol/provider references were fetched again on 2026-11-24, together with W20; all twenty returned HTTP 200. Availability and documented claims do not establish live acceptance. Additional static inspection reconfirmed D9-107's transaction-reserved pool lookup, standard_conforming_strings handling, and cancellation-channel read. Keep these observations separate from the new driver's proposed contracts.
+
+### PG framing reference checked during DP04 (2026-11-24)
+
+- **W21**: [PostgreSQL 14 frontend/backend message formats](https://www.postgresql.org/docs/14/protocol-message-formats.html), HTTP 200. Standard v3.0 lengths/network order, StartupMessage protocol 196608, SSLRequest 80877103, CancelRequest 80877102, Query/Sync/Terminate, ParameterStatus, BackendKeyData, ReadyForQuery and ErrorResponse field framing. This independently defines standard byte layouts; it is not Kingbase live compatibility, extension-message evidence, or validation of newer protocol versions.
 
 ### Reproducing static inspection
 
