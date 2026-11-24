@@ -10,6 +10,14 @@ internal sealed class PgTextCodecs
 
     internal PgTextCodecs(PgTypeCatalog catalog) => _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
     internal Type GetFieldType(uint oid) => Resolve(oid).ClrType;
+    internal Type GetProviderSpecificFieldType(uint oid) => Resolve(oid).Name == "numeric" ? typeof(KingbaseNumeric) : GetFieldType(oid);
+    internal object DecodeProviderSpecific(uint oid, string? text)
+    {
+        if (Resolve(oid).Name != "numeric") return Decode(oid, text);
+        if (text is null) return DBNull.Value;
+        ValidateText(text);
+        return KingbaseNumeric.Parse(text);
+    }
 
     internal object Decode(uint oid, string? text)
     {
@@ -38,6 +46,7 @@ internal sealed class PgTextCodecs
                 throw OutOfRange();
             case "float4": return DecodeFloating(text, single: true);
             case "float8": return DecodeFloating(text, single: false);
+            case "numeric": return KingbaseNumeric.Parse(text).ToDecimal();
             case "uuid":
                 if (text.Length == 36 && Guid.TryParseExact(text, "D", out var uuid)) return uuid;
                 throw InvalidText();
@@ -50,12 +59,14 @@ internal sealed class PgTextCodecs
     {
         var (name, clrType) = Resolve(oid);
         if (value is null || value is DBNull) return null;
+        if (name == "numeric" && value is KingbaseNumeric numeric) return numeric.ToString();
         if (value.GetType() != clrType) throw new InvalidCastException("PG scalar input requires its exact mapped CLR type.");
         var text = name switch
         {
             "bool" => (bool)value ? "t" : "f",
             "float4" => EncodeFloating((float)value),
             "float8" => EncodeFloating((double)value),
+            "numeric" => KingbaseNumeric.FromDecimal((decimal)value).ToString(),
             "uuid" => ((Guid)value).ToString("D"),
             "bytea" => EncodeBytes((byte[])value),
             "int2" or "int4" or "int8" or "oid" => ((IFormattable)value).ToString(null, CultureInfo.InvariantCulture),
@@ -78,6 +89,7 @@ internal sealed class PgTextCodecs
             "oid" => (typeof(uint), 4),
             "float4" => (typeof(float), 4),
             "float8" => (typeof(double), 8),
+            "numeric" => (typeof(decimal), -1),
             "uuid" => (typeof(Guid), 16),
             "bytea" => (typeof(byte[]), -1),
             "text" or "varchar" or "bpchar" or "json" or "jsonb" => (typeof(string), -1),

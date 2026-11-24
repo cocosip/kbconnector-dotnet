@@ -28,4 +28,16 @@ catch (ArgumentException) { }
 builder.Port = 3307;
 builder.Validate();
 
+var numeric = KingbaseNumeric.Parse("1234567890123456789012345678901234567890.00100");
+if (numeric.ToString() != "1234567890123456789012345678901234567890.00100" || numeric.Scale != 5 ||
+    KingbaseNumeric.FromDecimal(1.2300M).ToDecimal() != 1.2300M ||
+    KingbaseNumeric.Parse("1.0") != KingbaseNumeric.Parse("1.00"))
+    throw new InvalidOperationException("The selected asset failed its exact numeric contract.");
+try
+{
+    KingbaseNumeric.Parse("1.00000000000000000000000000001").ToDecimal();
+    throw new InvalidOperationException("The selected asset silently rounded an exact numeric.");
+}
+catch (OverflowException) { }
+
 Console.WriteLine($"PASS: {actual} on .NET {Environment.Version}; {assembly.Location}");

@@ -13,3 +13,12 @@ The core targets `netstandard2.0`, `netstandard2.1`, `net8.0`, `net9.0`, and `ne
 This restores, builds, runs offline tests, packs, and runs a consumer for each explicitly selected package asset. Standard assets run on .NET 8; this does not certify .NET Framework or other platforms. Tests do not contact a database by default. `KINGBASE_TEST_LIVE=1` enables the live-test gate, which rejects execution until a real profile and acceptance tests are registered.
 
 Official reference DLLs are comparison inputs only and are excluded from product references and packages.
+
+`KingbaseNumeric` preserves high-precision numeric values without rounding:
+
+```csharp
+var value = KingbaseNumeric.Parse("123456789012345678901234567890.00100");
+Console.WriteLine(value); // Preserves the coefficient and scale, including trailing zeros.
+```
+
+`ToDecimal()` converts exactly or throws `OverflowException`, including when conversion would round a nonzero digit. The value representation currently bounds coefficient precision and nonnegative scale to 16,384 each; these are client resource limits. Numeric binary formats, bound parameters, public Reader access and real-server acceptance remain in progress.

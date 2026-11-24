@@ -43,7 +43,7 @@ public sealed class PgTextCodecsTests
     public async Task NullAndEmptyAreDistinctAndFieldTypesDoNotChange()
     {
         var codecs = new PgTextCodecs(await Catalog);
-        foreach (var (name, _) in Types.Where(item => item.Name is not "numeric" and not "date"))
+        foreach (var (name, _) in Types.Where(item => item.Name != "date"))
         {
             var type = codecs.GetFieldType(Oid(name));
             Assert.Same(DBNull.Value, codecs.Decode(Oid(name), null));
@@ -208,7 +208,7 @@ public sealed class PgTextCodecsTests
     public async Task UnknownAndDeferredTypesAreRejectedEvenForNull()
     {
         var codecs = new PgTextCodecs(await Catalog);
-        foreach (var oid in new[] { 16U, uint.MaxValue, Oid("numeric"), Oid("date") })
+        foreach (var oid in new[] { 16U, uint.MaxValue, Oid("date") })
         {
             Assert.Throws<NotSupportedException>(() => codecs.GetFieldType(oid));
             Assert.Throws<NotSupportedException>(() => codecs.Decode(oid, null));
@@ -258,6 +258,43 @@ public sealed class PgTextCodecsTests
         Assert.Equal(int.MaxValue, codecs.Decode(column.TypeOid, raw));
         Assert.Equal(typeof(int), codecs.GetFieldType(column.TypeOid));
         Assert.Equal("2147483647", results[0].Rows[0][0]);
+    }
+
+    [Theory]
+    [InlineData("1.2300")]
+    [InlineData("79228162514264337593543950335")]
+    [InlineData("-0.0000000000000000000000000001")]
+    public async Task NumericDefaultAndProviderMappingsRemainStable(string text)
+    {
+        var codecs = new PgTextCodecs(await Catalog);
+        Assert.Equal(typeof(decimal), codecs.GetFieldType(Oid("numeric")));
+        Assert.Equal(typeof(KingbaseNumeric), codecs.GetProviderSpecificFieldType(Oid("numeric")));
+        var expected = decimal.Parse(text, CultureInfo.InvariantCulture);
+        Assert.Equal(expected, Assert.IsType<decimal>(codecs.Decode(Oid("numeric"), text)));
+        var provider = Assert.IsType<KingbaseNumeric>(codecs.DecodeProviderSpecific(Oid("numeric"), text));
+        Assert.Equal(text, provider.ToString());
+        Assert.Equal(text, codecs.Encode(Oid("numeric"), provider));
+        Assert.Equal(expected, codecs.Decode(Oid("numeric"), codecs.Encode(Oid("numeric"), expected)));
+        Assert.Same(DBNull.Value, codecs.DecodeProviderSpecific(Oid("numeric"), null));
+        Assert.Equal(typeof(string), codecs.GetProviderSpecificFieldType(Oid("text")));
+        Assert.Equal("raw", codecs.DecodeProviderSpecific(Oid("text"), "raw"));
+        Assert.Throws<InvalidCastException>(() => codecs.Encode(Oid("numeric"), 1D));
+    }
+
+    [Theory]
+    [InlineData("12345678901234567890123456789012345678901234567890.00100")]
+    [InlineData("1.00000000000000000000000000001")]
+    [InlineData("NaN")]
+    [InlineData("Infinity")]
+    [InlineData("-Infinity")]
+    public async Task NumericPrecisionAndSpecialsNeedExplicitProviderAccess(string text)
+    {
+        var codecs = new PgTextCodecs(await Catalog);
+        Assert.Throws<OverflowException>(() => codecs.Decode(Oid("numeric"), text));
+        var provider = Assert.IsType<KingbaseNumeric>(codecs.DecodeProviderSpecific(Oid("numeric"), text));
+        Assert.Equal(text, provider.ToString());
+        Assert.Equal(text, codecs.Encode(Oid("numeric"), provider));
+        Assert.Equal(typeof(decimal), codecs.GetFieldType(Oid("numeric")));
     }
 
     static void EqualValue(object expected, object actual)
