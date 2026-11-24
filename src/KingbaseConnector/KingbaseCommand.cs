@@ -141,6 +141,9 @@ public sealed class KingbaseCommand : DbCommand
             (session, generation) = connection.BeginExecution(this, cancel, transaction, _transactionOperation);
             queries = session.Queries;
             writeAttempts = queries.WriteAttempts;
+            CheckMode();
+            if (_transactionOperation == KingbaseTransactionOperation.Begin)
+                transaction!.SavepointNameByteLimit = await session.GetMaxIdentifierLengthAsync(linked.Token).ConfigureAwait(false);
             bool? conforming = queries.Parameters.TryGetValue("standard_conforming_strings", out var status)
                 ? status switch { "on" => true, "off" => false, _ => null } : null;
             CheckMode();
@@ -158,7 +161,7 @@ public sealed class KingbaseCommand : DbCommand
             connection.ObserveTransaction(this, session, generation, _transactionOperation, true, queries.TransactionStatus, bindings.EndsTransaction);
             acknowledged = true;
             if (rolledBack) throw new KingbaseTransactionException(outcomeUnknown: false);
-            if (_transactionOperation is KingbaseTransactionOperation.Commit or KingbaseTransactionOperation.Rollback)
+            if (_transactionOperation is not KingbaseTransactionOperation.None and not KingbaseTransactionOperation.Begin)
                 return new KingbaseDataReader(results, session.Catalog);
             if (_transactionOperation == KingbaseTransactionOperation.None) CheckCancellation();
             var capturedSession = session;

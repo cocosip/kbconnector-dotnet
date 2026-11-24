@@ -10,6 +10,11 @@ namespace KingbaseConnector.ProtocolTests;
 
 public sealed class TransactionExecutionTests
 {
+    static async Task Initialize(NetworkStream stream, CancellationToken token)
+    {
+        await PublicExecutionTests.Initialize(stream, token);
+        await SavepointExecutionTests.Limit(stream, token);
+    }
     internal static byte[] Result(string tag, char status) => Join(Frame('1'), Frame('2'), Frame('n'),
         Frame('C', Encoding.UTF8.GetBytes(tag + "\0")), Frame('Z', [(byte)status]));
     static byte[] Error(string code, char status) => Join(Frame('E', Encoding.UTF8.GetBytes("SERROR\0C" + code + "\0Mprivate-error\0\0")),

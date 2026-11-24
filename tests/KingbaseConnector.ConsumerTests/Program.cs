@@ -86,6 +86,20 @@ using (var closedTransactionConnection = new KingbaseConnection())
     using var transactionCommand = closedTransactionConnection.CreateCommand();
     transactionCommand.Transaction = null;
     if (transactionCommand.Transaction is not null) throw new Exception("A null transaction was not retained.");
+    // Exercise the typed Standard counterparts too; full wire behavior is covered by protocol tests.
+    using var inactive = (KingbaseTransaction)Activator.CreateInstance(typeof(KingbaseTransaction),
+        BindingFlags.Instance | BindingFlags.NonPublic, null, [closedTransactionConnection], null)!;
+    if (!inactive.SupportsSavepoints) throw new Exception("Savepoint capability is missing.");
+    foreach (Action action in new Action[] { () => inactive.Save("s"), () => inactive.Rollback("s"), () => inactive.Release("s") })
+    {
+        try { action(); throw new Exception("An inactive transaction executed a savepoint."); }
+        catch (InvalidOperationException) { }
+    }
+    foreach (Func<Task> action in new Func<Task>[] { () => inactive.SaveAsync("s"), () => inactive.RollbackAsync("s"), () => inactive.ReleaseAsync("s") })
+    {
+        try { await action(); throw new Exception("An inactive transaction executed an async savepoint."); }
+        catch (InvalidOperationException) { }
+    }
 }
 using DbConnection connection = factory.CreateConnection()!;
 connection.ConnectionString = "Host=localhost;Database=app;Username=user;Password=private;Pooling=false;Command Timeout=7";

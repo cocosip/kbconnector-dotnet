@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 
 namespace KingbaseConnector.Protocol;
 
@@ -7,6 +8,7 @@ internal sealed class PgPhysicalSession : IDisposable
     readonly PgTransport _transport;
     readonly PgQuerySession _queries;
     int _disposed;
+    int _maxIdentifierLength;
 
     PgPhysicalSession(PgTransport transport, PgQuerySession queries, PgStartupResult startup,
         PgIdentityResult identity, PgTypeCatalog catalog)
@@ -24,6 +26,23 @@ internal sealed class PgPhysicalSession : IDisposable
     internal bool IsUsable => Volatile.Read(ref _disposed) == 0 && !_queries.IsDisposed;
     internal PgQuerySession Queries => Volatile.Read(ref _disposed) == 0 ? _queries
         : throw new ObjectDisposedException(nameof(PgPhysicalSession));
+    // Called only while the public command owns this physical session's execution gate.
+    internal async Task<int> GetMaxIdentifierLengthAsync(CancellationToken token)
+    {
+        if (_maxIdentifierLength != 0) return _maxIdentifierLength;
+        var results = await Queries.ExecuteAsync("SHOW max_identifier_length", token).ConfigureAwait(false);
+        var text = results.Count == 1 && results[0].Rows.Count == 1 && results[0].Rows[0].Count == 1 ? results[0].Rows[0][0] : null;
+        if (results.Count != 1 || results[0].CommandTag != "SHOW" || results[0].Columns.Count != 1 ||
+            text is null || text.Length == 0 || text.Length > 10 || text.Any(c => c is < '0' or > '9') ||
+            !int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var length) || length <= 0 ||
+            Queries.TransactionStatus != PgTransactionStatus.Idle)
+        {
+            Dispose();
+            throw new IOException("Invalid Kingbase identifier length metadata.");
+        }
+        _maxIdentifierLength = length;
+        return length;
+    }
     internal static PgPhysicalSession Open(string connectionString) => OpenAsync(connectionString).GetAwaiter().GetResult();
 
     internal static async Task<PgPhysicalSession> OpenAsync(string connectionString, CancellationToken cancellationToken = default)
