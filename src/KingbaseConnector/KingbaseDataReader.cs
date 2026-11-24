@@ -14,14 +14,21 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     readonly PgTypeCatalog _catalog;
     readonly PgTextCodecs _codecs;
     readonly int _recordsAffected;
+    readonly bool _singleRow;
+    readonly bool _singleResult;
+    Action<KingbaseDataReader>? _onClose;
     int _resultIndex;
     int _rowIndex = -1;
 
-    internal KingbaseDataReader(IReadOnlyList<PgTextResult> results, PgTypeCatalog catalog)
+    internal KingbaseDataReader(IReadOnlyList<PgTextResult> results, PgTypeCatalog catalog,
+        CommandBehavior behavior = CommandBehavior.Default, Action<KingbaseDataReader>? onClose = null)
     {
         if (results is null) throw new ArgumentNullException(nameof(results));
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _codecs = new PgTextCodecs(catalog);
+        _singleRow = (behavior & CommandBehavior.SingleRow) != 0;
+        _singleResult = (behavior & (CommandBehavior.SingleRow | CommandBehavior.SingleResult)) != 0;
+        _onClose = onClose;
         var affected = 0;
         var hasAffected = false;
         foreach (var result in results)
@@ -58,13 +65,14 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     {
         var current = Current;
         if (current is null) return false;
-        if (_rowIndex < current.Rows.Count) _rowIndex++;
-        return _rowIndex < current.Rows.Count;
+        var count = _singleRow ? Math.Min(1, current.Rows.Count) : current.Rows.Count;
+        if (_rowIndex < count) _rowIndex++;
+        return _rowIndex < count;
     }
     public override bool NextResult()
     {
         EnsureOpen();
-        if (_resultIndex < _results!.Count) _resultIndex++;
+        if (_resultIndex < _results!.Count) _resultIndex = _singleResult ? _results.Count : _resultIndex + 1;
         _rowIndex = -1;
         return _resultIndex < _results.Count;
     }
@@ -203,7 +211,12 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
         try { return Task.FromResult(operation()); }
         catch (Exception e) { return Task.FromException<T>(e); }
     }
-    public override void Close() { _results = null; _rowIndex = -1; }
+    public override void Close()
+    {
+        if (Interlocked.Exchange(ref _results, null) is null) return;
+        _rowIndex = -1;
+        Interlocked.Exchange(ref _onClose, null)?.Invoke(this);
+    }
     protected override void Dispose(bool disposing) { if (disposing) Close(); base.Dispose(disposing); }
 #if !NETSTANDARD2_0
     public override Task CloseAsync() { Close(); return Task.CompletedTask; }
@@ -221,7 +234,7 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     void EnsureRow()
     {
         var current = Current;
-        if (current is null || _rowIndex < 0 || _rowIndex >= current.Rows.Count)
+        if (current is null || _rowIndex < 0 || _rowIndex >= current.Rows.Count || (_singleRow && _rowIndex >= 1))
             throw new InvalidOperationException("The Kingbase reader is not positioned on a row.");
     }
     void EnsureOpen() { if (IsClosed) throw new InvalidOperationException("The Kingbase reader is closed."); }

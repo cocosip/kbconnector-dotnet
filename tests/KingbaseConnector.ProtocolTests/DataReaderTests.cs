@@ -17,6 +17,23 @@ public sealed class DataReaderTests
     static PgTextResult Result(PgColumnDescription[] columns, string?[][] rows, string? tag = "SELECT 1") => new(columns, rows, tag);
     static async Task<KingbaseDataReader> Reader(params PgTextResult[] results) => new(results, await CatalogTask);
 
+    [Theory]
+    [InlineData(CommandBehavior.Default, 2, true)]
+    [InlineData(CommandBehavior.SingleRow, 1, false)]
+    [InlineData(CommandBehavior.SingleResult, 2, false)]
+    public async Task BehaviorLimitsVisibleRowsAndResults(CommandBehavior behavior, int count, bool next)
+    {
+        var closed = 0;
+        using var reader = new KingbaseDataReader([
+            Result([Column("n")], [["1"], ["2"]], "SELECT 2"), Result([], [], "UPDATE 4")],
+            await CatalogTask, behavior, _ => closed++);
+        for (var i = 1; i <= count; i++) { Assert.True(reader.Read()); Assert.Equal(i, reader.GetInt32(0)); }
+        Assert.False(reader.Read());
+        Assert.Equal(next, reader.NextResult());
+        Assert.Equal(4, reader.RecordsAffected);
+        reader.Close(); reader.Close(); Assert.Equal(1, closed);
+    }
+
     [Fact]
     public async Task CursorHasRowsAndMultipleResultTransitionsIncludeNonrowResults()
     {

@@ -21,6 +21,7 @@ internal sealed class PgPhysicalSession : IDisposable
     internal PgStartupResult Startup { get; }
     internal PgIdentityResult Identity { get; }
     internal PgTypeCatalog Catalog { get; }
+    internal bool IsUsable => Volatile.Read(ref _disposed) == 0 && !_queries.IsDisposed;
     internal PgQuerySession Queries => Volatile.Read(ref _disposed) == 0 ? _queries
         : throw new ObjectDisposedException(nameof(PgPhysicalSession));
     internal static PgPhysicalSession Open(string connectionString) => OpenAsync(connectionString).GetAwaiter().GetResult();

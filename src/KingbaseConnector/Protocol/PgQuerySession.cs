@@ -55,6 +55,7 @@ internal sealed class PgQuerySession : IDisposable
     }
 
     internal IReadOnlyDictionary<string, string> Parameters { get; }
+    internal bool IsDisposed => Volatile.Read(ref _disposed) != 0;
     internal PgTransactionStatus TransactionStatus { get; private set; } = PgTransactionStatus.Idle;
 
     internal IReadOnlyList<PgTextResult> Execute(string sql) => ExecuteAsync(sql).GetAwaiter().GetResult();

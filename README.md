@@ -21,7 +21,7 @@ var value = KingbaseNumeric.Parse("123456789012345678901234567890.00100");
 Console.WriteLine(value); // Preserves the coefficient and scale, including trailing zeros.
 ```
 
-`ToDecimal()` converts exactly or throws `OverflowException`, including when conversion would round a nonzero digit. The value representation currently bounds coefficient precision and nonnegative scale to 16,384 each; these are client resource limits. Numeric binary formats, public command/Reader access and real-server acceptance remain in progress.
+`ToDecimal()` converts exactly or throws `OverflowException`, including when conversion would round a nonzero digit. The value representation currently bounds coefficient precision and nonnegative scale to 16,384 each; these are client resource limits. Numeric binary formats and real-server acceptance remain in progress.
 
 The public input model includes `KingbaseParameter`, `KingbaseDbType` and `KingbaseParameterCollection`:
 
@@ -31,6 +31,19 @@ parameters.AddWithValue("amount", 1.2300m).Scale = 2; // Exact input constraint;
 parameters.Add("optional_id", KingbaseDbType.Integer).Value = DBNull.Value;
 ```
 
-Each parameter belongs to one collection; nonempty names match case-insensitively with an optional `@`/`:` prefix. The internal PG path resolves actual catalog types, requires an explicit type for NULL, snapshots mutable byte inputs, and rejects unsupported directions or lossy size/precision/scale constraints. Public Connection/Command execution and other-mode parameter contracts are still pending.
+Each parameter belongs to one collection; nonempty names match case-insensitively with an optional `@`/`:` prefix. The PG path resolves actual catalog types, requires an explicit type for NULL, snapshots mutable byte inputs, and rejects unsupported directions or lossy size/precision/scale constraints. Other-mode parameter contracts remain pending.
 
-`KingbaseDataReader` implements the buffered scalar Reader contract over completed internal PG results, including multiple-result traversal, exact typed/provider numeric access, binary/text slices and basic column metadata. Construction remains internal until Command integration. It does not yet provide streaming, CommandBehavior or Connection ownership. Unknown schema facts remain unset; raw PG identities are available in `GetSchemaTable` provider columns.
+`KingbaseConnection`, `KingbaseCommand` and `KingbaseFactory.Instance` expose the initial public PG execution path. It currently requires explicit `Pooling=false` and PostgreSql compatibility mode. Open confirms product identity and required catalog types; text commands bind values separately from SQL. Cancellation or an interrupted exchange closes the physical session; ordinary synchronized server errors allow reuse. `KingbaseException` exposes SQLSTATE safely; its explicit server text properties may contain sensitive data.
+
+```csharp
+using var connection = new KingbaseConnection(
+    "Host=localhost;Database=app;Username=user;Password=secret;Pooling=false");
+await connection.OpenAsync();
+using var command = new KingbaseCommand("SELECT :amount", connection);
+command.Parameters.AddWithValue("amount", 1.2300m);
+var amount = await command.ExecuteScalarAsync();
+```
+
+The default TLS mode verifies the server certificate and hostname. Configure a trusted server certificate before using this example. The public execution path is covered by simulated peers; no real Kingbase server is accepted yet.
+
+`KingbaseDataReader` buffers completed PG results with exact typed/provider numeric access, binary/text slices and basic column metadata. A connection owns its returned Reader until close. Default, CloseConnection, SingleRow and SingleResult behaviors are supported. Unknown schema facts remain unset; raw PG identities are available in `GetSchemaTable` provider columns. Streaming/SequentialAccess, local/system transactions, retained preparation, DataSource, pooling and the required dependency-injection package remain pending.

@@ -71,4 +71,31 @@ if (!typeof(DbDataReader).IsAssignableFrom(typeof(KingbaseDataReader)) ||
     typeof(KingbaseDataReader).GetConstructors().Length != 0)
     throw new InvalidOperationException("The selected asset failed its buffered reader API shape contract.");
 
+DbProviderFactory factory = KingbaseFactory.Instance;
+using DbConnection connection = factory.CreateConnection()!;
+connection.ConnectionString = "Host=localhost;Database=app;Username=user;Password=private;Pooling=false;Command Timeout=7";
+using DbCommand command = connection.CreateCommand();
+command.CommandText = "SELECT :n";
+command.Parameters.Add(command.CreateParameter());
+if (connection is not KingbaseConnection || command is not KingbaseCommand ||
+    !ReferenceEquals(DbProviderFactories.GetFactory(connection), factory) ||
+    connection.State != ConnectionState.Closed || connection.Database != "app" ||
+    command.CommandTimeout != 7 || command.Parameters[0] is not KingbaseParameter ||
+    factory.CreateCommand() is not KingbaseCommand || factory.CreateConnectionStringBuilder() is not KingbaseConnectionStringBuilder)
+    throw new InvalidOperationException("The selected asset failed its public execution/factory contract.");
+command.CommandTimeout = int.MaxValue;
+try
+{
+    command.ExecuteScalar();
+    throw new InvalidOperationException("The selected asset executed a closed connection.");
+}
+catch (InvalidOperationException error) when (error.Message.Contains("not open")) { }
+connection.Dispose();
+try
+{
+    connection.Open();
+    throw new InvalidOperationException("The selected asset reopened a disposed connection.");
+}
+catch (ObjectDisposedException) { }
+
 Console.WriteLine($"PASS: {actual} on .NET {Environment.Version}; {assembly.Location}");
