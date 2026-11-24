@@ -268,6 +268,41 @@ The following DLL values come from `KdbndpConnectionStringBuilder` DefaultValue 
 
 Configuration coverage must also define automatic Prepare thresholds and LRU behavior; total connection, command, and internal recovery budgets; SQL/TCP keepalive units and permitted states; composite-type loading and catalog reload; Enlist; and infinity-date behavior. A ConnectionStringBuilder class alone does not establish complete configuration support. Matrix groups C01-C21, P01-P03, Q05/Q07-Q08/Q18, G07/G11, T01/T10/T27/T32, and X04 track the relevant contracts.
 
+#### Settled first configuration slice (DP03, 2026-11-24)
+
+`KingbaseConnectionStringBuilder : DbConnectionStringBuilder` is shared across all five assets. `KingbaseWireProtocol`, `KingbaseCompatibilityMode` and `KingbaseSslMode` are public enums. Only the settings below are implemented; networking, factory registration, callbacks, and pool behavior remain later work. `Validate()` checks complete local configuration without contacting a server. Connection/command/Reader/exception signatures will be settled with their execution path instead of publishing unsupported stubs.
+
+Keywords and enum names are case-insensitive; enum integers and undefined enum values are rejected. Canonical multi-word keys also accept their no-space form. Parsing/quoting follows the BCL builder, including Unicode and quoted semicolons. Repeated canonical or alias keys use the last occurrence consistently, including through a `DbConnectionStringBuilder` reference; this deterministic BCL rule resolves duplicate alias values. Programmatic reassignment replaces the old value. Unknown keywords and invalid values throw `ArgumentException` without including supplied values or conversion inner exceptions. Null assignment removes an explicit setting. Empty/default settings are not serialized until assigned. ContainsKey/ShouldSerialize mean explicitly assigned; TryGetValue returns defaults for supported unset keys and false for unknown keys.
+
+| Canonical keyword / property | Additional aliases | Default / accepted values | Application point |
+| --- | --- | --- | --- |
+| Host / Host | Server, Data Source, DataSource | Empty; non-whitespace required by Validate | Endpoint selection |
+| Port / Port | - | 54321; integer 1..65535; explicit assignment required for MySql wire | Transport |
+| Database / Database | Initial Catalog, InitialCatalog | Empty; non-whitespace required | Startup |
+| Username / Username | User ID, UserID, User Name, User, UID | Empty; non-whitespace required | Authentication |
+| Password / Password | Pwd | Empty; explicit source only in this slice | Authentication |
+| WireProtocol / WireProtocol | Wire Protocol | PostgreSql; PostgreSql or MySql, no Auto | Before handshake |
+| CompatibilityMode / CompatibilityMode | Compatibility Mode | Auto; Auto/PostgreSql/Oracle/MySql/SqlServer | Bootstrap semantics |
+| SSL Mode / SslMode | SslMode | VerifyFull; Disable/Require/VerifyFull | TLS negotiation |
+| Root Certificate / RootCertificate | RootCertificate | Empty uses platform trust; otherwise certificate-file path | VerifyFull chain trust |
+| Pooling / Pooling | - | true; bool or true/false text | Pool selection |
+| Minimum Pool Size / MinPoolSize | Min Pool Size, MinPoolSize | 0; nonnegative integer, no greater than maximum | Pool retention |
+| Maximum Pool Size / MaxPoolSize | Max Pool Size, MaxPoolSize | 100; positive integer | Pool capacity |
+| Timeout / Timeout | Connection Timeout, ConnectionTimeout | 15 seconds; 0 means unlimited; negative rejected | Whole Open including pool wait/init |
+| Command Timeout / CommandTimeout | CommandTimeout | 30 seconds; 0 means unlimited; negative rejected | Whole command |
+| Cleanup Timeout / CleanupTimeout | CleanupTimeout | 5 seconds; strictly positive | Internal recovery independent of application cancellation |
+| Connection Idle Lifetime / ConnectionIdleLifetime | ConnectionIdleLifetime | 300 seconds; 0 disables idle pruning | Pool lifecycle |
+| Connection Pruning Interval / ConnectionPruningInterval | ConnectionPruningInterval | 10 seconds; strictly positive | Pool lifecycle |
+| Connection Lifetime / ConnectionLifetime | ConnectionLifetime | 0 seconds disables total-age expiry; nonnegative | Pool lifecycle |
+| Application Name / ApplicationName | ApplicationName | Empty | Startup/session baseline |
+| Search Path / SearchPath | SearchPath | Empty | Startup/session baseline |
+| Client Encoding / ClientEncoding | ClientEncoding | UTF8; UTF8/UTF-8 normalized to UTF8, other encodings rejected in this slice | Startup/codecs |
+| Timezone / Timezone | Time Zone | Empty | Startup/session baseline |
+
+All integer values are bounded by Int32.MaxValue unless a tighter range is shown; fractional/boolean object assignments are rejected rather than rounded. Text settings reject NUL before wire encoding. Validate requires explicit Host/Database/Username and coherent pool bounds. MySql wire accepts only Auto/MySql compatibility and an explicit port, even if that port is 54321. PG wire supports every listed mode; no setting infers another protocol or server identity. `Require` enforces encryption **without** authenticating the server certificate; `VerifyFull` requires both chain trust and hostname validation. There is no Prefer/fallback or Trust Server Certificate switch in this slice.
+
+`ConnectionString` deliberately contains explicitly assigned credentials for caller round-tripping. `GetRedactedConnectionString()` returns a copy with Password removed and `ToString()` uses that copy. Redaction leaves all other settings intact and does not make them safe to log; diagnostics must still use an allowlist. Password callback/source precedence, rotation, factory registration and later settings remain open in C01/C16/G11. Do not read environment/passfile credentials implicitly.
+
 Official `Server Compatibility Mode=Redshift/NoTypeLoading` controls catalog-loading compatibility, not Oracle/MySQL/SQL Server mode selection. Do not copy it as a bypass for identity and type-catalog validation. Names such as `UseReadWriteSep` and `Multiplexing` do not establish automatic application SQL routing or concurrent-query support. Official No Reset On Close, Windows performance counters, and EF Template Database also do not automatically become public options: session isolation, Activity/Meter, and the future EF project determine the relevant contracts.
 
 ## 7. Protocol, Execution, and Failure Handling

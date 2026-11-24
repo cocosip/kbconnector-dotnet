@@ -4,15 +4,15 @@ Last updated: 2026-11-24. This is the single current implementation and acceptan
 
 ## 1. Current snapshot
 
-DP01 engineering is implemented: the SDK/solution/CPM foundation builds all five product assets, offline/live entry points exist, and explicit package consumers run on Windows x64 .NET 8/9/10. No database functionality, protocol simulation, or live profile is accepted yet. Proposed API/default decisions and server discovery items remain explicit in the design.
+DP01 engineering is implemented. DP03 now implements the first configuration slice: canonical strongly typed settings, validation and password redaction, with offline tests and explicit package consumers on Windows x64 .NET 8/9/10. No network connection, protocol simulation, or live profile is accepted yet. Remaining API/default decisions and server discovery items are explicit in the design.
 
 | Product feature status | Count |
 | --- | ---: |
 | Complete | 1 |
 | Implemented, acceptance pending | 0 |
-| In progress | 3 |
+| In progress | 6 |
 | Blocked | 0 |
-| Not started | 107 |
+| Not started | 104 |
 | Deferred: later L scope and subsequent V8 work | 11 |
 | Not applicable | 0 |
 | Total matrix features | 122 |
@@ -47,7 +47,7 @@ Work-package checkboxes can be marked complete when the named subset and its exi
 
 - [x] **DP01 - Engineering and package structure** (V9-1; G01, G02). SDK/solution/shared props/CPM/core and test projects build all five TFMs; offline checks, packaging and explicit asset consumers execute. Optional DI remains with the later DataSource lifetime contract; G02/G03/G08 are partial. Evidence: E01.
 - [ ] **DP02 - Server profiles and bootstrap discovery** (V9-0; C03-C05, G08). Register authorized profiles and confirm raw/product version, mode, catalog, and routine output facts. Establish isolated official comparison entry points. Can proceed alongside DP01 when environments exist. Evidence: none.
-- [ ] **DP03 - Connection, configuration, and authentication foundation** (V9-1; C01-C02, C06-C10, C16, C18-C20, G06, G11). After DP01, implement timed transport, TLS, authentication, configuration, credential sources, session startup/state, verified lexical/codec settings, and redacted diagnostics; use DP02 evidence for identity-dependent behavior. Evidence: none.
+- [ ] **DP03 - Connection, configuration, and authentication foundation** (V9-1; C01-C02, C06-C10, C16, C18-C20, G06, G11). In progress: first local configuration slice only (E02); networking, credentials, session initialization and authentication remain open. Use DP02 evidence for identity-dependent behavior.
 - [ ] **DP04 - Protocol state and failure handling** (V9-1; Q01, Q05, Q17-Q18, P06, G07). After transport and framing, establish session ownership, query state, error handling, bounded PG cancellation-channel closure, synchronization, and uncertain outcomes with deterministic fault cases. Evidence: none.
 - [ ] **DP05 - Type system and basic codecs** (V9-1; T01-T03, T05, T07-T10, T28, T30). After bootstrap/catalog contracts, implement type lookup and the basic input/result paths, exact conversion, typed getters, NULL handling, and bounds. Later mode-specific coverage for these features remains part of DP08. Evidence: none.
 - [ ] **DP06 - Commands, parameters, and Reader foundation** (V9-1/2; Q02-Q04, Q06, Q15-Q16, M01, M06). After DP04/DP05, deliver named/positional parameter planning, streaming/multiple results, Reader behavior, and foundational metadata. Evidence: none.
@@ -81,7 +81,7 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 
 | Done | ID | Feature | Status | SIM | LIVE | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| [ ] | C01 | ConnectionStringBuilder / factory | Not started | Not run | Not run | - |
+| [ ] | C01 | ConnectionStringBuilder / factory | In progress | Passed: E02 subset | Not run | E02: builder only; factory pending |
 | [ ] | C02 | TCP, DNS, synchronous/asynchronous Open | Not started | Not run | Not run | - |
 | [ ] | C03 | Full product version detection | Not started | Not run | Not run | - |
 | [ ] | C04 | Automatic detection / explicit CompatibilityMode | Not started | Not run | Not run | - |
@@ -100,7 +100,7 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 | [ ] | C17 | Passfile / environment variables | Not started | Not run | Not run | - |
 | [ ] | C18 | Startup / session configuration | Not started | Not run | Not run | - |
 | [ ] | C19 | Connection state / ChangeDatabase | Not started | Not run | Not run | - |
-| [ ] | C20 | Wire protocol selection / endpoint contract | Not started | Not run | Not run | - |
+| [ ] | C20 | Wire protocol selection / endpoint contract | In progress | Passed: E02 subset | Not run | E02: local validation only; backend/handshake/pools pending |
 | [ ] | C21 | MySQL handshake / TLS / authentication | Not started | Not run | Not run | - |
 
 ### Commands, parameters, Reader, and routines
@@ -230,7 +230,7 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 | --- | --- | --- | --- | --- | --- | --- |
 | [x] | G01 | slnx / CPM / unified versions | Complete | N/A: engineering | N/A: engineering | E01 |
 | [ ] | G02 | Single core package / optional DI package | In progress | Not run | Not run | E01: core structure only; DataSource/DI pending |
-| [ ] | G03 | Package consumption across TFMs | In progress | Not run | Not run | E01: explicit assembly loading only |
+| [ ] | G03 | Package consumption across TFMs | In progress | Passed: E02 subset | Not run | E01/E02: explicit loading/configuration only |
 | [ ] | G04 | Windows/Linux x64 | Not started | Not run | Not run | - |
 | [ ] | G05 | ARM64 / Framework hosts | Not started | Not run | Not run | - |
 | [ ] | G06 | Logging / Activity / Meter | Not started | Not run | Not run | - |
@@ -238,7 +238,7 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 | [ ] | G08 | Differential / live test framework | In progress | Not run | Not run | E01: offline/live separation and fail-closed opt-in only |
 | [ ] | G09 | NuGet / provenance / licensing / compatibility notes | Not started | Not run | Not run | - |
 | [ ] | G10 | Trimming / NativeAOT | Deferred | Not run | Not run | - |
-| [ ] | G11 | Configuration and default-value contract | Not started | Not run | Not run | - |
+| [ ] | G11 | Configuration and default-value contract | In progress | Passed: E02 subset | Not run | E02: settled initial configuration slice; later settings/rotation pending |
 
 ### V8 extension
 
@@ -261,7 +261,7 @@ The unresolved design items below are dependencies to resolve; they do not mean 
 
 | Design item | Current dependency | Affected work | Next action |
 | --- | --- | --- | --- |
-| U01 | No registered authorized real-server profiles. | DP02; server-dependent acceptance across DP03-DP16 and DP20-DP22. | Register available V9 version/deployment/mode/protocol environments without storing credentials. |
+| U01 | No registered authorized real-server profiles; on 2026-11-24 the user confirmed no test environment is currently available and requested continued offline development. | DP02; server-dependent acceptance across DP03-DP16 and DP20-DP22. | Continue independent offline units; register available V9 environments without storing credentials when provided. |
 | U02 | Full product version query/grammar and reliable deployment identification remain unconfirmed. | C03-C05, DP02/DP03. | Establish bounded read-only queries and retain the actual returned strings. |
 | U03 | Routine output/return-code formats and any need for protocol extensions remain unconfirmed. | Q10-Q14, DP09. | Compare actual routine result/protocol behavior per mode. |
 | U04 | V8 mode/deployment existence and additional V8 target builds remain unconfirmed. | V01-V03, DP17/DP18. | Register V8R6C9B14 facts during the V8 stage; agree additional builds before expanding scope. |
@@ -299,3 +299,13 @@ When a unit is finished, update its row, package, phase, and section 1 counts in
 - SIM/LIVE: N/A for G01 because it is exclusively build/structure work. No simulated or live database acceptance is claimed for any other feature; no profile is registered.
 - Dependencies/provenance: no explicit runtime dependency or official DLL/EF/external database-driver reference in the core. Test-only licenses checked in restored nuspecs: Microsoft.NET.Test.Sdk 18.0.1 (MIT), xunit 2.9.3 and xunit.runner.visualstudio 3.1.5 (Apache-2.0). Exact versions and initial implicit Standard build graph are documented in the development guide. Implementation is independent.
 - Resource/limits/follow-up: fresh consumer cache/output per run prevents stale provisional packages from passing. No database resources are opened. Linux, ARM64, Framework hosts, connection functionality, DI, license/publication and functional package-consumer contracts remain pending.
+
+### E02 - DP03 first configuration slice (2026-11-24)
+
+- Scope/state: C01 builder subset, C20 configuration validation subset, G11 initial settings contract and G03 configuration-consumer subset implemented. Parent features remain In progress: factory registration, transport/handshake/pool identity, settings application, credential callbacks/rotation and later configuration remain pending.
+- Source/artifact: `KingbaseConnectionStringBuilder.cs`, `KingbaseConnectionOptions.cs`, `ConnectionStringBuilderTests.cs` and package consumer `Program.cs`. Validated local `KingbaseConnector.0.1.0-dev.nupkg` SHA-256 `FDDDD141B01D4BA000602E02FEA9E36CC87618C16A3F6124BE373922402E0AD0`.
+- Contract: design section 6.5 records exact canonical keywords/properties, aliases, defaults, units, zero/negative behavior, required fields, BCL last-write-wins duplicate handling, enum/value validation, password round-tripping/redaction and cross-setting conflicts. Explicit MySQL port and Auto/MySql mode restriction are local checks only. TLS defaults are configuration, not an implemented handshake.
+- Commands/results: the new tests first failed due to absent public types; initial implementation exposed the BCL's string-storage behavior and was corrected in the shared getter. `dotnet test tests/KingbaseConnector.UnitTests -c Release --no-restore --disable-build-servers` and `./eng/verify.ps1` passed with 55 unit cases per net8.0/net9.0/net10.0 (165 passes), 3 live-gate skips, all five product builds without warnings/errors, and public configuration consumer checks on all five explicit package assets.
+- SIM/LIVE: passed offline configuration cases only (quoted Unicode/passwords, duplicates/aliases through the BCL base type, unknown/invalid/undefined/fractional input, required fields, pool bounds, null/remove/default behavior, no input-value/inner-exception leaks, NUL rejection and MySQL constraints). No framing/transport/server test was run, and no LIVE profile is accepted.
+- Provenance/resources/follow-up: independently implemented using BCL facilities with no new dependencies; no database resources opened. Factory registration waits for usable Connection/Command APIs; transport/authentication/bootstrap and full G11 settings application remain open. The API is the same on all five assets.
+- Code review: independent read-only review found no actionable defects; additional probes confirmed IDictionary.Add alias canonicalization and rollback after invalid inherited ConnectionString assignment. All initial configuration tests and package checks passed before commit.
