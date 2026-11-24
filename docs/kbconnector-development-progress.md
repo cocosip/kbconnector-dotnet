@@ -1,0 +1,291 @@
+# KingbaseConnector Development Progress
+
+Last updated: 2026-11-24. This is the single current implementation and acceptance tracker. Requirements are defined in the [feature matrix](kbconnector-feature-matrix.md); implementation workflow and completion rules are in the [development guide](kbconnector-development.md).
+
+## 1. Current snapshot
+
+The documentation baseline is available for development. There are no product projects, implemented product features, executed SIM cases, or accepted live profiles at this date. Proposed API/default decisions and server discovery items remain explicit in the design.
+
+| Product feature status | Count |
+| --- | ---: |
+| Complete | 0 |
+| Implemented, acceptance pending | 0 |
+| In progress | 0 |
+| Blocked | 0 |
+| Not started | 111 |
+| Deferred: later L scope and subsequent V8 work | 11 |
+| Not applicable | 0 |
+| Total matrix features | 122 |
+
+Scope inventory: 85 V9 required (R), 26 V9 conditional (C), 7 later-scope (L), and 4 subsequent V8 features. Conditional features start as Not started; their applicability has not been decided. Missing environments are tracked below and do not turn them into Not applicable.
+
+Documentation deliverables are tracked separately from product functionality:
+
+- [x] Maintain the unified design and feature matrix in English, with official sources and explicit evidence limits.
+- [x] Provide an implementation guide with dependencies, validation workflow, and completion rules.
+- [x] Register all 122 feature IDs in the progress ledger with an initial truthful status.
+- [x] Extend the default-PG design for exceptional explicit MySQL-only connections and built-in pooling; synchronize requirements and work packages. This is documentation completion only.
+- [x] Define startup decision gates and the first usable PG increment in development guide section 3.1. Toolchain/API decisions and live discovery remain work-package tasks; no product acceptance is implied.
+
+## 2. Phase progress
+
+| Phase | Status | Exit requirement | Evidence |
+| --- | --- | --- | --- |
+| V9-0 | Not started: runtime discovery | Register actual target profiles; establish version/mode, directory, and routine protocol facts. Static reference evidence is already available. | No live profiles registered. |
+| V9-1 | Not started | Engineering and the minimum connection/query/type/transaction/pool/metadata paths, including relevant failure behavior. | No product projects. |
+| V9-2 | Not started | Complete required functional coverage including the exceptional explicit MySQL backend; resolve and validate applicable conditional features. | None yet. |
+| V9-3 | Not started | Version/deployment and exceptional MySQL-only acceptance, both-protocol pooling/faults/resources, package consumers, and the V9 release gate. | None yet. |
+| V8-1 | Deferred until the V9 gate | Establish V8R6C9B14 profiles and implement verified differences in the shared core. | Static D8-91 evidence only. |
+| V8-2 | Deferred until V8-1 | Cover other agreed V8 targets and regress accepted V9 behavior. | None yet. |
+| EF follow-up | Deferred | A separate provider design, feature matrix, and version-specific implementation. | No EF product projects. |
+
+Do not check a phase complete solely because its work-package list is checked. Apply the design's phase and release gates to the actual feature/profile records.
+
+## 3. Work packages
+
+Work-package checkboxes can be marked complete when the named subset and its exit condition are satisfied. A package that implements only part of a feature must identify that subset in its evidence entry; the full feature remains open in section 4 until all requirements pass. Dependencies below define development order, not additional scope or already implemented behavior.
+
+- [ ] **DP01 - Engineering and package structure** (V9-1; G01, G02). Create the pinned SDK/solution/shared props/core and test projects. Validate builds for every product TFM. Add DI when its lifetime contract is ready. Evidence: none.
+- [ ] **DP02 - Server profiles and bootstrap discovery** (V9-0; C03-C05, G08). Register authorized profiles and confirm raw/product version, mode, catalog, and routine output facts. Establish isolated official comparison entry points. Can proceed alongside DP01 when environments exist. Evidence: none.
+- [ ] **DP03 - Connection, configuration, and authentication foundation** (V9-1; C01-C02, C06-C10, C16, C18-C20, G06, G11). After DP01, implement timed transport, TLS, authentication, configuration, credential sources, session startup/state, verified lexical/codec settings, and redacted diagnostics; use DP02 evidence for identity-dependent behavior. Evidence: none.
+- [ ] **DP04 - Protocol state and failure handling** (V9-1; Q01, Q05, Q17-Q18, P06, G07). After transport and framing, establish session ownership, query state, error handling, bounded PG cancellation-channel closure, synchronization, and uncertain outcomes with deterministic fault cases. Evidence: none.
+- [ ] **DP05 - Type system and basic codecs** (V9-1; T01-T03, T05, T07-T10, T28, T30). After bootstrap/catalog contracts, implement type lookup and the basic input/result paths, exact conversion, typed getters, NULL handling, and bounds. Later mode-specific coverage for these features remains part of DP08. Evidence: none.
+- [ ] **DP06 - Commands, parameters, and Reader foundation** (V9-1/2; Q02-Q04, Q06, Q15-Q16, M01, M06). After DP04/DP05, deliver named/positional parameter planning, streaming/multiple results, Reader behavior, and foundational metadata. Evidence: none.
+- [ ] **DP07 - Pooling and session cleanup** (V9-1/2/3; P01-P03). After DP04/DP06, implement the built-in shared pool manager: private/direct pool identity, bounded leases/waiters, PG reset, generations, clear/expiry/dispose, credential rotation and unused-registry reclamation, transaction-reservation ownership, and resource/cancellation races. Complete transaction-affine reacquisition with DP10; MySQL reset and cross-backend acceptance remain DP22; P01-P03 stay open until applicable coverage passes. Evidence: none.
+- [ ] **DP08 - Complete type and mapping coverage** (V9-2; T01-T32). Extend DP05 with remaining mode-specific numeric/time types, provider values, complex types, explicit mapping, unknown types/reload, and applicable array/COPY/output paths. Require independent input/result/output evidence where applicable. Evidence: none.
+- [ ] **DP09 - Routines, output parameters, and cursors** (V9-0/2; Q10-Q14, Q19, M05). Use DP02/DP05/DP06 and routine metadata to resolve overloads, generate calls, publish outputs atomically, own cursor resources, and derive parameters. Evidence: none.
+- [ ] **DP10 - Transactions** (V9-1/2/3; X01-X05). Build local state and savepoints on DP04/DP06; then evaluate explicit/automatic enlistment, same-transaction pending-session reuse with DP07 (including sequential opens at pool size 1), completion races, promotion, backend-specific 2PC, and recovery with their own environment evidence. Evidence: none.
+- [ ] **DP11 - Prepared statements and batch APIs** (V9-2; Q07-Q09). After parameter/execution and pool contracts, implement statement identity, physical-session ownership, cache limits/eviction, invalidation, and sequential batch partial-success reporting. Evidence: none.
+- [ ] **DP12 - COPY, LOB, and notification APIs** (V9-2/3; B01-B06). Use established codecs, transactions, and session ownership; implement completion/cancellation/cleanup and Wait/event semantics for applicable profiles. Evidence: none.
+- [ ] **DP13 - Schema and EF foundation** (V9-2/3; M01-M10). Complete catalog collections, restrictions, keys/constraints/indexes, generated/default metadata, routines/UDTs, Reader metadata, DataAdapter/CommandBuilder, and stable result/error contracts. Depends on the relevant DP05/DP06/DP09/DP10 paths. Evidence: none.
+- [ ] **DP14 - Failover and liveness** (V9-3; P04-P05, C15). After initialization and pooling are reliable, validate new-connection endpoint selection, role facts, heterogeneous nodes, and separate SQL/TCP keepalive behavior. Evidence: none.
+- [ ] **DP15 - Conditional authentication and transports** (V9-3; C11-C14, C17). Evaluate and implement applicable national-cryptography algorithms/TLS, integrated/client-certificate authentication, Unix sockets, and password-file behavior. Record each algorithm/platform decision separately. Evidence: none.
+- [ ] **DP16 - Platform/package acceptance and V9 release** (V9-3; G01-G09, G11, all applicable R/C features). Run actual asset consumers, diagnostics/redaction, fault/resource coverage, and the target version/deployment/mode tests. Require DP20-DP22 native-endpoint and both-protocol pool results; check the design section 11.2 gate and resolve all conditional decisions. Evidence: none.
+- [ ] **DP17 - V8R6C9B14 extension** (V8-1; V01-V02). After the V9 gate, register actual V8 modes and validate the same functional paths using only verified differences. Evidence: none.
+- [ ] **DP18 - Additional V8 and V9 regression** (V8-2; V03-V04). After DP17, add agreed V8 builds and rerun the accepted V9 profiles. Evidence: none.
+- [ ] **DP19 - Explicit follow-up proposals** (later scope; B07-B08, P07, G10, E01-E03). CDC, COPY convenience APIs, query multiplexing, trimming/AOT, and independent EF providers remain separate proposals. This package is outside the initial V9 gate. Evidence: none.
+
+- [ ] **DP20 - Exceptional MySQL transport and session backend** (V9-2; C20-C21, C03-C07, C16, C18-C19, Q20 bootstrap subset). After DP01/DP03 foundations, implement explicit protocol/port validation, packets/capabilities, TLS/plugin authentication, and bounded COM_QUERY/text-result decoding for native Kingbase bootstrap using DP02/U07 evidence. This subset does not require DP21's complete typed command/result implementation. PG remains the normal default; do not copy its handshake messages. Evidence: none.
+- [ ] **DP21 - MySQL execution, types, and ADO.NET surfaces** (V9-2; Q20, T33, Q02-Q11, Q15-Q19, X01-X03, M01-M10 and applicable T features). After DP20 and shared command/type contracts, implement prepared binding with session-aware lexical plans, text/binary/streaming results and applicable ENUM/SET, transaction/status/error semantics, native catalogs/schema/routines, and capability rejections for PG-only APIs. Verify supported subsets rather than assuming PG feature parity. Evidence: none.
+- [ ] **DP22 - Both-protocol pool and exceptional endpoint acceptance** (V9-3; P01-P03, P06, C16, Q05, Q18, X04 where applicable, G06-G08; A16-A17). After DP07/DP20/DP21, validate per-backend reset or retirement, bounded cancellation, two-borrower state isolation, stress/clear/disposal/credential and registry-reclamation races, same-transaction reacquisition/completion on X04 profiles, and a MySQL-only endpoint with PG unavailable. Resolve U07 facts; retain profile-specific applicability and physical-reuse evidence. Evidence: none.
+
+Work-package IDs are stable, not execution order. There are 22 packages; DP20-DP22 are dependencies of the V9 release package DP16. Shared features retain one canonical ledger row even when multiple packages implement different subsets.
+
+## 4. Feature ledger
+
+Each matrix feature has exactly one row below. The matrix owns names, scope, and acceptance requirements; keep IDs synchronized when it changes. `[ ]` is open and `[x]` means **Complete** under development guide section 6. Use Not started, In progress, Implemented, Blocked, Complete, Deferred, or Not applicable for Status. Record an accepted profile/subset and evidence before checking a row.
+
+SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit reason. A LIVE pass must name profiles in the evidence entry. N/A is not available merely because a server or test is missing. Deferred rows remain unchecked.
+
+### Connections, identification, authentication, and transport
+
+| Done | ID | Feature | Status | SIM | LIVE | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| [ ] | C01 | ConnectionStringBuilder / factory | Not started | Not run | Not run | - |
+| [ ] | C02 | TCP, DNS, synchronous/asynchronous Open | Not started | Not run | Not run | - |
+| [ ] | C03 | Full product version detection | Not started | Not run | Not run | - |
+| [ ] | C04 | Automatic detection / explicit CompatibilityMode | Not started | Not run | Not run | - |
+| [ ] | C05 | Full-mode / standalone edition compatibility | Not started | Not run | Not run | - |
+| [ ] | C06 | Session encoding / parameter status | Not started | Not run | Not run | - |
+| [ ] | C07 | TLS, CA, hostname validation | Not started | Not run | Not run | - |
+| [ ] | C08 | Password / MD5 authentication | Not started | Not run | Not run | - |
+| [ ] | C09 | SCRAM-SHA-256 | Not started | Not run | Not run | - |
+| [ ] | C10 | Separate SM3 authentication | Not started | Not run | Not run | - |
+| [ ] | C11 | SCRAM-SM3 / SM4 | Not started | Not run | Not run | - |
+| [ ] | C12 | Chinese cryptographic-standard TLS | Not started | Not run | Not run | - |
+| [ ] | C13 | GSS/SSPI, client certificates | Not started | Not run | Not run | - |
+| [ ] | C14 | Unix domain socket | Not started | Not run | Not run | - |
+| [ ] | C15 | Keepalive / broken-connection detection | Not started | Not run | Not run | - |
+| [ ] | C16 | Credential sources and rotation | Not started | Not run | Not run | - |
+| [ ] | C17 | Passfile / environment variables | Not started | Not run | Not run | - |
+| [ ] | C18 | Startup / session configuration | Not started | Not run | Not run | - |
+| [ ] | C19 | Connection state / ChangeDatabase | Not started | Not run | Not run | - |
+| [ ] | C20 | Wire protocol selection / endpoint contract | Not started | Not run | Not run | - |
+| [ ] | C21 | MySQL handshake / TLS / authentication | Not started | Not run | Not run | - |
+
+### Commands, parameters, Reader, and routines
+
+| Done | ID | Feature | Status | SIM | LIVE | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| [ ] | Q01 | Simple / Extended Query | Not started | Not run | Not run | - |
+| [ ] | Q02 | Nonquery / scalar / reader | Not started | Not run | Not run | - |
+| [ ] | Q03 | Named and positional parameters | Not started | Not run | Not run | - |
+| [ ] | Q04 | Parameter types, precision/scale, typed NULL | Not started | Not run | Not run | - |
+| [ ] | Q05 | Synchronous/asynchronous execution, cancellation, and timeouts | Not started | Not run | Not run | - |
+| [ ] | Q06 | Multiple results and statements | Not started | Not run | Not run | - |
+| [ ] | Q07 | Explicit Prepare / Unprepare | Not started | Not run | Not run | - |
+| [ ] | Q08 | Automatic preparation | Not started | Not run | Not run | - |
+| [ ] | Q09 | Sequential batch / DbBatch | Not started | Not run | Not run | - |
+| [ ] | Q10 | Function/procedure resolution and overloads | Not started | Not run | Not run | - |
+| [ ] | Q11 | Input/Output/InputOutput/ReturnValue | Not started | Not run | Not run | - |
+| [ ] | Q12 | Oracle package routines | Not started | Not run | Not run | - |
+| [ ] | Q13 | refcursor / multiple cursors | Not started | Not run | Not run | - |
+| [ ] | Q14 | SQL Server routine outputs / return codes | Not started | Not run | Not run | - |
+| [ ] | Q15 | SequentialAccess / Stream / TextReader | Not started | Not run | Not run | - |
+| [ ] | Q16 | CommandBehavior / reader contract | Not started | Not run | Not run | - |
+| [ ] | Q17 | SQLSTATE / Notice / deterministic exceptions | Not started | Not run | Not run | - |
+| [ ] | Q18 | Synchronization after Cancel / damaged connection handling | Not started | Not run | Not run | - |
+| [ ] | Q19 | DeriveParameters | Not started | Not run | Not run | - |
+| [ ] | Q20 | MySQL commands / prepared execution / results | Not started | Not run | Not run | - |
+
+### Transactions
+
+| Done | ID | Feature | Status | SIM | LIVE | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| [ ] | X01 | Local Begin/Commit/Rollback | Not started | Not run | Not run | - |
+| [ ] | X02 | Isolation levels and read-only semantics | Not started | Not run | Not run | - |
+| [ ] | X03 | Savepoint / RollbackTo / Release | Not started | Not run | Not run | - |
+| [ ] | X04 | Single-resource TransactionScope | Not started | Not run | Not run | - |
+| [ ] | X05 | Distributed / two-phase transactions | Not started | Not run | Not run | - |
+
+### Types and mapping
+
+| Done | ID | Feature | Status | SIM | LIVE | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| [ ] | T01 | Type catalog / OID resolution | Not started | Not run | Not run | - |
+| [ ] | T02 | bool / BIT / bit strings | Not started | Not run | Not run | - |
+| [ ] | T03 | Signed integers | Not started | Not run | Not run | - |
+| [ ] | T04 | Unsigned integers | Not started | Not run | Not run | - |
+| [ ] | T05 | NUMERIC/NUMBER/DECIMAL | Not started | Not run | Not run | - |
+| [ ] | T06 | SQL Server NUMERIC/MONEY | Not started | Not run | Not run | - |
+| [ ] | T07 | float/double / special values | Not started | Not run | Not run | - |
+| [ ] | T08 | char/varchar/text/nchar/nvarchar | Not started | Not run | Not run | - |
+| [ ] | T09 | bytea/binary/varbinary/RAW | Not started | Not run | Not run | - |
+| [ ] | T10 | PG DATE/TIME/TIMESTAMP/TZ | Not started | Not run | Not run | - |
+| [ ] | T11 | Oracle DATE | Not started | Not run | Not run | - |
+| [ ] | T12 | SQL Server DATETIME/DATETIME2 | Not started | Not run | Not run | - |
+| [ ] | T13 | MySQL DATE/DATETIME/TIMESTAMP | Not started | Not run | Not run | - |
+| [ ] | T14 | MySQL TIME | Not started | Not run | Not run | - |
+| [ ] | T15 | INTERVAL / YM / DS | Not started | Not run | Not run | - |
+| [ ] | T16 | YEAR | Not started | Not run | Not run | - |
+| [ ] | T17 | int16 / wide integers | Not started | Not run | Not run | - |
+| [ ] | T18 | UUID | Not started | Not run | Not run | - |
+| [ ] | T19 | JSON / JSONB | Not started | Not run | Not run | - |
+| [ ] | T20 | XML | Not started | Not run | Not run | - |
+| [ ] | T21 | Arrays | Not started | Not run | Not run | - |
+| [ ] | T22 | range | Not started | Not run | Not run | - |
+| [ ] | T23 | enum / domain / MySQL SET | Not started | Not run | Not run | - |
+| [ ] | T24 | composite / record | Not started | Not run | Not run | - |
+| [ ] | T25 | Network addresses | Not started | Not run | Not run | - |
+| [ ] | T26 | Geometry / full-text search / hstore and others | Not started | Not run | Not run | - |
+| [ ] | T27 | Unknown types and catalog reload | Not started | Not run | Not run | - |
+| [ ] | T28 | GetFieldValue / typed getters | Not started | Not run | Not run | - |
+| [ ] | T29 | PG MONEY | Not started | Not run | Not run | - |
+| [ ] | T30 | Catalog / identifier types | Not started | Not run | Not run | - |
+| [ ] | T31 | SQL Server SMALLDATETIME/DATETIMEOFFSET/TIME | Not started | Not run | Not run | - |
+| [ ] | T32 | Custom mappings / name translation | Not started | Not run | Not run | - |
+| [ ] | T33 | MySQL wire types / Kingbase catalog identity | Not started | Not run | Not run | - |
+
+### COPY, large objects, and notifications
+
+| Done | ID | Feature | Status | SIM | LIVE | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| [ ] | B01 | Text COPY import/export | Not started | Not run | Not run | - |
+| [ ] | B02 | Binary COPY import/export | Not started | Not run | Not run | - |
+| [ ] | B03 | Raw COPY stream | Not started | Not run | Not run | - |
+| [ ] | B04 | LargeObjectManager / OID LOB | Not started | Not run | Not run | - |
+| [ ] | B05 | BLOB/CLOB/NCLOB binding | Not started | Not run | Not run | - |
+| [ ] | B06 | LISTEN/NOTIFY / Wait | Not started | Not run | Not run | - |
+| [ ] | B07 | Logical replication / CDC API | Deferred | Not run | Not run | - |
+| [ ] | B08 | DataTable/DataSet COPY convenience API | Deferred | Not run | Not run | - |
+
+### Pooling, high availability, and resources
+
+| Done | ID | Feature | Status | SIM | LIVE | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| [ ] | P01 | Pool identity / capacity / waiting | Not started | Not run | Not run | - |
+| [ ] | P02 | Session reset and dirty-connection disposal | Not started | Not run | Not run | - |
+| [ ] | P03 | Lifetime / pool clearing / generations | Not started | Not run | Not run | - |
+| [ ] | P04 | Multiple hosts / failover | Not started | Not run | Not run | - |
+| [ ] | P05 | Primary/read-only targets and selection policy | Not started | Not run | Not run | - |
+| [ ] | P06 | One active operation per connection | Not started | Not run | Not run | - |
+| [ ] | P07 | Modern query multiplexing | Deferred | Not run | Not run | - |
+
+### Schema and EF foundation contracts
+
+| Done | ID | Feature | Status | SIM | LIVE | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| [ ] | M01 | Standard GetSchema collections | Not started | Not run | Not run | - |
+| [ ] | M02 | Tables/Views/Schemas/Columns | Not started | Not run | Not run | - |
+| [ ] | M03 | PK/FK/Indexes/IndexColumns | Not started | Not run | Not run | - |
+| [ ] | M04 | Sequences/identity/generated | Not started | Not run | Not run | - |
+| [ ] | M05 | Procedures/Functions/Parameters/UDT | Not started | Not run | Not run | - |
+| [ ] | M06 | GetColumnSchema/GetSchemaTable | Not started | Not run | Not run | - |
+| [ ] | M07 | Restrictions / quoting / permissions | Not started | Not run | Not run | - |
+| [ ] | M08 | DataAdapter/CommandBuilder | Not started | Not run | Not run | - |
+| [ ] | M09 | Result and error contracts required by EF | Not started | Not run | Not run | - |
+| [ ] | M10 | Databases/Users/Constraints and collection aliases | Not started | Not run | Not run | - |
+
+### EF follow-up
+
+| Done | ID | Feature | Status | SIM | LIVE | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| [ ] | E01 | Separate EF Core 8/9/10 providers | Deferred | Not run | Not run | - |
+| [ ] | E02 | Offline dialect profiles / model caching | Deferred | Not run | Not run | - |
+| [ ] | E03 | LINQ/updates/migrations/reverse engineering | Deferred | Not run | Not run | - |
+
+### Engineering, platforms, diagnostics, and release
+
+| Done | ID | Feature | Status | SIM | LIVE | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| [ ] | G01 | slnx / CPM / unified versions | Not started | Not run | Not run | - |
+| [ ] | G02 | Single core package / optional DI package | Not started | Not run | Not run | - |
+| [ ] | G03 | Package consumption across TFMs | Not started | Not run | Not run | - |
+| [ ] | G04 | Windows/Linux x64 | Not started | Not run | Not run | - |
+| [ ] | G05 | ARM64 / Framework hosts | Not started | Not run | Not run | - |
+| [ ] | G06 | Logging / Activity / Meter | Not started | Not run | Not run | - |
+| [ ] | G07 | Security / failure / resource stress | Not started | Not run | Not run | - |
+| [ ] | G08 | Differential / live test framework | Not started | Not run | Not run | - |
+| [ ] | G09 | NuGet / provenance / licensing / compatibility notes | Not started | Not run | Not run | - |
+| [ ] | G10 | Trimming / NativeAOT | Deferred | Not run | Not run | - |
+| [ ] | G11 | Configuration and default-value contract | Not started | Not run | Not run | - |
+
+### V8 extension
+
+| Done | ID | Feature | Status | SIM | LIVE | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| [ ] | V01 | V8R6C9B14 identity / mode / catalog | Deferred | Not run | Not run | - |
+| [ ] | V02 | All V8 type / authentication / routine paths | Deferred | Not run | Not run | - |
+| [ ] | V03 | Earlier V8 subversions | Deferred | Not run | Not run | - |
+| [ ] | V04 | V9 regression after V8 extension | Deferred | Not run | Not run | - |
+
+## 5. Profiles and unresolved dependencies
+
+No live profile is registered. Candidate profile IDs in the matrix describe targets, not actual accepted environments. Register the complete matrix section 3.2 identity before adding any LIVE pass:
+
+| profileId / parentCandidate | Product/startup versions and query source | Protocol/endpoint/mode policy/source/settings | Auth/TLS/reset/cancel/topology/platform | Driver artifact | Acceptance/cleanup evidence |
+| --- | --- | --- | --- | --- | --- |
+| None registered | - | - | - | - | No live acceptance. |
+
+The unresolved design items below are dependencies to resolve; they do not mean every independent implementation task is blocked.
+
+| Design item | Current dependency | Affected work | Next action |
+| --- | --- | --- | --- |
+| U01 | No registered authorized real-server profiles. | DP02; server-dependent acceptance across DP03-DP16 and DP20-DP22. | Register available V9 version/deployment/mode/protocol environments without storing credentials. |
+| U02 | Full product version query/grammar and reliable deployment identification remain unconfirmed. | C03-C05, DP02/DP03. | Establish bounded read-only queries and retain the actual returned strings. |
+| U03 | Routine output/return-code formats and any need for protocol extensions remain unconfirmed. | Q10-Q14, DP09. | Compare actual routine result/protocol behavior per mode. |
+| U04 | V8 mode/deployment existence and additional V8 target builds remain unconfirmed. | V01-V03, DP17/DP18. | Register V8R6C9B14 facts during the V8 stage; agree additional builds before expanding scope. |
+| U05 | Conditional cryptography, integrated authentication, transaction affinity/promotion, and backend-specific transaction recovery environments are not registered. | C11-C13, X04-X05, DP10/DP15. | Register the required server/platform/security configuration and establish applicability separately, including PG preparation versus native MySQL XA and recovery. |
+| U06 | Public package name, license, and publication configuration are not finalized. | G09, DP16. | Resolve before public packaging/release and retain dependency/code provenance. |
+| U07 | Native MySQL endpoint bootstrap/authentication/catalog/reset/cancellation facts and an actual MySQL-only profile are not established. | C20-C21, Q20, T33, P01-P03, DP20-DP22. | Register selected protocol/actual endpoint with PG unavailable; verify Kingbase identity, mode provenance, auth/TLS, prepared/text types, reset effects, cancellation/routing, and metadata per native profile. |
+
+## 6. Validation and completion evidence
+
+No product evidence records exist yet. Add an entry when implementation or acceptance starts; link it from the relevant ledger/package rows. This is a development record, not a walkthrough or review report. Keep test artifacts and temporary investigation output outside this document.
+
+Use the following fields for each entry:
+
+| Field | Required content |
+| --- | --- |
+| Feature / work package | Canonical feature IDs, package ID, and exact sub-items covered. |
+| State and date | Current status, completion date when applicable, and the declared acceptance boundary. |
+| Source / artifact | Commit or stable source/artifact identity; implementation and test paths. Use package version/hash when validating a package. |
+| Commands and results | Exact relevant commands, pass/fail/skip outcomes, and test/subcase IDs. |
+| SIM | Executed simulation cases and limitations, or an evidence-based N/A reason. |
+| LIVE | profileId and per-subcase results, or the unresolved requirement/inapplicability reason. |
+| Comparison | Official DLL full hash and independent specification/observations if a comparison informed the result. |
+| Failure/limits | Client defect, confirmed server limit, permissions/configuration, missing environment, or unknown; link defects and explain the evidence. |
+| Resource/cleanup | Connection/transaction/Reader/COPY ownership and test data cleanup results where relevant. |
+| Follow-up | Remaining requirements and blockers; leave the parent unchecked if any applicable requirement remains. |
+
+When a unit is finished, update its row, package, phase, and section 1 counts in the same change. Preserve earlier evidence when reopening a regression or expanding the acceptance set. A passing local test, a matching official result, or a completed documentation task alone must not create a LIVE pass.
