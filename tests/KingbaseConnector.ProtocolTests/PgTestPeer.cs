@@ -46,16 +46,16 @@ internal static class PgTestPeer
         return Encoding.UTF8.GetString(payload[..^1]);
     }
     internal static byte[] StartupError() => Frame('E', Encoding.ASCII.GetBytes("SERROR\0C28000\0Mprivate-auth-error\0\0"));
-    static byte[] Description(int count, uint typeOid = 25, short typeSize = -1) => Frame('T', Join(Count(count), Join(Enumerable.Range(0, count).Select(i =>
+    internal static byte[] Description(int count, uint typeOid = 25, short typeSize = -1) => Frame('T', Join(Count(count), Join(Enumerable.Range(0, count).Select(i =>
         Join(Encoding.UTF8.GetBytes("c" + i + "\0"), new byte[6], Int32(unchecked((int)typeOid)), Count(typeSize), Int32(-1), Count(0))).ToArray())));
-    static byte[] Row(string[] values) => Frame('D', Join(Count(values.Length), Join(values.Select(value =>
+    internal static byte[] Row(string[] values) => Frame('D', Join(Count(values.Length), Join(values.Select(value =>
         Join(Int32(Encoding.UTF8.GetByteCount(value)), Encoding.UTF8.GetBytes(value))).ToArray())));
-    static byte[] Complete() => Frame('C', Encoding.ASCII.GetBytes("SELECT 1\0"));
-    static byte[] Status(string key, string value) => Frame('S', Encoding.UTF8.GetBytes(key + "\0" + value + "\0"));
-    static byte[] Ready() => Frame('Z', [(byte)'I']);
+    internal static byte[] Complete() => Frame('C', Encoding.ASCII.GetBytes("SELECT 1\0"));
+    internal static byte[] Status(string key, string value) => Frame('S', Encoding.UTF8.GetBytes(key + "\0" + value + "\0"));
+    internal static byte[] Ready() => Frame('Z', [(byte)'I']);
     static byte[] Count(int value) => [(byte)(value >> 8), (byte)value];
-    static byte[] Int32(int value) => [(byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value];
+    internal static byte[] Int32(int value) => [(byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value];
     static int ReadInt(byte[] bytes) => (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
-    static byte[] Frame(char code, byte[] payload) => Join([(byte)code], Int32(payload.Length + 4), payload);
+    internal static byte[] Frame(char code, params byte[] payload) => Join([(byte)code], Int32(payload.Length + 4), payload);
     internal static byte[] Join(params byte[][] pieces) => pieces.SelectMany(x => x).ToArray();
 }

@@ -10,7 +10,9 @@ internal sealed class QueryStream(byte[] input) : Stream
     public int FragmentSize { get; init; } = 1;
     public bool BlockAtEnd { get; init; }
     public bool FailWrite { get; init; }
+    public int FailWriteNumber { get; init; }
     public List<byte[]> Writes { get; } = new();
+    public List<byte[]> BorrowedWriteBuffers { get; } = new();
     public TaskCompletionSource ReadBlocked { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public override bool CanRead => true;
     public override bool CanWrite => true;
@@ -37,8 +39,9 @@ internal sealed class QueryStream(byte[] input) : Stream
     }
     public override void Write(byte[] buffer, int offset, int count)
     {
+        BorrowedWriteBuffers.Add(buffer);
         Writes.Add(buffer.Skip(offset).Take(count).ToArray());
-        if (FailWrite) throw new IOException("Test write failure.");
+        if (FailWrite || Writes.Count == FailWriteNumber) throw new IOException("Test write failure.");
     }
     public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
