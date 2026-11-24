@@ -2,7 +2,7 @@
 
 Baseline date: 2026-11-23. Last updated: 2026-11-24. This guide describes how to implement the [unified design](kbconnector-design.md) and [feature matrix](kbconnector-feature-matrix.md). The [progress tracker](kbconnector-development-progress.md) owns current implementation and validation status.
 
-At this baseline, the repository has documentation and local official binaries, but no solution, source projects, test projects, or build pipeline. Commands and paths below describe the intended setup; they become executable after the corresponding projects exist. Completing this documentation does not complete any product feature.
+The initial documentation baseline had no product projects. DP01 now provides the solution, core project, test projects, and local verification entry point described below. The progress tracker records their exact acceptance boundary; engineering completion does not establish working database functionality.
 
 ## 1. Development boundaries
 
@@ -134,7 +134,11 @@ dotnet test tests/KingbaseConnector.ProtocolTests -c Release --no-restore
 dotnet pack src/KingbaseConnector -c Release --no-build -o artifacts/packages
 ```
 
-At the 2026-11-23 baseline, these commands were not run because the projects did not exist. Integration and consumer entry points must be specified by their setup tasks before they are reported as runnable. Ordinary test execution must never connect to a live database without an explicit opt-in. A missing opt-in/profile must be visibly skipped or rejected, rather than counted as a passing live test.
+The executable aggregate entry point is `./eng/verify.ps1` (PowerShell 7). It restores/builds the solution, runs tests, packs, and validates all five explicit package assets using fresh per-run package caches and consumer outputs. SDK 10.0.403 is pinned without roll-forward. Unit/protocol/integration projects use VSTest (`Microsoft.NET.Test.Sdk` 18.0.1, MIT), xUnit 2.9.3 (Apache-2.0), and `xunit.runner.visualstudio` 3.1.5 (Apache-2.0) on net8.0/net9.0/net10.0; these test-only dependencies do not flow into the core package. Licenses were checked in the restored package nuspecs. The core initially has no explicit runtime package dependencies; the netstandard2.0 SDK reference resolves NETStandard.Library 2.0.3 and Microsoft.NETCore.Platforms 1.1.0 as build inputs.
+
+Consumers are intentionally outside the solution: they reference the packed package, not the source project, and require packing first. `eng/verify.ps1` forces each `lib/<asset>/KingbaseConnector.dll` through a NuGet-generated package path, checks its TargetFrameworkAttribute at runtime, and runs Standard assets on .NET 8 and modern assets on their matching .NET 8/9/10 hosts. They currently prove assembly loading only; expand their assertions as public APIs are implemented. Do not interpret this as complete G03 or Framework/Linux/ARM64 acceptance.
+
+Integration entry point: `dotnet test tests/KingbaseConnector.IntegrationTests -c Release`. Without `KINGBASE_TEST_LIVE=1`, the live gate is visibly skipped. With that exact opt-in, it currently fails because no real profile or server acceptance cases are registered; it makes no network connection. Register profiles and replace the gate with real cases before claiming LIVE results. The protocol project has no cases until its first protocol unit is implemented; an empty suite is not a simulation pass. Ordinary test execution must never connect to a live database without explicit opt-in.
 
 Select a test host that can execute each intended runtime. If host/asset coverage is missing, leave the corresponding G03-G05 result pending. Build success alone does not satisfy runtime consumption, TLS, operating-system, or architecture acceptance.
 

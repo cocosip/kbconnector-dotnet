@@ -129,6 +129,8 @@ docs/
 - Execute real consumer tests for the .NET 8/9/10 assets. Validate netstandard2.0/2.1 assets using hosts that explicitly select those assets; automatic NuGet selection of a modern asset does not count as Standard testing.
 - Validate Windows and Linux x64 by default. Add ARM64 as a separate validation item. Fully managed code does not certify untested platforms. Standard2.0 targeting alone does not establish .NET Framework host support.
 
+DP01 engineering selection (2026-11-24): SDK 10.0.403 is pinned with roll-forward disabled; provisional shared package version is 0.1.0-dev. The five-target core has no explicit runtime dependency at this stage. VSTest 18.0.1, xUnit 2.9.3 and its Visual Studio adapter 3.1.5 are test-only. `eng/verify.ps1` is the local restore/build/test/pack/explicit-consumer entry point; the development guide defines host/asset selection and the fail-closed live opt-in. These engineering decisions do not settle U06 licensing/publication or validate server functionality.
+
 ## 5. Architecture and Public Contracts
 
 ```mermaid

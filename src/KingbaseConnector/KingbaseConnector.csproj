@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;netstandard2.1;net8.0;net9.0;net10.0</TargetFrameworks>
+    <IsPackable>true</IsPackable>
+    <PackageId>KingbaseConnector</PackageId>
+    <Description>Independent managed ADO.NET driver for KingbaseES. Development build.</Description>
+    <RepositoryUrl>https://github.com/cocosip/kbconnector-dotnet</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <InternalsVisibleTo Include="KingbaseConnector.UnitTests" />
+    <InternalsVisibleTo Include="KingbaseConnector.ProtocolTests" />
+  </ItemGroup>
+</Project>

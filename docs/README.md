@@ -1,6 +1,6 @@
 # KingbaseConnector Documentation
 
-Baseline date: 2026-11-23. Last updated: 2026-11-24. The repository currently contains design and development documentation and local reference binaries. No product projects or tests have been created. See the progress tracker for subsequent status changes.
+Baseline date: 2026-11-23. Last updated: 2026-11-24. The repository now includes the DP01 engineering foundation: a five-target core, offline/live test entry points, packaging, and explicit package-asset consumers. See the progress tracker for implementation boundaries and validation evidence; no live server is accepted.
 
 | Document | Purpose |
 | --- | --- |

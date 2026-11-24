@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net10.0</TargetFramework>
+    <KingbaseAsset Condition="'$(KingbaseAsset)' == ''">$(TargetFramework)</KingbaseAsset>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="KingbaseConnector" GeneratePathProperty="true" ExcludeAssets="compile;runtime" />
+    <Reference Include="KingbaseConnector">
+      <HintPath>$(PkgKingbaseConnector)/lib/$(KingbaseAsset)/KingbaseConnector.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

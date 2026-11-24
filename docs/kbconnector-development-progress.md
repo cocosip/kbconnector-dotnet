@@ -4,15 +4,15 @@ Last updated: 2026-11-24. This is the single current implementation and acceptan
 
 ## 1. Current snapshot
 
-The documentation baseline is available for development. There are no product projects, implemented product features, executed SIM cases, or accepted live profiles at this date. Proposed API/default decisions and server discovery items remain explicit in the design.
+DP01 engineering is implemented: the SDK/solution/CPM foundation builds all five product assets, offline/live entry points exist, and explicit package consumers run on Windows x64 .NET 8/9/10. No database functionality, protocol simulation, or live profile is accepted yet. Proposed API/default decisions and server discovery items remain explicit in the design.
 
 | Product feature status | Count |
 | --- | ---: |
-| Complete | 0 |
+| Complete | 1 |
 | Implemented, acceptance pending | 0 |
-| In progress | 0 |
+| In progress | 3 |
 | Blocked | 0 |
-| Not started | 111 |
+| Not started | 107 |
 | Deferred: later L scope and subsequent V8 work | 11 |
 | Not applicable | 0 |
 | Total matrix features | 122 |
@@ -32,7 +32,7 @@ Documentation deliverables are tracked separately from product functionality:
 | Phase | Status | Exit requirement | Evidence |
 | --- | --- | --- | --- |
 | V9-0 | Not started: runtime discovery | Register actual target profiles; establish version/mode, directory, and routine protocol facts. Static reference evidence is already available. | No live profiles registered. |
-| V9-1 | Not started | Engineering and the minimum connection/query/type/transaction/pool/metadata paths, including relevant failure behavior. | No product projects. |
+| V9-1 | In progress | Engineering and the minimum connection/query/type/transaction/pool/metadata paths, including relevant failure behavior. | DP01 engineering foundation only; E01. |
 | V9-2 | Not started | Complete required functional coverage including the exceptional explicit MySQL backend; resolve and validate applicable conditional features. | None yet. |
 | V9-3 | Not started | Version/deployment and exceptional MySQL-only acceptance, both-protocol pooling/faults/resources, package consumers, and the V9 release gate. | None yet. |
 | V8-1 | Deferred until the V9 gate | Establish V8R6C9B14 profiles and implement verified differences in the shared core. | Static D8-91 evidence only. |
@@ -45,7 +45,7 @@ Do not check a phase complete solely because its work-package list is checked. A
 
 Work-package checkboxes can be marked complete when the named subset and its exit condition are satisfied. A package that implements only part of a feature must identify that subset in its evidence entry; the full feature remains open in section 4 until all requirements pass. Dependencies below define development order, not additional scope or already implemented behavior.
 
-- [ ] **DP01 - Engineering and package structure** (V9-1; G01, G02). Create the pinned SDK/solution/shared props/core and test projects. Validate builds for every product TFM. Add DI when its lifetime contract is ready. Evidence: none.
+- [x] **DP01 - Engineering and package structure** (V9-1; G01, G02). SDK/solution/shared props/CPM/core and test projects build all five TFMs; offline checks, packaging and explicit asset consumers execute. Optional DI remains with the later DataSource lifetime contract; G02/G03/G08 are partial. Evidence: E01.
 - [ ] **DP02 - Server profiles and bootstrap discovery** (V9-0; C03-C05, G08). Register authorized profiles and confirm raw/product version, mode, catalog, and routine output facts. Establish isolated official comparison entry points. Can proceed alongside DP01 when environments exist. Evidence: none.
 - [ ] **DP03 - Connection, configuration, and authentication foundation** (V9-1; C01-C02, C06-C10, C16, C18-C20, G06, G11). After DP01, implement timed transport, TLS, authentication, configuration, credential sources, session startup/state, verified lexical/codec settings, and redacted diagnostics; use DP02 evidence for identity-dependent behavior. Evidence: none.
 - [ ] **DP04 - Protocol state and failure handling** (V9-1; Q01, Q05, Q17-Q18, P06, G07). After transport and framing, establish session ownership, query state, error handling, bounded PG cancellation-channel closure, synchronization, and uncertain outcomes with deterministic fault cases. Evidence: none.
@@ -228,14 +228,14 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 
 | Done | ID | Feature | Status | SIM | LIVE | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| [ ] | G01 | slnx / CPM / unified versions | Not started | Not run | Not run | - |
-| [ ] | G02 | Single core package / optional DI package | Not started | Not run | Not run | - |
-| [ ] | G03 | Package consumption across TFMs | Not started | Not run | Not run | - |
+| [x] | G01 | slnx / CPM / unified versions | Complete | N/A: engineering | N/A: engineering | E01 |
+| [ ] | G02 | Single core package / optional DI package | In progress | Not run | Not run | E01: core structure only; DataSource/DI pending |
+| [ ] | G03 | Package consumption across TFMs | In progress | Not run | Not run | E01: explicit assembly loading only |
 | [ ] | G04 | Windows/Linux x64 | Not started | Not run | Not run | - |
 | [ ] | G05 | ARM64 / Framework hosts | Not started | Not run | Not run | - |
 | [ ] | G06 | Logging / Activity / Meter | Not started | Not run | Not run | - |
 | [ ] | G07 | Security / failure / resource stress | Not started | Not run | Not run | - |
-| [ ] | G08 | Differential / live test framework | Not started | Not run | Not run | - |
+| [ ] | G08 | Differential / live test framework | In progress | Not run | Not run | E01: offline/live separation and fail-closed opt-in only |
 | [ ] | G09 | NuGet / provenance / licensing / compatibility notes | Not started | Not run | Not run | - |
 | [ ] | G10 | Trimming / NativeAOT | Deferred | Not run | Not run | - |
 | [ ] | G11 | Configuration and default-value contract | Not started | Not run | Not run | - |
@@ -271,7 +271,7 @@ The unresolved design items below are dependencies to resolve; they do not mean 
 
 ## 6. Validation and completion evidence
 
-No product evidence records exist yet. Add an entry when implementation or acceptance starts; link it from the relevant ledger/package rows. This is a development record, not a walkthrough or review report. Keep test artifacts and temporary investigation output outside this document.
+This section records implementation and acceptance evidence linked from the ledger/package rows. Keep test artifacts and temporary investigation output outside this document.
 
 Use the following fields for each entry:
 
@@ -289,3 +289,13 @@ Use the following fields for each entry:
 | Follow-up | Remaining requirements and blockers; leave the parent unchecked if any applicable requirement remains. |
 
 When a unit is finished, update its row, package, phase, and section 1 counts in the same change. Preserve earlier evidence when reopening a regression or expanding the acceptance set. A passing local test, a matching official result, or a completed documentation task alone must not create a LIVE pass.
+
+### E01 - DP01 engineering foundation (2026-11-24)
+
+- Scope/state: G01 Complete; G02 single-core project subset, G03 asset-loading subset and G08 offline/live-gate subset In progress. DI lifetime, functional package APIs, differential comparison and server acceptance remain open.
+- Source/artifact: `global.json`, shared props, `KingbaseConnector.slnx`, `src/KingbaseConnector`, `tests/*`, `eng/verify.ps1`. Validated local package `KingbaseConnector.0.1.0-dev.nupkg`, SHA-256 `9C190B16AA3C14FE7E04F5EF44FB46E4DD4A4F1DAED8C15D1298BC97F4FBD468`; name/version are provisional under U06 and are not published.
+- Commands/results: `./eng/verify.ps1` restores/builds all five TFMs with zero warnings/errors, runs 2 engineering tests on each of net8.0/net9.0/net10.0 (6 passed), visibly skips the live gate once on each host (3 skipped), packs, and loads all five explicitly selected assets. The empty protocol suite has no SIM result. SDK 10.0.403; Windows x64 runtimes 8.0.33/9.0.22/10.0.14; Standard assets run on .NET 8.
+- Reproduction/negative gate: the same entry point passed from `artifacts/clean-checkout`, a snapshot containing only tracked/non-ignored source files with no pre-existing build outputs or official binaries. In a child PowerShell process, `$env:KINGBASE_TEST_LIVE='1'; dotnet test tests/KingbaseConnector.IntegrationTests -c Release -f net10.0 --no-build --no-restore` failed as intended with the unregistered-profile diagnostic (1 failed, no network activity); the variable was confined to that process. This is a gate check, not a failed database acceptance case.
+- SIM/LIVE: N/A for G01 because it is exclusively build/structure work. No simulated or live database acceptance is claimed for any other feature; no profile is registered.
+- Dependencies/provenance: no explicit runtime dependency or official DLL/EF/external database-driver reference in the core. Test-only licenses checked in restored nuspecs: Microsoft.NET.Test.Sdk 18.0.1 (MIT), xunit 2.9.3 and xunit.runner.visualstudio 3.1.5 (Apache-2.0). Exact versions and initial implicit Standard build graph are documented in the development guide. Implementation is independent.
+- Resource/limits/follow-up: fresh consumer cache/output per run prevents stale provisional packages from passing. No database resources are opened. Linux, ARM64, Framework hosts, connection functionality, DI, license/publication and functional package-consumer contracts remain pending.

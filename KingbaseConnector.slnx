@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/KingbaseConnector/KingbaseConnector.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/KingbaseConnector.UnitTests/KingbaseConnector.UnitTests.csproj" />
+    <Project Path="tests/KingbaseConnector.ProtocolTests/KingbaseConnector.ProtocolTests.csproj" />
+    <Project Path="tests/KingbaseConnector.IntegrationTests/KingbaseConnector.IntegrationTests.csproj" />
+  </Folder>
+</Solution>
