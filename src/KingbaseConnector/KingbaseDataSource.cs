@@ -1,8 +1,9 @@
 using System.Data.Common;
+using KingbaseConnector.Protocol;
 
 namespace KingbaseConnector;
 
-/// <summary>Owns immutable connection configuration and the lifetime of future unpooled opens.</summary>
+/// <summary>Owns immutable connection configuration and a private pool when pooling is enabled.</summary>
 #if NET8_0_OR_GREATER
 public sealed class KingbaseDataSource : DbDataSource
 #elif NETSTANDARD2_0
@@ -16,11 +17,15 @@ public sealed class KingbaseDataSource : IDisposable, IAsyncDisposable
     readonly string _redacted;
     readonly CancellationTokenSource _closing = new();
     bool _disposed;
+    internal PgSessionPool? Pool { get; }
+    public void ClearPool() { EnsureAvailable(); Pool?.Clear(); }
 
     internal KingbaseDataSource(string configuration)
     {
         _configuration = configuration;
-        _redacted = new KingbaseConnectionStringBuilder(configuration).GetRedactedConnectionString();
+        var settings = new KingbaseConnectionStringBuilder(configuration);
+        _redacted = settings.GetRedactedConnectionString();
+        if (settings.Pooling) Pool = PgPoolRegistry.CreatePrivate(settings);
     }
 #if NET8_0_OR_GREATER
     public override string ConnectionString => _redacted;
@@ -89,6 +94,7 @@ public sealed class KingbaseDataSource : IDisposable, IAsyncDisposable
         }
         // Opening registrations may still unwind; keep their managed cancellation source alive.
         try { _closing.Cancel(); } catch (AggregateException) { }
+        Pool?.Dispose();
     }
 
 #if NET8_0_OR_GREATER

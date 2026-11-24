@@ -2,7 +2,7 @@ using KingbaseConnector.Protocol;
 
 namespace KingbaseConnector;
 
-/// <summary>Builds an immutable configuration owner for unpooled PG connections.</summary>
+/// <summary>Builds an immutable configuration owner for PG connections.</summary>
 public sealed class KingbaseDataSourceBuilder
 {
     public KingbaseDataSourceBuilder(string connectionString = "") => ConnectionStringBuilder = new(connectionString);
@@ -18,7 +18,6 @@ public sealed class KingbaseDataSourceBuilder
     internal static void ValidateExecutionSettings(KingbaseConnectionStringBuilder settings)
     {
         settings.Validate();
-        if (settings.Pooling) throw new NotSupportedException("This execution slice requires Pooling=false; built-in pooling is not yet implemented.");
         if (settings.WireProtocol != KingbaseWireProtocol.PostgreSql)
             throw new NotSupportedException("The public execution slice requires PostgreSql wire protocol.");
         if (settings.CompatibilityMode is not KingbaseCompatibilityMode.Auto and not KingbaseCompatibilityMode.PostgreSql)

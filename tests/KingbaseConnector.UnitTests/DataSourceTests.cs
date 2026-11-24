@@ -33,13 +33,20 @@ public sealed class DataSourceTests
 
     [Theory]
     [InlineData("")]
-    [InlineData("Host=localhost;Username=u;Database=d")]
     [InlineData("Host=localhost;Username=u;Database=d;Pooling=false;Compatibility Mode=Oracle")]
     [InlineData("Host=localhost;Username=u;Database=d;Pooling=false;Wire Protocol=MySql;Port=3307;Compatibility Mode=MySql")]
     public void BuildRejectsInvalidOrUnimplementedExecutionSettings(string settings)
     {
         if (settings.Length == 0) Assert.ThrowsAny<ArgumentException>(() => new KingbaseDataSourceBuilder(settings).Build());
         else Assert.Throws<NotSupportedException>(() => new KingbaseDataSourceBuilder(settings).Build());
+    }
+
+    [Fact]
+    public void BuildAcceptsDefaultPoolingWithoutOpeningAnyConnections()
+    {
+        using var source = new KingbaseDataSourceBuilder("Host=localhost;Username=u;Database=d").Build();
+        using var connection = source.CreateConnection();
+        Assert.Equal(ConnectionState.Closed, connection.State); source.ClearPool();
     }
 
     [Theory]

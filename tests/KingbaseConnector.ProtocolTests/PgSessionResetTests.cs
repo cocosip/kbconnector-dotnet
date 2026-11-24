@@ -19,25 +19,25 @@ public sealed class PgSessionResetTests
         "sys_catalog.set_config('application_name',$3,false),sys_catalog.set_config('search_path',$4,false),sys_catalog.set_config('TimeZone',$5,false)," +
         "sys_catalog.set_config('default_transaction_isolation',$6,false),sys_catalog.set_config('default_transaction_read_only',$7,false)," +
         "sys_catalog.set_config('default_transaction_deferrable',$8,false),sys_catalog.set_config('DateStyle',$9,false),sys_catalog.set_config('IntervalStyle',$10,false)";
-    static string[] Baseline() => ["db", "user", "user", "pg", "UTF8", "on", "app';--\\中文", "\"Odd Schema\", public", "Asia/Shanghai",
+    internal static string[] Baseline() => ["db", "user", "user", "pg", "UTF8", "on", "app';--\\中文", "\"Odd Schema\", public", "Asia/Shanghai",
         "read committed", "off", "off", "ISO, MDY", "postgres", "read committed", "off"];
-    static byte[] State(string[]? values = null, char status = 'I') => Join(Description(16), Row(values ?? Baseline()), Complete(), Frame('Z', [(byte)status]));
-    static byte[] Control(string tag, char status = 'I') => Join(Frame('C', Encoding.ASCII.GetBytes(tag + "\0")), Frame('Z', [(byte)status]));
+    internal static byte[] State(string[]? values = null, char status = 'I') => Join(Description(16), Row(values ?? Baseline()), Complete(), Frame('Z', [(byte)status]));
+    internal static byte[] Control(string tag, char status = 'I') => Join(Frame('C', Encoding.ASCII.GetBytes(tag + "\0")), Frame('Z', [(byte)status]));
     static byte[] Error(char status = 'I') => Join(Frame('E', Encoding.ASCII.GetBytes("SERROR\0C42501\0Mprivate-reset-error\0\0")), Frame('Z', [(byte)status]));
     static byte[] FreshCatalog(uint start = 12000) => Catalog(new[] { ("bool", (short)1), ("int2", (short)2), ("int4", (short)4),
         ("int8", (short)8), ("text", (short)-1), ("bytea", (short)-1) }.Select((t, i) => new PgTypeDescription(start + (uint)i, 90, t.Item1, t.Item2, 'b', 'U', 0, 0, 0, -1)));
-    static KingbaseConnectionStringBuilder PoolSettings(TcpListener listener)
+    internal static KingbaseConnectionStringBuilder PoolSettings(TcpListener listener)
     {
         var settings = Settings(listener); settings.Pooling = true; settings.ApplicationName = Baseline()[6];
         settings.SearchPath = Baseline()[7]; settings.Timezone = Baseline()[8];
         return settings;
     }
-    static async Task Capture(NetworkStream stream, CancellationToken token, byte[]? response = null)
+    internal static async Task Capture(NetworkStream stream, CancellationToken token, byte[]? response = null)
     {
         Assert.Equal(StateSql, await ReadQueryAsync(stream, token));
         await stream.WriteAsync(response ?? State(), token);
     }
-    static async Task Restore(NetworkStream stream, uint textOid, CancellationToken token, byte[]? response = null)
+    internal static async Task Restore(NetworkStream stream, uint textOid, CancellationToken token, byte[]? response = null)
     {
         await ReadRestore(stream, textOid, token);
         await stream.WriteAsync(response ?? Join(Frame('1'), Frame('2'), Description(10), Row(Baseline()[4..14]), Complete(), Ready()), token);
@@ -49,12 +49,12 @@ public sealed class PgSessionResetTests
         var values = (baseline ?? Baseline())[4..14];
         Assert.Equal(Frame('B', Join([0, 0, 0, 0, 0, 10], Join(values.Select(v => Join(Int32(Encoding.UTF8.GetByteCount(v)), Encoding.UTF8.GetBytes(v))).ToArray()), [0, 0])), frames[1]);
     }
-    static async Task RefreshCatalog(NetworkStream stream, CancellationToken token, uint start = 12000)
+    internal static async Task RefreshCatalog(NetworkStream stream, CancellationToken token, uint start = 12000)
     {
         Assert.Contains("FROM sys_catalog.sys_type", await ReadQueryAsync(stream, token));
         await stream.WriteAsync(FreshCatalog(start), token);
     }
-    static async Task Identity(NetworkStream stream, CancellationToken token, string product = Product)
+    internal static async Task Identity(NetworkStream stream, CancellationToken token, string product = Product)
     {
         Assert.Equal("SELECT sys_catalog.version();", await ReadQueryAsync(stream, token));
         await stream.WriteAsync(Scalar(product), token);

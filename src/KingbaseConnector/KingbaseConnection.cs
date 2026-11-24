@@ -5,13 +5,15 @@ using KingbaseConnector.Protocol;
 using System.Diagnostics.CodeAnalysis;
 #endif
 namespace KingbaseConnector;
-/// <summary>Owns one unpooled PG session and its active command or buffered Reader.</summary>
+/// <summary>Owns one PG physical lease and its active command or buffered Reader.</summary>
 public sealed class KingbaseConnection : DbConnection
 {
     readonly object _sync = new();
     readonly KingbaseDataSource? _owner;
     KingbaseConnectionStringBuilder _settings = new();
     PgPhysicalSession? _session;
+    PgSessionPool.Lease? _lease;
+    TaskCompletionSource<object?>? _closing;
     CancellationTokenSource? _opening;
     KingbaseCommand? _command;
     CancellationTokenSource? _operationCancel;
@@ -23,6 +25,20 @@ public sealed class KingbaseConnection : DbConnection
     bool _opened;
     public KingbaseConnection() { }
     public KingbaseConnection(string connectionString) => ConnectionString = connectionString;
+    public static void ClearPool(KingbaseConnection connection)
+    {
+        if (connection is null) throw new ArgumentNullException(nameof(connection));
+        PgSessionPool? pool;
+        KingbaseConnectionStringBuilder settings;
+        lock (connection._sync)
+        {
+            if (!connection._settings.Pooling) return;
+            pool = connection._lease?.Pool ?? connection._owner?.Pool;
+            settings = new KingbaseConnectionStringBuilder(connection._settings.ConnectionString);
+        }
+        if (pool is not null) pool.Clear(); else PgPoolRegistry.Clear(settings);
+    }
+    public static void ClearAllPools() => PgPoolRegistry.ClearAll();
     internal KingbaseConnection(string connectionString, KingbaseDataSource owner)
     {
         _settings = new KingbaseConnectionStringBuilder(connectionString);
@@ -60,22 +76,31 @@ public sealed class KingbaseConnection : DbConnection
         cancellationToken.ThrowIfCancellationRequested();
         using var opening = _owner?.CreateOpening(cancellationToken) ?? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         string connectionString;
+        KingbaseConnectionStringBuilder snapshot;
         lock (_sync)
         {
             ThrowIfDisposed();
+            if (_closing is not null) throw new InvalidOperationException("Kingbase connection cleanup is still active.");
             if (_state != ConnectionState.Closed) throw new InvalidOperationException("The Kingbase connection is not closed.");
             KingbaseDataSourceBuilder.ValidateExecutionSettings(_settings);
             if (System.Transactions.Transaction.Current is not null) throw new NotSupportedException("Automatic system transaction enlistment is not yet implemented.");
             connectionString = _settings.ConnectionString;
+            snapshot = new KingbaseConnectionStringBuilder(connectionString);
             _opening = opening;
             _generation++;
             _state = ConnectionState.Connecting;
         }
         PgPhysicalSession? physical = null;
+        PgSessionPool.Lease? lease = null;
         try
         {
             Notify(ConnectionState.Closed, ConnectionState.Connecting);
-            physical = await PgPhysicalSession.OpenAsync(connectionString, opening.Token).ConfigureAwait(false);
+            if (snapshot.Pooling)
+            {
+                lease = await (_owner?.Pool is { } pool ? pool.RentAsync(opening.Token) : PgPoolRegistry.RentAsync(snapshot, opening.Token)).ConfigureAwait(false);
+                physical = lease.Session;
+            }
+            else physical = await PgPhysicalSession.OpenAsync(connectionString, opening.Token).ConfigureAwait(false);
             if (physical.Identity.EffectiveMode != KingbaseCompatibilityMode.PostgreSql)
                 throw new NotSupportedException("The first public execution slice requires PostgreSql compatibility mode.");
             if (!physical.Queries.Parameters.TryGetValue("client_encoding", out var encoding) || encoding != "UTF8")
@@ -91,6 +116,7 @@ public sealed class KingbaseConnection : DbConnection
                     if (!ReferenceEquals(_opening, opening) || _state != ConnectionState.Connecting)
                         throw new OperationCanceledException("Kingbase opening was closed.", opening.Token);
                     _session = physical;
+                    _lease = lease; lease = null;
                     physical = null;
                     _state = ConnectionState.Open;
                     _opened = true;
@@ -99,7 +125,7 @@ public sealed class KingbaseConnection : DbConnection
         }
         catch (Exception error)
         {
-            try { CloseCore(disposing: false, failedOpening: opening); } catch { }
+            try { await CloseCoreAsync(disposing: false, failedOpening: opening).ConfigureAwait(false); } catch { }
             cancellationToken.ThrowIfCancellationRequested();
             _owner?.EnsureAvailable();
             if (error is PgStartupException startup) throw new KingbaseException(startup.ServerError);
@@ -108,30 +134,44 @@ public sealed class KingbaseConnection : DbConnection
         }
         finally
         {
-            physical?.Dispose();
+            if (lease is not null) await lease.ReturnAsync(canReset: false).ConfigureAwait(false);
+            else physical?.Dispose();
             lock (_sync) { if (ReferenceEquals(_opening, opening)) _opening = null; }
         }
     }
     public override void Close() => CloseCore(disposing: false);
     void CloseCore(bool disposing, CancellationTokenSource? failedOpening = null,
         KingbaseDataReader? expectedReader = null, PgPhysicalSession? expectedSession = null, long expectedGeneration = 0,
+        KingbaseTransaction? expectedTransaction = null) =>
+        CloseCoreAsync(disposing, failedOpening, expectedReader, expectedSession, expectedGeneration, expectedTransaction).GetAwaiter().GetResult();
+    Task CloseCoreAsync(bool disposing, CancellationTokenSource? failedOpening = null,
+        KingbaseDataReader? expectedReader = null, PgPhysicalSession? expectedSession = null, long expectedGeneration = 0,
         KingbaseTransaction? expectedTransaction = null)
     {
         PgPhysicalSession? physical;
+        PgSessionPool.Lease? lease;
         CancellationTokenSource? opening;
         CancellationTokenSource? operationCancel;
         KingbaseDataReader? reader;
         ConnectionState previous;
+        bool hadCommand;
+        TaskCompletionSource<object?> completion;
         lock (_sync)
         {
-            if (failedOpening is not null && !ReferenceEquals(_opening, failedOpening)) return;
-            if (expectedTransaction is not null && !ReferenceEquals(_transaction, expectedTransaction)) return;
+            if (failedOpening is not null && !ReferenceEquals(_opening, failedOpening)) return Task.CompletedTask;
+            if (expectedTransaction is not null && !ReferenceEquals(_transaction, expectedTransaction)) return Task.CompletedTask;
             if (expectedReader is not null && (!ReferenceEquals(_reader, expectedReader) ||
-                !ReferenceEquals(_session, expectedSession) || _generation != expectedGeneration)) return;
+                !ReferenceEquals(_session, expectedSession) || _generation != expectedGeneration)) return Task.CompletedTask;
             if (disposing) _disposed = true;
+            if (_closing is not null) return _closing.Task;
+            if (_state == ConnectionState.Closed && _opening is null) return Task.CompletedTask;
+            completion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _closing = completion;
             previous = _state;
             physical = _session; _session = null;
+            lease = _lease; _lease = null;
             opening = _opening; _opening = null;
+            hadCommand = _command is not null;
             _command = null;
             _transaction = null;
             operationCancel = _operationCancel; _operationCancel = null;
@@ -139,13 +179,30 @@ public sealed class KingbaseConnection : DbConnection
             _generation++;
             _state = ConnectionState.Closed;
         }
-        try
+        _ = CompleteClose();
+        return completion.Task;
+
+        async Task CompleteClose()
         {
-            try { opening?.Cancel(); } catch (ObjectDisposedException) { }
-            try { operationCancel?.Cancel(); } catch (ObjectDisposedException) { }
-            reader?.Close();
+            Exception? failure = null;
+            var reusable = !hadCommand;
+            try
+            {
+                try { opening?.Cancel(); } catch (ObjectDisposedException) { }
+                try { operationCancel?.Cancel(); } catch (ObjectDisposedException) { }
+                reader?.Close();
+            }
+            catch (Exception error) { reusable = false; failure = error; }
+            try
+            {
+                if (lease is not null) await lease.ReturnAsync(reusable).ConfigureAwait(false);
+                else physical?.Dispose();
+            }
+            catch (Exception error) { failure ??= error; }
+            lock (_sync) { if (ReferenceEquals(_closing, completion)) _closing = null; }
+            try { Notify(previous, ConnectionState.Closed); } catch (Exception error) { failure ??= error; }
+            if (failure is null) completion.TrySetResult(null); else completion.TrySetException(failure);
         }
-        finally { physical?.Dispose(); Notify(previous, ConnectionState.Closed); }
     }
     public override void ChangeDatabase(string databaseName)
     {
@@ -286,17 +343,19 @@ public sealed class KingbaseConnection : DbConnection
     internal void RetireIfBroken(PgPhysicalSession session)
     {
         ConnectionState previous;
+        PgSessionPool.Lease? lease;
         lock (_sync)
         {
             if (!ReferenceEquals(_session, session) || session.IsUsable) return;
             previous = _state;
             _state = ConnectionState.Broken;
             _session = null;
+            lease = _lease; _lease = null;
             _transaction = null;
             _command = null;
             _operationCancel = null;
         }
-        try { session.Dispose(); }
+        try { if (lease is not null) lease.ReturnAsync(canReset: false).GetAwaiter().GetResult(); else session.Dispose(); }
         finally { Notify(previous, ConnectionState.Broken); }
     }
     PgPhysicalSession OpenSession()
@@ -310,7 +369,10 @@ public sealed class KingbaseConnection : DbConnection
     void Notify(ConnectionState previous, ConnectionState current) { if (previous != current) OnStateChange(new StateChangeEventArgs(previous, current)); }
     protected override void Dispose(bool disposing) { try { if (disposing) CloseCore(disposing: true); } finally { base.Dispose(disposing); } }
 #if !NETSTANDARD2_0
-    public override Task CloseAsync() { Close(); return Task.CompletedTask; }
-    public override ValueTask DisposeAsync() { Dispose(); return default; }
+    public override Task CloseAsync() => CloseCoreAsync(disposing: false);
+    public override ValueTask DisposeAsync() => new(CloseCoreAsync(disposing: true));
+#else
+    public Task CloseAsync() => CloseCoreAsync(disposing: false);
+    public Task DisposeAsync() => CloseCoreAsync(disposing: true);
 #endif
 }

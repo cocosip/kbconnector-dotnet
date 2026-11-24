@@ -35,11 +35,11 @@ parameters.Add("optional_id", KingbaseDbType.Integer).Value = DBNull.Value;
 
 Each parameter belongs to one collection; nonempty names match case-insensitively with an optional `@`/`:` prefix. The PG path resolves actual catalog types, requires an explicit type for NULL, snapshots mutable byte inputs, and rejects unsupported directions or lossy size/precision/scale constraints. Other-mode parameter contracts remain pending.
 
-`KingbaseConnection`, `KingbaseCommand` and `KingbaseFactory.Instance` expose the initial public PG execution path. It currently requires explicit `Pooling=false` and PostgreSql compatibility mode. Open confirms product identity and required catalog types; text commands bind values separately from SQL. Cancellation or an interrupted exchange closes the physical session; ordinary synchronized server errors allow reuse. `KingbaseException` exposes SQLSTATE safely; its explicit server text properties may contain sensitive data.
+`KingbaseConnection`, `KingbaseCommand` and `KingbaseFactory.Instance` expose the initial public PG execution path. It currently requires PostgreSql compatibility mode. Default `Pooling=true` rents ordinary PG sessions; `Pooling=false` creates dedicated sessions. Open confirms product identity and required catalog types; text commands bind values separately from SQL. Cancellation or an interrupted exchange closes the physical session; ordinary synchronized server errors allow reuse. `KingbaseException` exposes SQLSTATE safely; its explicit server text properties may contain sensitive data.
 
 ```csharp
 using var connection = new KingbaseConnection(
-    "Host=localhost;Database=app;Username=user;Password=secret;Pooling=false");
+    "Host=localhost;Database=app;Username=user;Password=secret");
 await connection.OpenAsync();
 using var command = new KingbaseCommand("SELECT :amount", connection);
 command.Parameters.AddWithValue("amount", 1.2300m);
@@ -48,7 +48,7 @@ var amount = await command.ExecuteScalarAsync();
 
 The default TLS mode verifies the server certificate and hostname. Configure a trusted server certificate before using this example. The public execution path is covered by simulated peers; no real Kingbase server is accepted yet.
 
-`KingbaseDataReader` buffers completed PG results with exact typed/provider numeric access, binary/text slices and basic column metadata. A connection owns its returned Reader until close. Default, CloseConnection, SingleRow and SingleResult behaviors are supported. Unknown schema facts remain unset; raw PG identities are available in `GetSchemaTable` provider columns. Streaming/SequentialAccess, system transactions, retained preparation and pooling remain pending.
+`KingbaseDataReader` buffers completed PG results with exact typed/provider numeric access, binary/text slices and basic column metadata. A connection owns its returned Reader until close. Default, CloseConnection, SingleRow and SingleResult behaviors are supported. Unknown schema facts remain unset; raw PG identities are available in `GetSchemaTable` provider columns. Streaming/SequentialAccess, system transactions and retained preparation remain pending.
 
 Local `KingbaseTransaction` supports synchronous/asynchronous Begin, Commit, Rollback and savepoints on the initial PG path:
 
@@ -81,7 +81,7 @@ Use `Save(name)`, `Rollback(name)` and `Release(name)` or their asynchronous cou
 
 `KingbaseDataSourceBuilder.Build()` snapshots validated configuration. Its source creates independent connections with immutable configuration and redacted connection strings. Disposing the source rejects new opens and reopening, cancels pending opens, and lets already-open connections and Readers finish. Modern assets derive from `DbDataSource`; Standard assets expose typed creation/open methods.
 
-An internal PG reset foundation now captures canonical session settings, rolls back active transactions, issues DISCARD ALL, restores bound settings and verifies identity/catalog/state within Cleanup Timeout. This is simulated infrastructure for the forthcoming pool lifecycle; public connections still require `Pooling=false`. Real resource cleanup and reusable profiles remain unaccepted.
+Ordinary PG pooling now gives each DataSource a private pool; direct connections share pools with normalized configuration. Maximum Pool Size counts opening, leased, resetting and retiring sessions. One Open timeout covers FIFO waiting, initialization and idle validation. Close/CloseAsync revokes children, rolls back unfinished local transactions, issues DISCARD ALL, restores bound settings and verifies identity/catalog/state within Cleanup Timeout; failed cleanup retires the socket. Active interrupted commands retire their sessions. Clear with `KingbaseConnection.ClearPool(connection)`, `KingbaseConnection.ClearAllPools()` or `source.ClearPool()`; active leases finish and retire on return. Idle/total lifetime expiry and a lazy minimum are implemented. These paths have loopback evidence only; real resource cleanup, reusable profiles, transaction reservations and other backends remain unaccepted.
 
 The separate `KingbaseConnector.DependencyInjection` package provides closed transient connections and lazy singleton DataSources:
 
@@ -90,10 +90,10 @@ using Microsoft.Extensions.DependencyInjection;
 
 var services = new ServiceCollection();
 services.AddKingbaseDataSource(
-    "Host=localhost;Database=app;Username=user;Password=secret;Pooling=false");
+    "Host=localhost;Database=app;Username=user;Password=secret");
 using var provider = services.BuildServiceProvider();
 var source = provider.GetRequiredService<KingbaseDataSource>();
 using var connection = await source.OpenConnectionAsync();
 ```
 
-Use `AddKingbaseConnection` for transient connections, or `AddKeyedKingbaseDataSource` for multiple keyed sources on modern assets. Unkeyed BCL aliases are added when absent; duplicate provider/key registrations reject atomically. The container owns resolved services. DI uses Microsoft.Extensions lower-bound ranges `[8.0.0,)` on net8.0, `[9.0.0,)` on net9.0, and `[10.0.0,)` on net10.0 and Standard assets. DataSources currently require explicit `Pooling=false`; built-in private/shared pools and direct DataSource commands remain future work.
+Use `AddKingbaseConnection` for transient connections, or `AddKeyedKingbaseDataSource` for multiple keyed sources on modern assets. Unkeyed BCL aliases are added when absent; duplicate provider/key registrations reject atomically. The container owns resolved services. DI uses Microsoft.Extensions lower-bound ranges `[8.0.0,)` on net8.0, `[9.0.0,)` on net9.0, and `[10.0.0,)` on net10.0 and Standard assets. DataSources use private pools by default; direct DataSource commands remain future work.

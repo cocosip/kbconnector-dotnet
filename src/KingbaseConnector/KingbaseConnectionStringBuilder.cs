@@ -140,6 +140,14 @@ public sealed class KingbaseConnectionStringBuilder : DbConnectionStringBuilder
 
     public override string ToString() => GetRedactedConnectionString();
 
+    internal string GetPoolKey()
+    {
+        var normalized = new DbConnectionStringBuilder();
+        foreach (var key in Defaults.Keys.OrderBy(key => key, StringComparer.Ordinal))
+            normalized[key] = key == "Host" ? Host.ToLowerInvariant() : this[key];
+        return normalized.ConnectionString;
+    }
+
     static bool TryResolveKeyword(string keyword, out string canonical)
     {
         if (keyword is null) throw new ArgumentNullException(nameof(keyword));

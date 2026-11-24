@@ -53,15 +53,11 @@ public sealed class PublicExecutionTests
     }
 
     [Fact]
-    public async Task PoolingAndAmbientTransactionsRejectBeforeNetworkUse()
+    public async Task AmbientTransactionsRejectBeforeNetworkUse()
     {
         using var listener = Listen();
-        var settings = Settings(listener); settings.Pooling = true;
+        var settings = Settings(listener);
         using var connection = new KingbaseConnection(settings.ConnectionString);
-        await Assert.ThrowsAsync<NotSupportedException>(() => connection.OpenAsync());
-        Assert.Equal(ConnectionState.Closed, connection.State);
-        Assert.False(listener.Pending());
-        settings.Pooling = false; connection.ConnectionString = settings.ConnectionString;
         using var scope = new System.Transactions.TransactionScope(System.Transactions.TransactionScopeAsyncFlowOption.Enabled);
         await Assert.ThrowsAsync<NotSupportedException>(() => connection.OpenAsync());
         Assert.False(listener.Pending());
@@ -558,12 +554,14 @@ public sealed class PublicExecutionTests
         Assert.Contains("FROM sys_catalog.sys_type", await ReadQueryAsync(stream, token));
         await stream.WriteAsync(Catalog(Types.Select(t => new PgTypeDescription(Oid(t.Name), 90, t.Name, t.Size, 'b', 'U', 0, 0, 0, -1))), token);
     }
-    internal static async Task<byte[][]> ReadExtended(NetworkStream stream, CancellationToken token)
+    internal static async Task<byte[][]> ReadExtended(NetworkStream stream, CancellationToken token, bool parseCodeConsumed = false)
     {
         var frames = new List<byte[]>();
         foreach (var code in "PBDES")
         {
-            var header = new byte[5]; await stream.ReadExactlyAsync(header, token);
+            var header = new byte[5];
+            if (code == 'P' && parseCodeConsumed) { header[0] = (byte)'P'; await stream.ReadExactlyAsync(header.AsMemory(1), token); }
+            else await stream.ReadExactlyAsync(header, token);
             Assert.Equal((byte)code, header[0]);
             var length = (header[1] << 24) | (header[2] << 16) | (header[3] << 8) | header[4];
             Assert.InRange(length, 4, 1024 * 1024);

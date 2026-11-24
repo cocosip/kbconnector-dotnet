@@ -73,6 +73,18 @@ if (!typeof(DbDataReader).IsAssignableFrom(typeof(KingbaseDataReader)) ||
     throw new InvalidOperationException("The selected asset failed its buffered reader API shape contract.");
 
 DbProviderFactory factory = KingbaseFactory.Instance;
+using (var closedPoolConnection = new KingbaseConnection())
+{
+    await closedPoolConnection.CloseAsync();
+    KingbaseConnection.ClearPool(closedPoolConnection);
+    await closedPoolConnection.DisposeAsync();
+}
+using (var pooledSource = new KingbaseDataSourceBuilder("Host=localhost;Database=app;Username=user").Build())
+{
+    using var pooledConnection = pooledSource.CreateConnection();
+    pooledSource.ClearPool(); KingbaseConnection.ClearPool(pooledConnection); KingbaseConnection.ClearAllPools();
+    if (pooledConnection.State != ConnectionState.Closed) throw new Exception("Pool creation must be lazy.");
+}
 if (!typeof(DbTransaction).IsAssignableFrom(typeof(KingbaseTransaction)) || typeof(KingbaseTransaction).GetConstructors().Length != 0)
     throw new InvalidOperationException("The selected asset failed its local transaction API shape contract.");
 using (var closedTransactionConnection = new KingbaseConnection())

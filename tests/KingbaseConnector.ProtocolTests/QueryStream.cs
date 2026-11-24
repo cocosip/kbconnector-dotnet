@@ -9,6 +9,7 @@ internal sealed class QueryStream(byte[] input) : Stream
     public int DisposeCount { get; private set; }
     public int FragmentSize { get; init; } = 1;
     public bool BlockAtEnd { get; init; }
+    public bool IgnoreReadCancellation { get; init; }
     public bool FailWrite { get; init; }
     public int FailWriteNumber { get; init; }
     public List<byte[]> Writes { get; } = new();
@@ -31,7 +32,7 @@ internal sealed class QueryStream(byte[] input) : Stream
         if (_position == input.Length && BlockAtEnd)
         {
             ReadBlocked.TrySetResult();
-            await _closed.Task.WaitAsync(cancellationToken);
+            await _closed.Task.WaitAsync(IgnoreReadCancellation ? CancellationToken.None : cancellationToken);
             throw new ObjectDisposedException(nameof(QueryStream));
         }
         cancellationToken.ThrowIfCancellationRequested();
