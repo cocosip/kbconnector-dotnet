@@ -18,14 +18,16 @@ public sealed class KingbaseDataSource : IDisposable, IAsyncDisposable
     readonly CancellationTokenSource _closing = new();
     bool _disposed;
     internal PgSessionPool? Pool { get; }
+    internal KingbasePasswordProvider? PasswordProvider { get; }
     public void ClearPool() { EnsureAvailable(); Pool?.Clear(); }
 
-    internal KingbaseDataSource(string configuration)
+    internal KingbaseDataSource(string configuration, KingbasePasswordProvider? passwordProvider = null)
     {
         _configuration = configuration;
+        PasswordProvider = passwordProvider;
         var settings = new KingbaseConnectionStringBuilder(configuration);
         _redacted = settings.GetRedactedConnectionString();
-        if (settings.Pooling) Pool = PgPoolRegistry.CreatePrivate(settings);
+        if (settings.Pooling) Pool = PgPoolRegistry.CreatePrivate(settings, passwordProvider);
     }
 #if NET8_0_OR_GREATER
     public override string ConnectionString => _redacted;

@@ -73,6 +73,18 @@ if (!typeof(DbDataReader).IsAssignableFrom(typeof(KingbaseDataReader)) ||
     throw new InvalidOperationException("The selected asset failed its buffered reader API shape contract.");
 
 DbProviderFactory factory = KingbaseFactory.Instance;
+var passwordProviderCalls = 0;
+var passwordBuilder = new KingbaseDataSourceBuilder("Host=localhost;Database=app;Username=user")
+{
+    PasswordProvider = (KingbasePasswordContext context, CancellationToken token) =>
+    { passwordProviderCalls++; return Task.FromResult("runtime-password"); }
+};
+using (var passwordSource = passwordBuilder.Build())
+{
+    using var passwordConnection = passwordSource.CreateConnection();
+    if (passwordProviderCalls != 0 || passwordConnection.State != ConnectionState.Closed)
+        throw new Exception("Password providers must remain lazy until physical creation.");
+}
 using (var closedPoolConnection = new KingbaseConnection())
 {
     await closedPoolConnection.CloseAsync();

@@ -100,7 +100,7 @@ public sealed class KingbaseConnection : DbConnection
                 lease = await (_owner?.Pool is { } pool ? pool.RentAsync(opening.Token) : PgPoolRegistry.RentAsync(snapshot, opening.Token)).ConfigureAwait(false);
                 physical = lease.Session;
             }
-            else physical = await PgPhysicalSession.OpenAsync(connectionString, opening.Token).ConfigureAwait(false);
+            else physical = await PgPhysicalSession.OpenAsync(connectionString, opening.Token, passwordProvider: _owner?.PasswordProvider).ConfigureAwait(false);
             if (physical.Identity.EffectiveMode != KingbaseCompatibilityMode.PostgreSql)
                 throw new NotSupportedException("The first public execution slice requires PostgreSql compatibility mode.");
             if (!physical.Queries.Parameters.TryGetValue("client_encoding", out var encoding) || encoding != "UTF8")

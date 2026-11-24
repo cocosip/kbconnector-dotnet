@@ -79,11 +79,13 @@ internal sealed class PgPhysicalSession : IDisposable
         finally { stop.Cancel(); await timer.ConfigureAwait(false); Volatile.Write(ref _resetting, 0); }
     }
 
-    internal static async Task<PgPhysicalSession> OpenAsync(string connectionString, CancellationToken cancellationToken = default, bool prepareForPooling = false)
+    internal static async Task<PgPhysicalSession> OpenAsync(string connectionString, CancellationToken cancellationToken = default, bool prepareForPooling = false,
+        KingbasePasswordProvider? passwordProvider = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var settings = new KingbaseConnectionStringBuilder(connectionString);
         settings.Validate();
+        PgPasswordProvider.Validate(settings, passwordProvider);
         if (prepareForPooling && !settings.Pooling) throw new ArgumentException("Pooling reset initialization requires Pooling=true.");
         if (settings.WireProtocol != KingbaseWireProtocol.PostgreSql)
             throw new NotSupportedException("The PG physical session requires PostgreSql wire protocol.");
@@ -100,14 +102,18 @@ internal sealed class PgPhysicalSession : IDisposable
         PgTransport? transport = null;
         PgWire? wire = null;
         PgQuerySession? queries = null;
+        var password = settings.Password;
         try
         {
+            CheckDeadline();
+            if (passwordProvider is not null)
+                password = await PgPasswordProvider.GetAsync(passwordProvider, settings, linked.Token).ConfigureAwait(false);
             CheckDeadline();
             transport = await PgTransport.ConnectAsync(settings.Host, settings.Port, settings.SslMode, linked.Token).ConfigureAwait(false);
             using var abort = linked.Token.Register(() => { try { transport.Dispose(); } catch { } });
             CheckDeadline();
             wire = new PgWire(transport.Stream);
-            var startup = await PgStartup.RunAsync(wire, startupMessage, settings.Username, settings.Password, linked.Token).ConfigureAwait(false);
+            var startup = await PgStartup.RunAsync(wire, startupMessage, settings.Username, password, linked.Token).ConfigureAwait(false);
             CheckDeadline();
             queries = new PgQuerySession(wire, startup);
             var identity = await PgIdentityProbe.RunAsync(queries, settings.CompatibilityMode, linked.Token).ConfigureAwait(false);
@@ -131,6 +137,7 @@ internal sealed class PgPhysicalSession : IDisposable
         }
         finally
         {
+            password = ""; // Returned strings cannot be erased; do not retain them in reusable session/configuration state.
             stopTimer.Cancel();
             await timer.ConfigureAwait(false);
         }

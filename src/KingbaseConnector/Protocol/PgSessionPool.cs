@@ -36,18 +36,20 @@ internal sealed class PgSessionPool : IDisposable
     readonly int _maximum, _minimum, _timeout, _idleLifetime, _lifetime, _pruningInterval;
     readonly Timer _timer;
     readonly Action<PgSessionPool>? _onEmpty;
+    readonly KingbasePasswordProvider? _passwordProvider;
     string _configuration;
     long _generation;
     long _lastPruned = Stopwatch.GetTimestamp();
     int _rents;
     bool _disposed;
 
-    internal PgSessionPool(KingbaseConnectionStringBuilder settings, Action<PgSessionPool>? onEmpty = null)
+    internal PgSessionPool(KingbaseConnectionStringBuilder settings, Action<PgSessionPool>? onEmpty = null, KingbasePasswordProvider? passwordProvider = null)
     {
         _configuration = settings.ConnectionString;
         _maximum = settings.MaxPoolSize; _minimum = settings.MinPoolSize; _timeout = settings.Timeout;
         _idleLifetime = settings.ConnectionIdleLifetime; _lifetime = settings.ConnectionLifetime; _pruningInterval = settings.ConnectionPruningInterval;
         _onEmpty = onEmpty;
+        _passwordProvider = passwordProvider;
         var cadence = (int)Math.Min((long)_pruningInterval * 1000, int.MaxValue);
         _timer = new Timer(static state => { if (((WeakReference<PgSessionPool>)state!).TryGetTarget(out var pool)) pool.Prune(); },
             new WeakReference<PgSessionPool>(this), cadence, cadence);
@@ -83,7 +85,7 @@ internal sealed class PgSessionPool : IDisposable
                     string configuration;
                     lock (_sync) { ThrowIfDisposed(); configuration = _configuration; }
                     if (entry.Session is null)
-                        entry.Session = await PgPhysicalSession.OpenAsync(configuration, linked.Token, prepareForPooling: true).ConfigureAwait(false);
+                        entry.Session = await PgPhysicalSession.OpenAsync(configuration, linked.Token, prepareForPooling: true, passwordProvider: _passwordProvider).ConfigureAwait(false);
                     else
                     {
                         try { await Validate(entry.Session, linked.Token).ConfigureAwait(false); }

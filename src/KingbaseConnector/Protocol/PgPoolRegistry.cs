@@ -5,9 +5,9 @@ internal static class PgPoolRegistry
     static readonly object Sync = new();
     static readonly Dictionary<string, PgSessionPool> Direct = new(StringComparer.Ordinal);
     static readonly List<WeakReference<PgSessionPool>> All = new();
-    internal static PgSessionPool CreatePrivate(KingbaseConnectionStringBuilder settings)
+    internal static PgSessionPool CreatePrivate(KingbaseConnectionStringBuilder settings, KingbasePasswordProvider? passwordProvider = null)
     {
-        var pool = new PgSessionPool(settings);
+        var pool = new PgSessionPool(settings, passwordProvider: passwordProvider);
         lock (Sync) Register(pool);
         return pool;
     }
