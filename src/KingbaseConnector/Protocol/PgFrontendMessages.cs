@@ -55,9 +55,19 @@ internal static class PgFrontendMessages
     }
 
     internal static byte[] Sync() => new byte[] { (byte)'S', 0, 0, 0, 4 };
+    internal static byte[] Password(string password)
+    {
+        var textLength = CStringLength(password);
+        if (textLength > PgWire.MaxMessageLength - 4) throw new ArgumentException("Oversized PG password message.");
+        var message = new byte[5 + textLength];
+        message[0] = (byte)'p';
+        PgBinary.WriteInt32(message, 1, message.Length - 1);
+        PgBinary.Utf8.GetBytes(password, 0, password.Length, message, 5);
+        return message;
+    }
     internal static byte[] Terminate() => new byte[] { (byte)'X', 0, 0, 0, 4 };
 
-    static int CStringLength(string text)
+    internal static int CStringLength(string text)
     {
         if (text is null) throw new ArgumentNullException(nameof(text));
         if (text.IndexOf('\0') >= 0) throw new ArgumentException("PG text cannot contain NUL.");

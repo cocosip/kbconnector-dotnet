@@ -46,7 +46,7 @@ Create these files as work requires them; the layout is not evidence that any pr
 | Dependencies | Enable NuGet Central Package Management in Directory.Packages.props. Keep PackageReference versions centralized and apply TFM conditions only where necessary. | G01, G03 |
 | Core | Target netstandard2.0, netstandard2.1, net8.0, net9.0, and net10.0. Keep the wire and compatibility implementation shared. | G02, G03 |
 | Public API | Use conditional API surfaces for BCL differences such as DbDataSource, DbBatch, IAsyncDisposable, and modern date/time types. | G02, G03 |
-| DI | Add the optional integration package when DataSource lifetime and service registration are ready to validate. | G02 |
+| DI | Deliver KingbaseConnector.DependencyInjection with transient connections, singleton DataSources and modern keyed registrations, following design section 5.1 and the user's obconnector-dotnet reference. Implement/test it with usable Connection/DataSource ownership. Applications opt into the separate package. | G02 |
 | Tests | Separate unit tests, protocol simulation, explicitly enabled live tests, and package consumers. | G07, G08 |
 | Diagnostics | Establish redaction and failure-stage conventions with the first connection and command paths. | G06 |
 

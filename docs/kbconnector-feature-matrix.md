@@ -308,7 +308,7 @@ B01-B04 and B06 concern verified PG profiles; initial MySQL-wire coverage does n
 | ID | Feature | Official evidence / version differences | New driver contract and key acceptance requirements | Scope / stage |
 | --- | --- | --- | --- | --- |
 | G01 | slnx / CPM / unified versions | User requirement, L2 reference. | Shared props, no individual versions on PackageReference entries; SDK supports net10/slnx. | R / V9-1 |
-| G02 | Single core package / optional DI package | Independent implementation proposal; L2 organization reference. | Do not split the core by mode/server version; validate DataSource lifetime and service registration. | R / V9-1/2 |
+| G02 | Single core package / optional DI package | Independent implementation proposal; L2 organization reference; user explicitly requires the separate DI deliverable (2026-11-24). | Do not split the core by mode/server version; deliver KingbaseConnector.DependencyInjection, optional for consumers, and validate DataSource lifetime and service registration. | R / V9-1/2 |
 | G03 | Package consumption across TFMs | User requirement, L2. | Actually select and run netstandard2.0, netstandard2.1, net8.0, net9.0, and net10.0 assets separately; inspect dependency graphs and APIs. | R / V9-3 |
 | G04 | Windows/Linux x64 | Platform proposal in this baseline. | Validate TFM/network/TLS/authentication/pool combinations; compilation alone is insufficient. | R / V9-3 |
 | G05 | ARM64 / Framework hosts | No project validation yet at baseline. | Separate platform profiles; a Standard reference does not establish host certification. | C / V9-3 |
