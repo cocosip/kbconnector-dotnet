@@ -4,15 +4,15 @@ Last updated: 2026-11-24. This is the single current implementation and acceptan
 
 ## 1. Current snapshot
 
-DP01 engineering is implemented. DP03 implements the first configuration slice, offline server-requested PG password/MD5 authentication, bounded startup and TCP/platform TLS; DP04 adds bounded PG framing/control/error primitives and an owned internal text-query session. DP02/DP03 add a documented candidate version query, bounded full-version parsing and an offline identity/mode probe; DP05 adds a bounded required-built-in catalog loader using actual OIDs. An internal physical owner now composes these stages with one initialization deadline, literal startup settings and failure cleanup against loopback peers. Explicit package consumers run on Windows x64 .NET 8/9/10. No real Kingbase server or live profile is accepted yet; public query/login APIs, cancellation-channel synchronization, catalog/runtime format acceptance and server acceptance remain open. The user requires the separate KingbaseConnector.DependencyInjection deliverable; registration contracts and per-TFM dependency ranges are defined, pending usable Connection/DataSource ownership.
+DP01 engineering is implemented. DP03 implements the first configuration slice, offline server-requested PG password/MD5 authentication, bounded startup and TCP/platform TLS; DP04 adds bounded PG framing/control/error primitives and an owned internal text-query session. DP02/DP03 add a documented candidate version query, bounded full-version parsing and an offline identity/mode probe; DP05 adds a bounded required-built-in catalog loader using actual OIDs and initial scalar text codecs. An internal physical owner now composes these stages with one initialization deadline, literal startup settings and failure cleanup against loopback peers. Explicit package consumers run on Windows x64 .NET 8/9/10. No real Kingbase server or live profile is accepted yet; public query/login APIs, cancellation-channel synchronization, catalog/runtime format acceptance and server acceptance remain open. The user requires the separate KingbaseConnector.DependencyInjection deliverable; registration contracts and per-TFM dependency ranges are defined, pending usable Connection/DataSource ownership.
 
 | Product feature status | Count |
 | --- | ---: |
 | Complete | 1 |
 | Implemented, acceptance pending | 0 |
-| In progress | 21 |
+| In progress | 29 |
 | Blocked | 0 |
-| Not started | 89 |
+| Not started | 81 |
 | Deferred: later L scope and subsequent V8 work | 11 |
 | Not applicable | 0 |
 | Total matrix features | 122 |
@@ -49,7 +49,7 @@ Work-package checkboxes can be marked complete when the named subset and its exi
 - [ ] **DP02 - Server profiles and bootstrap discovery** (V9-0; C03-C05, G08). In progress: documented version query/grammar and offline version/mode probe E08. Register authorized profiles and confirm raw/product output, mode, catalog, editions and routine facts; establish isolated official comparison entry points. No live profile is accepted.
 - [ ] **DP03 - Connection, configuration, and authentication foundation** (V9-1; C01-C02, C06-C10, C16, C18-C20, G06, G11). In progress: configuration (E02), offline password/MD5 (E04), startup (E05), loopback TCP/platform TLS (E06) and internal physical initialization composition/shared deadline/startup settings (E10). Public connection integration, pool-wait budgeting, custom CA policy, credential sources, complete session configuration, remaining algorithms and live login remain open. Use DP02 evidence for identity-dependent behavior.
 - [ ] **DP04 - Protocol state and failure handling** (V9-1; Q01, Q05-Q06, Q17-Q18, P06, G07). In progress: bounded framing/frontend/control-error parsers (E03) and owned internal text-query exchanges (E07). Public execution/Reader ownership, extended protocol, cancellation-channel closure and uncertain-outcome contracts remain pending.
-- [ ] **DP05 - Type system and basic codecs** (V9-1; T01-T03, T05, T07-T10, T28, T30). In progress: required-built-in catalog/OID lookup subset E09. Catalog runtime validation, session format facts, codecs, basic input/result paths, exact conversion, typed getters, NULL handling and bounds remain open. Later mode-specific coverage for these features remains part of DP08.
+- [ ] **DP05 - Type system and basic codecs** (V9-1; T01-T03, T05, T07-T10, T28, T30). In progress: required-built-in catalog/OID lookup E09 and bounded scalar text conversion E11. Basic bool/integer/oid/float/string/bytea/UUID/JSON helpers use actual OIDs with stable CLR types and explicit NULL/unsupported behavior. Catalog/runtime format validation, numeric/temporal codecs, session format facts, bound input/public result paths and typed getters remain open. Later mode-specific coverage for these features remains part of DP08.
 - [ ] **DP06 - Commands, parameters, and Reader foundation** (V9-1/2; Q02-Q04, Q06, Q15-Q16, M01, M06). After DP04/DP05, deliver named/positional parameter planning, streaming/multiple results, Reader behavior, and foundational metadata. Evidence: none.
 - [ ] **DP07 - Pooling and session cleanup** (V9-1/2/3; P01-P03). After DP04/DP06, implement the built-in shared pool manager: private/direct pool identity, bounded leases/waiters, PG reset, generations, clear/expiry/dispose, credential rotation and unused-registry reclamation, transaction-reservation ownership, and resource/cancellation races. Complete transaction-affine reacquisition with DP10; MySQL reset and cross-backend acceptance remain DP22; P01-P03 stay open until applicable coverage passes. Evidence: none.
 - [ ] **DP08 - Complete type and mapping coverage** (V9-2; T01-T32). Extend DP05 with remaining mode-specific numeric/time types, provider values, complex types, explicit mapping, unknown types/reload, and applicable array/COPY/output paths. Require independent input/result/output evidence where applicable. Evidence: none.
@@ -142,15 +142,15 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 
 | Done | ID | Feature | Status | SIM | LIVE | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| [ ] | T01 | Type catalog / OID resolution | In progress | Passed: E09 subset | Not run | Required built-in actual-OID maps; full catalog/reload/codec/live acceptance pending |
-| [ ] | T02 | bool / BIT / bit strings | Not started | Not run | Not run | - |
-| [ ] | T03 | Signed integers | Not started | Not run | Not run | - |
+| [ ] | T01 | Type catalog / OID resolution | In progress | Passed: E09/E11 subsets | Not run | Required built-in actual-OID maps and scalar text selection; full catalog/reload/live acceptance pending |
+| [ ] | T02 | bool / BIT / bit strings | In progress | Passed: E11 bool subset | Not run | Canonical bool text/exact CLR input; BIT/bit strings/public paths pending |
+| [ ] | T03 | Signed integers | In progress | Passed: E11 subset | Not run | Int16/Int32/Int64 scalar text boundaries; binding/public paths and other widths pending |
 | [ ] | T04 | Unsigned integers | Not started | Not run | Not run | - |
 | [ ] | T05 | NUMERIC/NUMBER/DECIMAL | Not started | Not run | Not run | - |
 | [ ] | T06 | SQL Server NUMERIC/MONEY | Not started | Not run | Not run | - |
-| [ ] | T07 | float/double / special values | Not started | Not run | Not run | - |
-| [ ] | T08 | char/varchar/text/nchar/nvarchar | Not started | Not run | Not run | - |
-| [ ] | T09 | bytea/binary/varbinary/RAW | Not started | Not run | Not run | - |
+| [ ] | T07 | float/double / special values | In progress | Passed: E11 text subset | Not run | Special values/negative zero/roundtrip/overflow/underflow; binary/public paths pending |
+| [ ] | T08 | char/varchar/text/nchar/nvarchar | In progress | Passed: E11 subset | Not run | Strict bounded Unicode/padding-preserving text/varchar/bpchar; other families/public paths pending |
+| [ ] | T09 | bytea/binary/varbinary/RAW | In progress | Passed: E11 bytea text subset | Not run | Canonical PG hex/escape decoding and hex encoding; other types/binary/public paths pending |
 | [ ] | T10 | PG DATE/TIME/TIMESTAMP/TZ | Not started | Not run | Not run | - |
 | [ ] | T11 | Oracle DATE | Not started | Not run | Not run | - |
 | [ ] | T12 | SQL Server DATETIME/DATETIME2 | Not started | Not run | Not run | - |
@@ -159,8 +159,8 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 | [ ] | T15 | INTERVAL / YM / DS | Not started | Not run | Not run | - |
 | [ ] | T16 | YEAR | Not started | Not run | Not run | - |
 | [ ] | T17 | int16 / wide integers | Not started | Not run | Not run | - |
-| [ ] | T18 | UUID | Not started | Not run | Not run | - |
-| [ ] | T19 | JSON / JSONB | Not started | Not run | Not run | - |
+| [ ] | T18 | UUID | In progress | Passed: E11 text subset | Not run | Canonical Guid text/exact CLR input; binary/public paths pending |
+| [ ] | T19 | JSON / JSONB | In progress | Passed: E11 text subset | Not run | Preserve raw server text as String; binary prefix/binding/public paths pending |
 | [ ] | T20 | XML | Not started | Not run | Not run | - |
 | [ ] | T21 | Arrays | Not started | Not run | Not run | - |
 | [ ] | T22 | range | Not started | Not run | Not run | - |
@@ -171,7 +171,7 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 | [ ] | T27 | Unknown types and catalog reload | Not started | Not run | Not run | - |
 | [ ] | T28 | GetFieldValue / typed getters | Not started | Not run | Not run | - |
 | [ ] | T29 | PG MONEY | Not started | Not run | Not run | - |
-| [ ] | T30 | Catalog / identifier types | Not started | Not run | Not run | - |
+| [ ] | T30 | Catalog / identifier types | In progress | Passed: E11 oid text subset | Not run | Exact UInt32 scalar oid mapping; other identifier types/public paths pending |
 | [ ] | T31 | SQL Server SMALLDATETIME/DATETIMEOFFSET/TIME | Not started | Not run | Not run | - |
 | [ ] | T32 | Custom mappings / name translation | Not started | Not run | Not run | - |
 | [ ] | T33 | MySQL wire types / Kingbase catalog identity | Not started | Not run | Not run | - |
@@ -396,3 +396,13 @@ When a unit is finished, update its row, package, phase, and section 1 counts in
 - SIM: sync/async composition and ownership, raw startup/product-version separation, actual catalog OIDs, status/SHOW mode source, literal optional settings, zero/large/cumulative timeouts, cancellation/deadline during SSL negotiation/startup/version/mode/catalog, original-token propagation, post-success token cancellation, failures/EOF/no replay, pre-cancel and unsupported/invalid/oversized inputs before networking, idempotent disposal.
 - Code review: independent connected-source review identified aggregate StartupMessage and password/MD5 input bounds previously deferred until after transport creation. Listener-based regression cases reproduced both defects; full startup encoding and shared password/MD5 length checks now run first. Targeted RED/GREEN evidence: `dp03-physical-aggregate-red.log`, `dp03-physical-authsize-red.log`, `dp03-physical-authsize-green.log` under `artifacts/validation/`. Follow-up review found no remaining actionable defects. An unread startup ErrorResponse fixture caused TCP reset and was corrected to terminate at the error; no production change was made for that fixture issue.
 - LIVE/resources/follow-up: no real profile, database objects or LIVE result. Internal physical ownership is exercised with simulated peers only. Catalog SQL/runtime formats across real V9 profiles, Standard/older-host DNS cancellation latency, custom CA, remaining authentication, public lifecycle/query APIs, typed codecs, pooling and separate functional DI package remain open.
+
+### E11 - DP05 catalog-bound scalar PG text codecs (2026-11-24)
+
+- Scope/state: T01/T02/T03/T07/T08/T09/T18/T19/T30 internal subsets In progress. PgTextCodecs resolves 14 supported built-in names through actual session-local OIDs and validates scalar base metadata/size before exposing a stable CLR type or handling NULL. No binary layout, temporal/numeric support, public Reader or bound input acceptance is implied.
+- Source/artifact: `Protocol/PgTextCodecs.cs`, `PgTextCodecsTests.cs`, shared `PgTestPeer.cs` catalog/typed-result fixture and design section 8.1. Local `KingbaseConnector.0.1.0.nupkg` SHA-256 `0F569862AF090DB2F74D745522B5FFDB2C9517FE6B381173A350E7E12DC44591`.
+- Contract/provenance: independently implements the frozen scalar text contract using the BCL and static W27/W28 references. Mappings: bool, Int16/Int32/Int64, UInt32 oid, Single/Double, String text/varchar/bpchar/json/jsonb, Byte[] bytea and Guid uuid. SQL NULL becomes DBNull.Value; null/DBNull input remains NULL. Exact CLR input is required, with invariant numeric grammar, explicit finite overflow/nonzero underflow, canonical special values/negative zero and round-trip precision. String padding/JSON text are preserved; bytea reads canonical hex/escape output and writes lowercase hex. Value conversion does not concatenate SQL or select binary formats.
+- Bounds/diagnostics: at most 1 MiB strict UTF8 per text value, checked before parsing/allocation amplification; hex input size checked before allocating output. Unknown/mismatched-layout/domain/array/unimplemented types reject even NULL. Conversion failures omit payloads and inner conversion errors. Raw text remains available through the existing query result.
+- Commands/results: 76 new cases first failed behaviorally against temporary unimplemented signatures, then passed per modern runtime. A malformed UTF16 InlineData value was normalized in attribute serialization; the fixture now constructs that invalid input at runtime. No codec weakening was needed. `./eng/verify.ps1` exited 0: 374 protocol plus 82 unit cases per net8.0/net9.0/net10.0 (1,368 passes), 3 visible live-gate skips, five product builds without warnings/errors and five explicit configuration/version package consumers. Logs: `artifacts/validation/dp05-scalars-red.log`, `dp05-scalars-green.log`, `dp05-scalars-full.log`. Standard codecs compile; runtime SIM uses modern assets.
+- SIM/review: shifted and UInt32.MaxValue OIDs, separate catalogs, malformed layouts, stable NULL mappings, exact integer limits, culture independence, floating special/subnormal/negative-zero/round-trip edges, malformed syntax/ranges, every byte value and escape form, strict UTF8/byte limits, safe exceptions and loaded-catalog/query-result composition. Independent connected-source review found no actionable defects and accepted the change. Canonical NaN text preserves NaN semantics, not arbitrary NaN payload bits.
+- LIVE/follow-up: no real server profile, database objects or LIVE result. W27/W28 are static references only; actual text formats and catalog layouts across V9 modes/builds remain U02. Numeric/provider precision, temporal/session facts, binary codecs, bound parameters/outputs/COPY, public getters, pooling, functional Connection/DataSource/DI and older-host execution remain pending.

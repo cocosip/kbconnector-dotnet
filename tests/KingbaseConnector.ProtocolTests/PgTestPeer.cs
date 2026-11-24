@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Text;
+using KingbaseConnector.Protocol;
 
 namespace KingbaseConnector.ProtocolTests;
 
@@ -8,7 +9,16 @@ internal static class PgTestPeer
     internal static byte[] StartupResponse(bool mode = true) => Join(Frame('R', Int32(0)),
         Status("client_encoding", "UTF8"), Status("server_version", "14.0-kernel"),
         mode ? Status("database_mode", "pg") : [], Frame('K', Join(Int32(1), Int32(2))), Ready());
-    internal static byte[] Scalar(string value) => Join(Description(1), Row([value]), Complete(), Ready());
+    internal static byte[] Scalar(string value, uint typeOid = 25, short typeSize = -1) =>
+        Join(Description(1, typeOid, typeSize), Row([value]), Complete(), Ready());
+    internal static byte[] Catalog(IEnumerable<PgTypeDescription> types) => Join(Description(12),
+        Join(types.Select(type => Row([type.Oid.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            type.NamespaceOid.ToString(System.Globalization.CultureInfo.InvariantCulture), type.Namespace, type.Name,
+            type.Size.ToString(System.Globalization.CultureInfo.InvariantCulture), type.Kind.ToString(), type.Category.ToString(),
+            "t", type.BaseTypeOid.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            type.ElementTypeOid.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            type.ArrayTypeOid.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            type.TypeModifier.ToString(System.Globalization.CultureInfo.InvariantCulture)])).ToArray()), Complete(), Ready());
     internal static byte[] Catalog() => Join(Description(12), Join(new[] { "bool", "int2", "int4", "int8", "text", "bytea" }
         .Select((name, i) => Row([(6000 + i).ToString(System.Globalization.CultureInfo.InvariantCulture),
             "90", "sys_catalog", name, "4", "b", "N", "t", "0", "0", "0", "-1"])).ToArray()), Complete(), Ready());
@@ -36,8 +46,8 @@ internal static class PgTestPeer
         return Encoding.UTF8.GetString(payload[..^1]);
     }
     internal static byte[] StartupError() => Frame('E', Encoding.ASCII.GetBytes("SERROR\0C28000\0Mprivate-auth-error\0\0"));
-    static byte[] Description(int count) => Frame('T', Join(Count(count), Join(Enumerable.Range(0, count).Select(i =>
-        Join(Encoding.UTF8.GetBytes("c" + i + "\0"), new byte[6], Int32(25), Count(-1), Int32(-1), Count(0))).ToArray())));
+    static byte[] Description(int count, uint typeOid = 25, short typeSize = -1) => Frame('T', Join(Count(count), Join(Enumerable.Range(0, count).Select(i =>
+        Join(Encoding.UTF8.GetBytes("c" + i + "\0"), new byte[6], Int32(unchecked((int)typeOid)), Count(typeSize), Int32(-1), Count(0))).ToArray())));
     static byte[] Row(string[] values) => Frame('D', Join(Count(values.Length), Join(values.Select(value =>
         Join(Int32(Encoding.UTF8.GetByteCount(value)), Encoding.UTF8.GetBytes(value))).ToArray())));
     static byte[] Complete() => Frame('C', Encoding.ASCII.GetBytes("SELECT 1\0"));
@@ -47,5 +57,5 @@ internal static class PgTestPeer
     static byte[] Int32(int value) => [(byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value];
     static int ReadInt(byte[] bytes) => (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
     static byte[] Frame(char code, byte[] payload) => Join([(byte)code], Int32(payload.Length + 4), payload);
-    static byte[] Join(params byte[][] pieces) => pieces.SelectMany(x => x).ToArray();
+    internal static byte[] Join(params byte[][] pieces) => pieces.SelectMany(x => x).ToArray();
 }
