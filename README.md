@@ -21,4 +21,14 @@ var value = KingbaseNumeric.Parse("123456789012345678901234567890.00100");
 Console.WriteLine(value); // Preserves the coefficient and scale, including trailing zeros.
 ```
 
-`ToDecimal()` converts exactly or throws `OverflowException`, including when conversion would round a nonzero digit. The value representation currently bounds coefficient precision and nonnegative scale to 16,384 each; these are client resource limits. Numeric binary formats, bound parameters, public Reader access and real-server acceptance remain in progress.
+`ToDecimal()` converts exactly or throws `OverflowException`, including when conversion would round a nonzero digit. The value representation currently bounds coefficient precision and nonnegative scale to 16,384 each; these are client resource limits. Numeric binary formats, public command/Reader access and real-server acceptance remain in progress.
+
+The public input model includes `KingbaseParameter`, `KingbaseDbType` and `KingbaseParameterCollection`:
+
+```csharp
+var parameters = new KingbaseParameterCollection();
+parameters.AddWithValue("amount", 1.2300m).Scale = 2; // Exact input constraint; never rounds.
+parameters.Add("optional_id", KingbaseDbType.Integer).Value = DBNull.Value;
+```
+
+Each parameter belongs to one collection; nonempty names match case-insensitively with an optional `@`/`:` prefix. The internal PG path resolves actual catalog types, requires an explicit type for NULL, snapshots mutable byte inputs, and rejects unsupported directions or lossy size/precision/scale constraints. Public Connection/Command execution and other-mode parameter contracts are still pending.

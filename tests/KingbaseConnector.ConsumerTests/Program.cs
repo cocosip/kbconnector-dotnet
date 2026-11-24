@@ -1,5 +1,7 @@
 using System.Reflection;
 using System.Runtime.Versioning;
+using System.Data;
+using System.Data.Common;
 using KingbaseConnector;
 
 if (args.Length != 1)
@@ -39,5 +41,29 @@ try
     throw new InvalidOperationException("The selected asset silently rounded an exact numeric.");
 }
 catch (OverflowException) { }
+
+var parameters = new KingbaseParameterCollection();
+var parameter = parameters.AddWithValue("@amount", 1.2300m);
+parameter.KingbaseDbType = KingbaseDbType.Numeric;
+parameter.DbType = DbType.Decimal;
+parameter.DataTypeName = "sys_catalog.numeric";
+parameter.Scale = 2;
+DbParameterCollection bclParameters = parameters;
+if (!ReferenceEquals(bclParameters[":AMOUNT"], parameter) || parameter.DbType != DbType.Decimal ||
+    parameter.SourceVersion != DataRowVersion.Current || parameters.Count != 1)
+    throw new InvalidOperationException("The selected asset failed its public parameter contract.");
+var otherParameters = new KingbaseParameterCollection();
+try
+{
+    otherParameters.Add(parameter);
+    throw new InvalidOperationException("A parameter was accepted by two collections.");
+}
+catch (ArgumentException) { }
+parameters.Clear();
+otherParameters.Add(parameter);
+parameter.ResetDbType();
+if (parameter.DataTypeName is not null || parameter.DbType != DbType.Decimal || parameter.Scale != 2 ||
+    !Equals(parameter.Value, 1.2300m))
+    throw new InvalidOperationException("The selected asset failed to preserve parameter metadata on reset.");
 
 Console.WriteLine($"PASS: {actual} on .NET {Environment.Version}; {assembly.Location}");
