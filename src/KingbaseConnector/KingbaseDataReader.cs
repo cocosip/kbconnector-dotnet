@@ -1,0 +1,243 @@
+using System.Collections;
+using System.Collections.ObjectModel;
+using System.Data;
+using System.Data.Common;
+using System.Globalization;
+using KingbaseConnector.Protocol;
+
+namespace KingbaseConnector;
+
+/// <summary>Reads supported scalar values from a completed, bounded PG text exchange.</summary>
+public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
+{
+    IReadOnlyList<PgTextResult>? _results;
+    readonly PgTypeCatalog _catalog;
+    readonly PgTextCodecs _codecs;
+    readonly int _recordsAffected;
+    int _resultIndex;
+    int _rowIndex = -1;
+
+    internal KingbaseDataReader(IReadOnlyList<PgTextResult> results, PgTypeCatalog catalog)
+    {
+        if (results is null) throw new ArgumentNullException(nameof(results));
+        _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        _codecs = new PgTextCodecs(catalog);
+        var affected = 0;
+        var hasAffected = false;
+        foreach (var result in results)
+        {
+            foreach (var column in result.Columns)
+            {
+                _codecs.GetFieldType(column.TypeOid);
+                if (column.TypeSize != catalog.ByOid[column.TypeOid].Size)
+                    throw new NotSupportedException("PG result type size does not match its catalog.");
+            }
+            if (AffectedCount(result.CommandTag) is { } count)
+            {
+                affected = checked(affected + count);
+                hasAffected = true;
+            }
+        }
+        _recordsAffected = hasAffected ? affected : -1;
+        _results = results;
+    }
+
+    PgTextResult? Current
+    {
+        get { EnsureOpen(); return _resultIndex < _results!.Count ? _results[_resultIndex] : null; }
+    }
+    public override int FieldCount => Current?.Columns.Count ?? 0;
+    public override int Depth { get { EnsureOpen(); return 0; } }
+    public override bool HasRows => Current?.Rows.Count > 0;
+    public override bool IsClosed => _results is null;
+    public override int RecordsAffected => _recordsAffected;
+    public override object this[int ordinal] => GetValue(ordinal);
+    public override object this[string name] => GetValue(GetOrdinal(name));
+
+    public override bool Read()
+    {
+        var current = Current;
+        if (current is null) return false;
+        if (_rowIndex < current.Rows.Count) _rowIndex++;
+        return _rowIndex < current.Rows.Count;
+    }
+    public override bool NextResult()
+    {
+        EnsureOpen();
+        if (_resultIndex < _results!.Count) _resultIndex++;
+        _rowIndex = -1;
+        return _resultIndex < _results.Count;
+    }
+
+    public override string GetName(int ordinal) => Column(ordinal).Name;
+    public override int GetOrdinal(string name)
+    {
+        if (name is null) throw new ArgumentNullException(nameof(name));
+        var columns = Current?.Columns;
+        if (columns is not null)
+        {
+            for (var i = 0; i < columns.Count; i++) if (columns[i].Name == name) return i;
+            for (var i = 0; i < columns.Count; i++)
+                if (string.Equals(columns[i].Name, name, StringComparison.OrdinalIgnoreCase)) return i;
+        }
+        throw new IndexOutOfRangeException("Kingbase result column was not found.");
+    }
+    public override string GetDataTypeName(int ordinal) => _catalog.ByOid[Column(ordinal).TypeOid].Name;
+    public override Type GetFieldType(int ordinal) => _codecs.GetFieldType(Column(ordinal).TypeOid);
+    public override Type GetProviderSpecificFieldType(int ordinal) => _codecs.GetProviderSpecificFieldType(Column(ordinal).TypeOid);
+    public override object GetValue(int ordinal) => _codecs.Decode(Column(ordinal).TypeOid, RawValue(ordinal));
+    public override object GetProviderSpecificValue(int ordinal) => _codecs.DecodeProviderSpecific(Column(ordinal).TypeOid, RawValue(ordinal));
+    public override T GetFieldValue<T>(int ordinal) =>
+        (T)(typeof(T) == typeof(KingbaseNumeric) ? GetProviderSpecificValue(ordinal) : GetValue(ordinal));
+    public override int GetValues(object[] values) => CopyValues(values, provider: false);
+    public override int GetProviderSpecificValues(object[] values) => CopyValues(values, provider: true);
+    int CopyValues(object[] values, bool provider)
+    {
+        if (values is null) throw new ArgumentNullException(nameof(values));
+        EnsureRow();
+        var count = Math.Min(values.Length, FieldCount);
+        for (var i = 0; i < count; i++) values[i] = provider ? GetProviderSpecificValue(i) : GetValue(i);
+        return count;
+    }
+    public override bool IsDBNull(int ordinal) => RawValue(ordinal) is null;
+    public override bool GetBoolean(int ordinal) => GetFieldValue<bool>(ordinal);
+    public override byte GetByte(int ordinal) => GetFieldValue<byte>(ordinal);
+    public override char GetChar(int ordinal) => GetFieldValue<char>(ordinal);
+    public override short GetInt16(int ordinal) => GetFieldValue<short>(ordinal);
+    public override int GetInt32(int ordinal) => GetFieldValue<int>(ordinal);
+    public override long GetInt64(int ordinal) => GetFieldValue<long>(ordinal);
+    public override float GetFloat(int ordinal) => GetFieldValue<float>(ordinal);
+    public override double GetDouble(int ordinal) => GetFieldValue<double>(ordinal);
+    public override decimal GetDecimal(int ordinal) => GetFieldValue<decimal>(ordinal);
+    public override string GetString(int ordinal) => GetFieldValue<string>(ordinal);
+    public override DateTime GetDateTime(int ordinal) => GetFieldValue<DateTime>(ordinal);
+    public override Guid GetGuid(int ordinal) => GetFieldValue<Guid>(ordinal);
+
+    /// <summary>Copies buffered bytes. A null buffer returns the full length.</summary>
+    public override long GetBytes(int ordinal, long dataOffset, byte[]? buffer, int bufferOffset, int length)
+    {
+        var source = GetFieldValue<byte[]>(ordinal);
+        ValidateSlice(dataOffset, buffer, bufferOffset, length);
+        if (buffer is null) return source.Length;
+        var count = SliceCount(source.Length, dataOffset, length);
+        if (count != 0) Array.Copy(source, (int)dataOffset, buffer, bufferOffset, count);
+        return count;
+    }
+    /// <summary>Copies buffered UTF16 characters. A null buffer returns the full length.</summary>
+    public override long GetChars(int ordinal, long dataOffset, char[]? buffer, int bufferOffset, int length)
+    {
+        var source = GetString(ordinal);
+        ValidateSlice(dataOffset, buffer, bufferOffset, length);
+        if (buffer is null) return source.Length;
+        var count = SliceCount(source.Length, dataOffset, length);
+        if (count != 0) source.CopyTo((int)dataOffset, buffer, bufferOffset, count);
+        return count;
+    }
+    public override Stream GetStream(int ordinal) => new MemoryStream(GetFieldValue<byte[]>(ordinal), writable: false);
+    public override TextReader GetTextReader(int ordinal) => new StringReader(GetString(ordinal));
+    static void ValidateSlice(long dataOffset, Array? buffer, int bufferOffset, int length)
+    {
+        if (dataOffset < 0) throw new ArgumentOutOfRangeException(nameof(dataOffset));
+        if (bufferOffset < 0) throw new ArgumentOutOfRangeException(nameof(bufferOffset));
+        if (length < 0) throw new ArgumentOutOfRangeException(nameof(length));
+        if (buffer is not null && (bufferOffset > buffer.Length || length > buffer.Length - bufferOffset))
+            throw new ArgumentException("The destination buffer cannot hold the requested slice.");
+    }
+    static int SliceCount(int sourceLength, long dataOffset, int length) =>
+        dataOffset >= sourceLength ? 0 : (int)Math.Min(sourceLength - dataOffset, length);
+
+    public override IEnumerator GetEnumerator() { EnsureOpen(); return new DbEnumerator(this, closeReader: false); }
+    public ReadOnlyCollection<DbColumn> GetColumnSchema()
+    {
+        var schema = new List<DbColumn>(FieldCount);
+        for (var i = 0; i < FieldCount; i++) schema.Add(new ResultColumn(GetName(i), i, GetFieldType(i), GetDataTypeName(i)));
+        return schema.AsReadOnly();
+    }
+    sealed class ResultColumn : DbColumn
+    {
+        internal ResultColumn(string name, int ordinal, Type type, string typeName)
+        {
+            ColumnName = name;
+            ColumnOrdinal = ordinal;
+            DataType = type;
+            DataTypeName = typeName;
+        }
+    }
+    public override DataTable GetSchemaTable()
+    {
+        var table = new DataTable("SchemaTable") { Locale = CultureInfo.InvariantCulture };
+        foreach (var (name, type) in new (string, Type)[] {
+            (SchemaTableColumn.ColumnName, typeof(string)), (SchemaTableColumn.ColumnOrdinal, typeof(int)),
+            (SchemaTableColumn.ColumnSize, typeof(int)), (SchemaTableColumn.NumericPrecision, typeof(short)),
+            (SchemaTableColumn.NumericScale, typeof(short)), (SchemaTableColumn.DataType, typeof(Type)),
+            ("ProviderSpecificDataType", typeof(Type)), (SchemaTableColumn.AllowDBNull, typeof(bool)),
+            (SchemaTableColumn.IsKey, typeof(bool)), (SchemaTableColumn.IsUnique, typeof(bool)),
+            (SchemaTableColumn.BaseTableName, typeof(string)), (SchemaTableColumn.BaseColumnName, typeof(string)),
+            ("DataTypeName", typeof(string)), ("DataTypeOID", typeof(uint)), ("BaseTableOID", typeof(uint)),
+            ("ColumnAttributeNumber", typeof(short)), ("TypeModifier", typeof(int)) }) table.Columns.Add(name, type);
+        for (var i = 0; i < FieldCount; i++)
+        {
+            var column = Column(i);
+            var row = table.NewRow();
+            row[SchemaTableColumn.ColumnName] = column.Name;
+            row[SchemaTableColumn.ColumnOrdinal] = i;
+            row[SchemaTableColumn.DataType] = GetFieldType(i);
+            row["ProviderSpecificDataType"] = GetProviderSpecificFieldType(i);
+            row["DataTypeName"] = GetDataTypeName(i);
+            row["DataTypeOID"] = column.TypeOid;
+            row["BaseTableOID"] = column.TableOid;
+            row["ColumnAttributeNumber"] = column.AttributeNumber;
+            row["TypeModifier"] = column.TypeModifier;
+            table.Rows.Add(row);
+        }
+        return table;
+    }
+
+    public override Task<bool> ReadAsync(CancellationToken cancellationToken) => BufferedAsync(Read, cancellationToken);
+    public override Task<bool> NextResultAsync(CancellationToken cancellationToken) => BufferedAsync(NextResult, cancellationToken);
+    public override Task<bool> IsDBNullAsync(int ordinal, CancellationToken cancellationToken) => BufferedAsync(() => IsDBNull(ordinal), cancellationToken);
+    public override Task<T> GetFieldValueAsync<T>(int ordinal, CancellationToken cancellationToken) => BufferedAsync(() => GetFieldValue<T>(ordinal), cancellationToken);
+    static Task<T> BufferedAsync<T>(Func<T> operation, CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested) return Task.FromCanceled<T>(cancellationToken);
+        try { return Task.FromResult(operation()); }
+        catch (Exception e) { return Task.FromException<T>(e); }
+    }
+    public override void Close() { _results = null; _rowIndex = -1; }
+    protected override void Dispose(bool disposing) { if (disposing) Close(); base.Dispose(disposing); }
+#if !NETSTANDARD2_0
+    public override Task CloseAsync() { Close(); return Task.CompletedTask; }
+    public override ValueTask DisposeAsync() { Dispose(); return default; }
+#endif
+
+    PgColumnDescription Column(int ordinal)
+    {
+        var current = Current;
+        if (ordinal < 0 || current is null || ordinal >= current.Columns.Count)
+            throw new IndexOutOfRangeException("Invalid Kingbase result column ordinal.");
+        return current.Columns[ordinal];
+    }
+    string? RawValue(int ordinal) { Column(ordinal); EnsureRow(); return Current!.Rows[_rowIndex][ordinal]; }
+    void EnsureRow()
+    {
+        var current = Current;
+        if (current is null || _rowIndex < 0 || _rowIndex >= current.Rows.Count)
+            throw new InvalidOperationException("The Kingbase reader is not positioned on a row.");
+    }
+    void EnsureOpen() { if (IsClosed) throw new InvalidOperationException("The Kingbase reader is closed."); }
+    static int? AffectedCount(string? tag)
+    {
+        if (tag is null) return null;
+        var parts = tag.Split(' ');
+        var insert = parts[0] == "INSERT";
+        if (!insert && parts[0] != "UPDATE" && parts[0] != "DELETE" && parts[0] != "MERGE") return null;
+        if (parts.Length != (insert ? 3 : 2) ||
+            (insert && !uint.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out _))) throw InvalidTag();
+        var count = parts[parts.Length - 1];
+        if (count.Length == 0 || count.Any(c => c < '0' || c > '9')) throw InvalidTag();
+        if (!int.TryParse(count, NumberStyles.None, CultureInfo.InvariantCulture, out var value))
+            throw new OverflowException("PG affected row count exceeds Int32.");
+        return value;
+    }
+    static FormatException InvalidTag() => new("Invalid PG affected row command tag.");
+}

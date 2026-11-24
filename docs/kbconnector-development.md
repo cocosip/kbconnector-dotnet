@@ -102,6 +102,8 @@ U01/U02 gate server identity and live acceptance; they do not gate independent e
 
 ## 4. Work on one functional unit
 
+Develop and commit directly on `master`, as requested for this new library. Keep each substantive commit tested and reviewed; do not create a development branch by default.
+
 1. Select a tracker work package and its matrix IDs. Read the full feature contract, applicable acceptance groups, and relevant source evidence. Set its status to In progress and name the intended boundary.
 2. Resolve any API/default decision needed by this unit. For server-dependent behavior, identify the target profile and evidence. If evidence is missing, record the specific dependency and continue only the independent parts.
 3. Implement the smallest complete public path, including callers, configuration, ownership, failure behavior, metadata, and applicable TFMs. A placeholder, unsupported-method stub, or successful happy path alone is not an implemented feature.

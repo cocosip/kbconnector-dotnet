@@ -66,4 +66,9 @@ if (parameter.DataTypeName is not null || parameter.DbType != DbType.Decimal || 
     !Equals(parameter.Value, 1.2300m))
     throw new InvalidOperationException("The selected asset failed to preserve parameter metadata on reset.");
 
+if (!typeof(DbDataReader).IsAssignableFrom(typeof(KingbaseDataReader)) ||
+    !typeof(IDbColumnSchemaGenerator).IsAssignableFrom(typeof(KingbaseDataReader)) ||
+    typeof(KingbaseDataReader).GetConstructors().Length != 0)
+    throw new InvalidOperationException("The selected asset failed its buffered reader API shape contract.");
+
 Console.WriteLine($"PASS: {actual} on .NET {Environment.Version}; {assembly.Location}");

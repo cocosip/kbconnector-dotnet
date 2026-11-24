@@ -32,3 +32,5 @@ parameters.Add("optional_id", KingbaseDbType.Integer).Value = DBNull.Value;
 ```
 
 Each parameter belongs to one collection; nonempty names match case-insensitively with an optional `@`/`:` prefix. The internal PG path resolves actual catalog types, requires an explicit type for NULL, snapshots mutable byte inputs, and rejects unsupported directions or lossy size/precision/scale constraints. Public Connection/Command execution and other-mode parameter contracts are still pending.
+
+`KingbaseDataReader` implements the buffered scalar Reader contract over completed internal PG results, including multiple-result traversal, exact typed/provider numeric access, binary/text slices and basic column metadata. Construction remains internal until Command integration. It does not yet provide streaming, CommandBehavior or Connection ownership. Unknown schema facts remain unset; raw PG identities are available in `GetSchemaTable` provider columns.
