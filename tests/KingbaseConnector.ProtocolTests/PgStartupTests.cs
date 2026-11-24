@@ -97,7 +97,7 @@ public class PgStartupTests
     [Fact]
     public async Task UnsupportedAuthenticationRetiresTheWireAndNeverSendsAPassword()
     {
-        var stream = new StartupStream(Auth(10));
+        var stream = new StartupStream(Auth(9));
         using var wire = new PgWire(stream);
         await Assert.ThrowsAsync<NotSupportedException>(() => PgStartup.RunAsync(wire, "user", "db", "password"));
         Assert.Single(stream.Writes);

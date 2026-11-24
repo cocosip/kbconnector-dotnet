@@ -48,6 +48,8 @@ var amount = await command.ExecuteScalarAsync();
 
 The default TLS mode verifies the server certificate and hostname. Configure a trusted server certificate before using this example. The public execution path is covered by simulated peers; no real Kingbase server is accepted yet.
 
+The PG authentication path supports server-requested password/MD5 and SCRAM-SHA-256. SCRAM verifies the extended nonce and server signature before accepting authentication, applies the PG SASLprep/raw-password profile, and bounds server iterations to 1..1,000,000, SASL payloads to 16 KiB and salt to 1 KiB. SCRAM-SHA-256-PLUS/channel binding and SM3 algorithms remain pending; a PLUS-only offer rejects. Standard protocol vectors and loopback logins do not establish real Kingbase password-policy compatibility.
+
 `KingbaseDataReader` buffers completed PG results with exact typed/provider numeric access, binary/text slices and basic column metadata. A connection owns its returned Reader until close. Default, CloseConnection, SingleRow and SingleResult behaviors are supported. Unknown schema facts remain unset; raw PG identities are available in `GetSchemaTable` provider columns. Streaming/SequentialAccess, system transactions and retained preparation remain pending.
 
 Local `KingbaseTransaction` supports synchronous/asynchronous Begin, Commit, Rollback and savepoints on the initial PG path:

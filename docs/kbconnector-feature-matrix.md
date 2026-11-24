@@ -19,7 +19,7 @@ Related documents: [unified driver design](kbconnector-design.md), [official DLL
 
 When an official method name or handler class is absent, record only that the symbol was not found; do not conclude that the server lacks the capability. Client package filenames, assembly versions, Kingbase product versions, PG kernel versions, database modes, deployment forms, and target frameworks are separate dimensions.
 
-Design section 14 gives the full descriptions and links for sources L1–L3 and W1–W31. A "proposal" is a requirement proposed for this project, not a claim that an identical official API exists. Feature IDs index subsequent tasks, tests, and defects. Accept R items on applicable server combinations. Record confirmed absent types or server capabilities as limitations; do not manufacture support through client-side simulation.
+Design section 14 gives the full descriptions and links for sources L1–L3 and W1–W33. A "proposal" is a requirement proposed for this project, not a claim that an identical official API exists. Feature IDs index subsequent tasks, tests, and defects. Accept R items on applicable server combinations. Record confirmed absent types or server capabilities as limitations; do not manufacture support through client-side simulation.
 
 ## 2. Official Client Sample Identities
 
@@ -167,7 +167,7 @@ Every feature below was unimplemented and unaccepted at the 2026-11-23 baseline.
 | C06 | Session encoding / parameter status | L1 BODY | Strict encoding, session/lexical parameter updates and plan invalidation, temporal wire settings such as integer_datetimes where applicable; no stale codecs or binding plans after changes. Retire sessions with untrackable state. | R / V9-1 |
 | C07 | TLS, CA, hostname validation | L1/W5; documented defaults differ from DLL defaults. | Platform TLS; proposal to encrypt and verify certificate chains/hostnames by default. Require explicit configuration for plaintext, fallback, or skipped verification; include negative certificate tests. | R / V9-1/3 |
 | C08 | Password / MD5 authentication | L1 BODY | Use only the algorithm requested by the server; no proactive downgrade or secret logging. | R / V9-1 |
-| C09 | SCRAM-SHA-256 | SASL paths in all six samples. | Validate nonce, iteration-count bounds, server signature, and malformed challenges. | R / V9-1 |
+| C09 | SCRAM-SHA-256 | SASL paths in all six samples; W32-W33. | Validate nonce, iteration-count bounds, server signature, and malformed challenges. | R / V9-1 |
 | C10 | Separate SM3 authentication | BODY in all six samples. | Separate algorithm contract; validate challenges/encoding and live interoperability independently. | R / V9-1/3 |
 | C11 | SCRAM-SM3 / SM4 | W1 lists options; complete corresponding driver implementations were not established by this analysis. | Gather evidence and accept each separately; C10 results do not establish either capability. | C / V9-3 |
 | C12 | Chinese cryptographic-standard TLS | Not established by an SM3 class; U05. | Define support boundaries after establishing target server, platform, and cryptographic library paths. | C / V9-3 |

@@ -32,7 +32,7 @@ internal static class PgStartup
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var auth = new PgPasswordAuthentication();
+        using var auth = new PgPasswordAuthentication();
         var parameters = new Dictionary<string, string>(StringComparer.Ordinal);
         PgBackendKey? key = null;
         var payloadBytes = 0;
@@ -46,7 +46,7 @@ internal static class PgStartup
                 switch (message.Code)
                 {
                     case (byte)'R':
-                        var response = auth.Process(message, username, password);
+                        var response = auth.Process(message, username, password, cancellationToken);
                         if (response is not null)
                         {
                             try { await wire.WriteMessageAsync(response, cancellationToken).ConfigureAwait(false); }

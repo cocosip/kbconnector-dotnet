@@ -73,7 +73,6 @@ public class PgPasswordAuthenticationTests
     [InlineData(7)]
     [InlineData(8)]
     [InlineData(9)]
-    [InlineData(10)]
     [InlineData(11)]
     [InlineData(12)]
     [InlineData(100)]

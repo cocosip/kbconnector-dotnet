@@ -2,19 +2,23 @@ using System.Security.Cryptography;
 
 namespace KingbaseConnector.Protocol;
 
-/// <summary>Handles only server-requested PG password/MD5 exchanges; no I/O or fallback.</summary>
-internal sealed class PgPasswordAuthentication
+/// <summary>Handles server-requested PG password/MD5/SCRAM exchanges; no I/O or fallback.</summary>
+internal sealed class PgPasswordAuthentication : IDisposable
 {
-    enum State { Initial, AwaitingOk, Complete, Failed }
+    enum State { Initial, AwaitingOk, ScramContinue, ScramFinal, ScramOk, Complete, Failed }
     State _state;
+    readonly string? _clientNonce;
+    PgScramSha256? _scram;
+    internal PgPasswordAuthentication(string? clientNonce = null) => _clientNonce = clientNonce;
 
     internal bool IsComplete => _state == State.Complete;
 
     // The caller clears a returned secret-bearing frame after transmission, including failed writes.
-    internal byte[]? Process(PgMessage message, string username, string password)
+    internal byte[]? Process(PgMessage message, string username, string password, CancellationToken cancellationToken = default)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (_state == State.Complete || _state == State.Failed || message.Code != (byte)'R' ||
                 message.Payload is null || message.Payload.Length < 4)
                 throw InvalidExchange();
@@ -22,9 +26,18 @@ internal sealed class PgPasswordAuthentication
             var algorithm = PgBinary.ReadInt32(message.Payload, 0);
             if (algorithm == 0)
             {
-                if (message.Payload.Length != 4) throw InvalidExchange();
+                if (message.Payload.Length != 4 || _state is not (State.Initial or State.AwaitingOk or State.ScramOk)) throw InvalidExchange();
                 _state = State.Complete;
                 return null;
+            }
+            if (_state == State.ScramContinue && algorithm == 11)
+            {
+                var final = _scram!.Continue(message.Payload, password, cancellationToken);
+                _state = State.ScramFinal; return final;
+            }
+            if (_state == State.ScramFinal && algorithm == 12)
+            {
+                _scram!.Verify(message.Payload); _state = State.ScramOk; return null;
             }
             if (_state != State.Initial) throw InvalidExchange();
             byte[] response;
@@ -38,6 +51,11 @@ internal sealed class PgPasswordAuthentication
                     if (message.Payload.Length != 8) throw InvalidExchange();
                     response = Md5Response(username, password, message.Payload);
                     break;
+                case 10:
+                    PgScramSha256.ValidateOffer(message.Payload);
+                    _scram = new PgScramSha256(username, _clientNonce);
+                    var initial = _scram.InitialResponse();
+                    _state = State.ScramContinue; return initial;
                 default:
                     throw new NotSupportedException("Unsupported PG authentication algorithm.");
             }
@@ -47,8 +65,15 @@ internal sealed class PgPasswordAuthentication
         catch
         {
             _state = State.Failed;
+            _scram?.Dispose();
             throw;
         }
+    }
+
+    public void Dispose()
+    {
+        _scram?.Dispose();
+        if (_state != State.Complete) _state = State.Failed;
     }
 
     internal static (int Password, int User) Md5InputLengths(string username, string password)
