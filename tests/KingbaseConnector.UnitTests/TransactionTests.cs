@@ -28,9 +28,15 @@ public sealed class TransactionTests
         using var connection = new KingbaseConnection();
         Assert.Throws<InvalidOperationException>(() => connection.BeginTransaction());
         await Assert.ThrowsAsync<InvalidOperationException>(async () => await connection.BeginTransactionAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, default));
         using var canceled = new CancellationTokenSource(); canceled.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await connection.BeginTransactionAsync(canceled.Token));
+        Assert.Throws<InvalidOperationException>(() => connection.BeginTransaction(IsolationLevel.RepeatableRead, readOnly: true));
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await connection.BeginTransactionAsync(IsolationLevel.Serializable, readOnly: false));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await connection.BeginTransactionAsync(IsolationLevel.Serializable, true, canceled.Token));
         connection.Dispose();
         Assert.Throws<ObjectDisposedException>(() => connection.BeginTransaction(IsolationLevel.ReadCommitted));
+        Assert.Throws<ObjectDisposedException>(() => connection.BeginTransaction(IsolationLevel.RepeatableRead, true));
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () => await connection.BeginTransactionAsync(IsolationLevel.Serializable, false));
     }
 }

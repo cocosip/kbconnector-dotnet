@@ -81,14 +81,26 @@ using (var closedTransactionConnection = new KingbaseConnection())
     catch (InvalidOperationException) { }
     try { await closedTransactionConnection.BeginTransactionAsync(); throw new Exception("A closed connection began an async transaction."); }
     catch (InvalidOperationException) { }
+    try { await closedTransactionConnection.BeginTransactionAsync(IsolationLevel.ReadCommitted, default); throw new Exception("A default-token call began a closed transaction."); }
+    catch (InvalidOperationException) { }
     try { closedTransactionConnection.BeginTransaction(IsolationLevel.Snapshot); throw new Exception("An unsupported isolation was accepted."); }
     catch (NotSupportedException) { }
+    foreach (var isolation in new[] { IsolationLevel.Unspecified, IsolationLevel.ReadCommitted, IsolationLevel.RepeatableRead, IsolationLevel.Serializable })
+    {
+        foreach (var readOnly in new[] { true, false })
+        {
+            try { closedTransactionConnection.BeginTransaction(isolation, readOnly); throw new Exception("A closed connection began an explicit access-mode transaction."); }
+            catch (InvalidOperationException) { }
+            try { await closedTransactionConnection.BeginTransactionAsync(isolation, readOnly); throw new Exception("A closed connection began an async access-mode transaction."); }
+            catch (InvalidOperationException) { }
+        }
+    }
     using var transactionCommand = closedTransactionConnection.CreateCommand();
     transactionCommand.Transaction = null;
     if (transactionCommand.Transaction is not null) throw new Exception("A null transaction was not retained.");
     // Exercise the typed Standard counterparts too; full wire behavior is covered by protocol tests.
     using var inactive = (KingbaseTransaction)Activator.CreateInstance(typeof(KingbaseTransaction),
-        BindingFlags.Instance | BindingFlags.NonPublic, null, [closedTransactionConnection], null)!;
+        BindingFlags.Instance | BindingFlags.NonPublic, null, [closedTransactionConnection, IsolationLevel.ReadCommitted], null)!;
     if (!inactive.SupportsSavepoints) throw new Exception("Savepoint capability is missing.");
     foreach (Action action in new Action[] { () => inactive.Save("s"), () => inactive.Rollback("s"), () => inactive.Release("s") })
     {

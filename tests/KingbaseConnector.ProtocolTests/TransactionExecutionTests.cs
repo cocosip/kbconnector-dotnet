@@ -72,8 +72,6 @@ public sealed class TransactionExecutionTests
 
     [Theory]
     [InlineData(IsolationLevel.ReadUncommitted)]
-    [InlineData(IsolationLevel.RepeatableRead)]
-    [InlineData(IsolationLevel.Serializable)]
     [InlineData(IsolationLevel.Snapshot)]
     [InlineData(IsolationLevel.Chaos)]
     public async Task UnsupportedIsolationNeverSendsOrSilentlySubstitutes(IsolationLevel isolation)

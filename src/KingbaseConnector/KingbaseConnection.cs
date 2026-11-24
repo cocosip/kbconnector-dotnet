@@ -166,7 +166,12 @@ public sealed class KingbaseConnection : DbConnection
     protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel) => BeginLocalTransactionAsync(isolationLevel, CancellationToken.None).GetAwaiter().GetResult();
     public new KingbaseTransaction BeginTransaction() => (KingbaseTransaction)BeginDbTransaction(IsolationLevel.Unspecified);
     public new KingbaseTransaction BeginTransaction(IsolationLevel isolationLevel) => (KingbaseTransaction)BeginDbTransaction(isolationLevel);
+    /// <summary>Begins a local transaction with an explicit transaction-scoped access mode.</summary>
+    public KingbaseTransaction BeginTransaction(IsolationLevel isolationLevel, bool readOnly) =>
+        BeginLocalTransactionAsync(isolationLevel, CancellationToken.None, readOnly).GetAwaiter().GetResult();
 #if !NETSTANDARD2_0
+    public ValueTask<KingbaseTransaction> BeginTransactionAsync(IsolationLevel isolationLevel, bool readOnly, CancellationToken cancellationToken = default) =>
+        new(BeginLocalTransactionAsync(isolationLevel, cancellationToken, readOnly));
     protected override async ValueTask<DbTransaction> BeginDbTransactionAsync(IsolationLevel isolationLevel, CancellationToken cancellationToken) =>
         await BeginLocalTransactionAsync(isolationLevel, cancellationToken).ConfigureAwait(false);
     public new ValueTask<KingbaseTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
@@ -174,19 +179,28 @@ public sealed class KingbaseConnection : DbConnection
     public new ValueTask<KingbaseTransaction> BeginTransactionAsync(IsolationLevel isolationLevel, CancellationToken cancellationToken = default) =>
         new(BeginLocalTransactionAsync(isolationLevel, cancellationToken));
 #else
+    public Task<KingbaseTransaction> BeginTransactionAsync(IsolationLevel isolationLevel, bool readOnly, CancellationToken cancellationToken = default) =>
+        BeginLocalTransactionAsync(isolationLevel, cancellationToken, readOnly);
     public Task<KingbaseTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
         BeginLocalTransactionAsync(IsolationLevel.Unspecified, cancellationToken);
     public Task<KingbaseTransaction> BeginTransactionAsync(IsolationLevel isolationLevel, CancellationToken cancellationToken = default) =>
         BeginLocalTransactionAsync(isolationLevel, cancellationToken);
 #endif
-    async Task<KingbaseTransaction> BeginLocalTransactionAsync(IsolationLevel isolationLevel, CancellationToken token)
+    async Task<KingbaseTransaction> BeginLocalTransactionAsync(IsolationLevel isolationLevel, CancellationToken token, bool? readOnly = null)
     {
         token.ThrowIfCancellationRequested();
         if (!Enum.IsDefined(typeof(IsolationLevel), isolationLevel)) throw new ArgumentOutOfRangeException(nameof(isolationLevel));
-        if (isolationLevel is not IsolationLevel.Unspecified and not IsolationLevel.ReadCommitted)
-            throw new NotSupportedException("This transaction slice supports only explicit ReadCommitted isolation.");
-        var transaction = new KingbaseTransaction(this);
-        using var command = new KingbaseCommand("BEGIN ISOLATION LEVEL READ COMMITTED", this, transaction, KingbaseTransactionOperation.Begin);
+        if (isolationLevel == IsolationLevel.Unspecified) isolationLevel = IsolationLevel.ReadCommitted;
+        var isolation = isolationLevel switch
+        {
+            IsolationLevel.ReadCommitted => "READ COMMITTED",
+            IsolationLevel.RepeatableRead => "REPEATABLE READ",
+            IsolationLevel.Serializable => "SERIALIZABLE",
+            _ => throw new NotSupportedException("The requested isolation level has no exact supported Kingbase PG mapping.")
+        };
+        var transaction = new KingbaseTransaction(this, isolationLevel);
+        var sql = "BEGIN ISOLATION LEVEL " + isolation + (readOnly switch { true => ", READ ONLY", false => ", READ WRITE", _ => "" });
+        using var command = new KingbaseCommand(sql, this, transaction, KingbaseTransactionOperation.Begin);
         await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
         return transaction;
     }

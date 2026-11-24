@@ -62,7 +62,18 @@ await transaction.ReleaseAsync("before_update");
 await transaction.CommitAsync();
 ```
 
-The default explicitly requests ReadCommitted. Other isolation levels and read-only options remain pending. A null Command.Transaction participates in the connection's current transaction; an explicit reference must be its active transaction. Close or a broken session invalidates that owner. A COMMIT acknowledged as ROLLBACK fails explicitly. `KingbaseTransactionException.OutcomeUnknown` and `KingbaseTransaction.OutcomeUnknown` identify uncertain commits; cancellation remains `OperationCanceledException` with uncertainty available on the transaction. Never automatically replay an uncertain transaction. Disposal attempts rollback within five seconds, then closes its still-owned connection if cleanup cannot synchronize. These paths have loopback evidence; server isolation semantics remain unaccepted.
+The default/Unspecified explicitly requests ReadCommitted; RepeatableRead and Serializable send their exact PG isolation keywords. ReadUncommitted, Snapshot and Chaos reject without mapping to another level. The transaction's `IsolationLevel` records its Begin request, with Unspecified normalized to ReadCommitted; later application SQL can change server characteristics independently. A null Command.Transaction participates in the connection's current transaction; an explicit reference must be its active transaction. Close or a broken session invalidates that owner. A COMMIT acknowledged as ROLLBACK fails explicitly. `KingbaseTransactionException.OutcomeUnknown` and `KingbaseTransaction.OutcomeUnknown` identify uncertain commits; cancellation remains `OperationCanceledException` with uncertainty available on the transaction. Never automatically replay an uncertain transaction. Disposal attempts rollback within five seconds, then closes its still-owned connection if cleanup cannot synchronize. These paths have loopback evidence; server isolation semantics remain unaccepted.
+
+For a transaction-scoped read-only request, use the explicit access-mode overload:
+
+```csharp
+using var readOnly = await connection.BeginTransactionAsync(
+    System.Data.IsolationLevel.RepeatableRead, readOnly: true);
+// Execute reads here. Read-only restrictions are enforced by the server.
+await readOnly.CommitAsync();
+```
+
+The synchronous counterpart is `BeginTransaction(isolationLevel, readOnly)`. Explicit true/false sends READ ONLY/READ WRITE in the same BEGIN; existing overloads omit the access mode and honor the session's read-only default. The driver neither changes session defaults nor filters application SQL to simulate read-only enforcement. Real concurrent-read, serialization and write-rejection behavior still requires Kingbase acceptance.
 
 Use `Save(name)`, `Rollback(name)` and `Release(name)` or their asynchronous counterparts for savepoints; `Rollback(name)` keeps the transaction active. Names preserve case and whitespace, escape double quotes, and reject empty/NUL/invalid Unicode or names exceeding the reported UTF-8 byte limit. The first managed Begin on each physical session reads `SHOW max_identifier_length` under the command deadline; that query and savepoint effects remain subject to real Kingbase acceptance. Repeated names and savepoints created through SQL are resolved by the server. Modern assets override the BCL savepoint APIs; Standard assets expose the same typed methods.
 

@@ -19,7 +19,7 @@ Related documents: [unified driver design](kbconnector-design.md), [official DLL
 
 When an official method name or handler class is absent, record only that the symbol was not found; do not conclude that the server lacks the capability. Client package filenames, assembly versions, Kingbase product versions, PG kernel versions, database modes, deployment forms, and target frameworks are separate dimensions.
 
-Design section 14 gives the full descriptions and links for sources L1–L3 and W1–W20. A "proposal" is a requirement proposed for this project, not a claim that an identical official API exists. Feature IDs index subsequent tasks, tests, and defects. Accept R items on applicable server combinations. Record confirmed absent types or server capabilities as limitations; do not manufacture support through client-side simulation.
+Design section 14 gives the full descriptions and links for sources L1–L3 and W1–W30. A "proposal" is a requirement proposed for this project, not a claim that an identical official API exists. Feature IDs index subsequent tasks, tests, and defects. Accept R items on applicable server combinations. Record confirmed absent types or server capabilities as limitations; do not manufacture support through client-side simulation.
 
 ## 2. Official Client Sample Identities
 
@@ -211,7 +211,7 @@ Every feature below was unimplemented and unaccepted at the 2026-11-23 baseline.
 | ID | Feature | Official evidence / version differences | New driver contract and key acceptance requirements | Scope / stage |
 | --- | --- | --- | --- | --- |
 | X01 | Local Begin/Commit/Rollback | L1, W7; do not copy the manual's "one transaction per process" wording. | One transaction per connection, without restricting other connections; track state. Loss of commit acknowledgement means an uncertain outcome, without retry. | R / V9-1 |
-| X02 | Isolation levels and read-only semantics | L1, W7 | Test actual semantics by mode/version; do not silently substitute unsupported levels. | R / V9-1/2 |
+| X02 | Isolation levels and read-only semantics | L1, W7, W30 | Test actual semantics by mode/version; do not silently substitute unsupported levels. | R / V9-1/2 |
 | X03 | Savepoint / RollbackTo / Release | L1 SYM/BODY | Identifier escaping, recovery from failed transactions, and live-established effects of routines/DDL. | R / V9-2 |
 | X04 | Single-resource TransactionScope | L1, W7/W10 | Explicit/automatic enlistment, opt-out, async flow, and transaction-affine pending-session reuse for sequential logical opens in the same pool/transaction, including Maximum Pool Size=1. Exclusive leases, transaction completion races, concurrent-open promotion, timeout rollback, and per-protocol applicability. | C / V9-3 |
 | X05 | Distributed / two-phase transactions | L1 volatile resource enlistment; W7 explicitly lacks crash recovery; U05. | Platform transaction manager and backend-specific preparation/recovery: verified PG PREPARE TRANSACTION family, or separately established native MySQL XA behavior. No PG SQL on MySQL wire; no reliable-recovery claim without durable recovery. U05/U07 determine applicability. | C / V9-3 |

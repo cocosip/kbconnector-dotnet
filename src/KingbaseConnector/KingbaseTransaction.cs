@@ -13,8 +13,9 @@ public sealed class KingbaseTransaction : DbTransaction
     int _disposed;
     int _outcomeUnknown;
     internal int SavepointNameByteLimit { get; set; }
-    internal KingbaseTransaction(KingbaseConnection owner) => _owner = owner;
-    public override IsolationLevel IsolationLevel => IsolationLevel.ReadCommitted;
+    internal KingbaseTransaction(KingbaseConnection owner, IsolationLevel isolationLevel) { _owner = owner; IsolationLevel = isolationLevel; }
+    /// <summary>The isolation requested at Begin, with Unspecified normalized to ReadCommitted.</summary>
+    public override IsolationLevel IsolationLevel { get; }
     protected override DbConnection? DbConnection => _owner.OwnsTransaction(this) ? _owner : null;
     public new KingbaseConnection? Connection => (KingbaseConnection?)DbConnection;
     /// <summary>True when COMMIT was interrupted without a confirmed outcome, including cancellation.</summary>
