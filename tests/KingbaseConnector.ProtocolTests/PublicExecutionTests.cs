@@ -553,7 +553,7 @@ public sealed class PublicExecutionTests
         if (readStartup) await ReadStartupAsync(stream, token);
         await stream.WriteAsync(Join(Frame('R', Int32(0)), Status("client_encoding", "UTF8"), Status("server_version", "14"),
             Status("database_mode", "pg"), Status("standard_conforming_strings", "on"), Frame('K', Join(Int32(1), Int32(2))), Ready()), token);
-        Assert.Equal("SELECT version();", await ReadQueryAsync(stream, token));
+        Assert.Equal("SELECT sys_catalog.version();", await ReadQueryAsync(stream, token));
         await stream.WriteAsync(Scalar(Product), token);
         Assert.Contains("FROM sys_catalog.sys_type", await ReadQueryAsync(stream, token));
         await stream.WriteAsync(Catalog(Types.Select(t => new PgTypeDescription(Oid(t.Name), 90, t.Name, t.Size, 'b', 'U', 0, 0, 0, -1))), token);

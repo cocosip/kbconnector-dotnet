@@ -29,7 +29,8 @@ internal static class PgIdentityProbe
         session.Parameters.TryGetValue("server_version", out var startupVersion);
         try
         {
-            var text = await ReadScalarAsync(session, "SELECT version();", cancellationToken).ConfigureAwait(false);
+            // A configured search_path may put borrower-writable schemas before the system catalog.
+            var text = await ReadScalarAsync(session, "SELECT sys_catalog.version();", cancellationToken).ConfigureAwait(false);
             if (!KingbaseProductVersion.TryParse(text, out var version) || version is null || version.Major != 9)
                 throw new NotSupportedException("The endpoint did not report a supported Kingbase V9 product identity.");
 

@@ -7,22 +7,27 @@ internal sealed class PgPhysicalSession : IDisposable
 {
     readonly PgTransport _transport;
     readonly PgQuerySession _queries;
+    readonly PgSessionResetState? _resetState;
+    readonly int _cleanupTimeout;
     int _disposed;
+    int _resetting;
     int _maxIdentifierLength;
 
     PgPhysicalSession(PgTransport transport, PgQuerySession queries, PgStartupResult startup,
-        PgIdentityResult identity, PgTypeCatalog catalog)
+        PgIdentityResult identity, PgTypeCatalog catalog, PgSessionResetState? resetState, int cleanupTimeout)
     {
         _transport = transport;
         _queries = queries;
         Startup = startup;
         Identity = identity;
         Catalog = catalog;
+        _resetState = resetState;
+        _cleanupTimeout = cleanupTimeout;
     }
 
     internal PgStartupResult Startup { get; }
     internal PgIdentityResult Identity { get; }
-    internal PgTypeCatalog Catalog { get; }
+    internal PgTypeCatalog Catalog { get; private set; }
     internal bool IsUsable => Volatile.Read(ref _disposed) == 0 && !_queries.IsDisposed;
     internal PgQuerySession Queries => Volatile.Read(ref _disposed) == 0 ? _queries
         : throw new ObjectDisposedException(nameof(PgPhysicalSession));
@@ -43,13 +48,43 @@ internal sealed class PgPhysicalSession : IDisposable
         _maxIdentifierLength = length;
         return length;
     }
-    internal static PgPhysicalSession Open(string connectionString) => OpenAsync(connectionString).GetAwaiter().GetResult();
+    internal static PgPhysicalSession Open(string connectionString, bool prepareForPooling = false) => OpenAsync(connectionString, prepareForPooling: prepareForPooling).GetAwaiter().GetResult();
 
-    internal static async Task<PgPhysicalSession> OpenAsync(string connectionString, CancellationToken cancellationToken = default)
+    internal void Reset() => ResetAsync().GetAwaiter().GetResult();
+    internal async Task ResetAsync()
+    {
+        if (!IsUsable) throw new ObjectDisposedException(nameof(PgPhysicalSession));
+        if (_resetState is null) throw new InvalidOperationException("This physical session was not initialized for pooling reset.");
+        if (Interlocked.CompareExchange(ref _resetting, 1, 0) != 0) throw new InvalidOperationException("A session reset is already active.");
+        var elapsed = Stopwatch.StartNew();
+        var budget = (long)_cleanupTimeout * 1000;
+        using var deadline = new CancellationTokenSource();
+        using var stop = new CancellationTokenSource();
+        var timer = WatchDeadlineAsync(budget, elapsed, deadline, stop.Token);
+        try
+        {
+            using var abort = deadline.Token.Register(() => { try { Dispose(); } catch { } });
+            var catalog = await _resetState.RestoreAsync(Queries, Identity, deadline.Token).ConfigureAwait(false);
+            abort.Dispose();
+            if (deadline.IsCancellationRequested || elapsed.ElapsedMilliseconds >= budget) throw new TimeoutException("PG session cleanup timed out.");
+            if (!IsUsable) throw new ObjectDisposedException(nameof(PgPhysicalSession));
+            Catalog = catalog;
+        }
+        catch
+        {
+            try { Dispose(); } catch { }
+            if (deadline.IsCancellationRequested || elapsed.ElapsedMilliseconds >= budget) throw new TimeoutException("PG session cleanup timed out.");
+            throw;
+        }
+        finally { stop.Cancel(); await timer.ConfigureAwait(false); Volatile.Write(ref _resetting, 0); }
+    }
+
+    internal static async Task<PgPhysicalSession> OpenAsync(string connectionString, CancellationToken cancellationToken = default, bool prepareForPooling = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var settings = new KingbaseConnectionStringBuilder(connectionString);
         settings.Validate();
+        if (prepareForPooling && !settings.Pooling) throw new ArgumentException("Pooling reset initialization requires Pooling=true.");
         if (settings.WireProtocol != KingbaseWireProtocol.PostgreSql)
             throw new NotSupportedException("The PG physical session requires PostgreSql wire protocol.");
         if (settings.RootCertificate.Length != 0)
@@ -78,10 +113,12 @@ internal sealed class PgPhysicalSession : IDisposable
             var identity = await PgIdentityProbe.RunAsync(queries, settings.CompatibilityMode, linked.Token).ConfigureAwait(false);
             CheckDeadline();
             var catalog = await PgTypeCatalog.LoadAsync(queries, identity, linked.Token).ConfigureAwait(false);
+            CheckDeadline();
+            var resetState = prepareForPooling ? await PgSessionResetState.CaptureAsync(queries, identity, linked.Token).ConfigureAwait(false) : null;
             // Detach the creation token before the final success boundary.
             abort.Dispose();
             CheckDeadline();
-            return new PgPhysicalSession(transport, queries, startup, identity, catalog);
+            return new PgPhysicalSession(transport, queries, startup, identity, catalog, resetState, settings.CleanupTimeout);
         }
         catch
         {

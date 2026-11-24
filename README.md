@@ -81,6 +81,8 @@ Use `Save(name)`, `Rollback(name)` and `Release(name)` or their asynchronous cou
 
 `KingbaseDataSourceBuilder.Build()` snapshots validated configuration. Its source creates independent connections with immutable configuration and redacted connection strings. Disposing the source rejects new opens and reopening, cancels pending opens, and lets already-open connections and Readers finish. Modern assets derive from `DbDataSource`; Standard assets expose typed creation/open methods.
 
+An internal PG reset foundation now captures canonical session settings, rolls back active transactions, issues DISCARD ALL, restores bound settings and verifies identity/catalog/state within Cleanup Timeout. This is simulated infrastructure for the forthcoming pool lifecycle; public connections still require `Pooling=false`. Real resource cleanup and reusable profiles remain unaccepted.
+
 The separate `KingbaseConnector.DependencyInjection` package provides closed transient connections and lazy singleton DataSources:
 
 ```csharp
