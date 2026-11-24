@@ -124,7 +124,7 @@ For a large feature, record named sub-items such as C07/TLS handshake or C07/cer
 | Package consumers | The actual package asset for every target framework and supported host. | Prove the resolved asset; a modern asset selected automatically does not validate a Standard asset. |
 | Fault/resource tests | Broken links, partial responses, cancellation, pool exhaustion, late cleanup, uncertain writes/commits, and leaks. | Confirm outcome and resource state, not just throughput or absence of exceptions. |
 
-After setup, the following are baseline local commands from the repository root. The selected test runner and eventual CI configuration must implement these checks or document their concrete equivalent:
+After setup, the following are baseline local commands from the repository root. The test runner and [CI/CD workflow](ci-cd.md) implement these checks through the aggregate verifier:
 
 ```powershell
 dotnet --info
@@ -136,6 +136,8 @@ dotnet pack src/KingbaseConnector -c Release --no-build -o artifacts/packages
 ```
 
 The executable aggregate entry point is `./eng/verify.ps1` (PowerShell 7). It restores/builds the solution, runs tests, packs, and validates all five explicit package assets using fresh per-run package caches and consumer outputs. SDK selection follows the installed environment; the repository has no `global.json` version pin. Validation used SDK 10.0.403. Unit/protocol/integration projects use VSTest (`Microsoft.NET.Test.Sdk` 18.0.1, MIT), xUnit 2.9.3 (Apache-2.0), and `xunit.runner.visualstudio` 3.1.5 (Apache-2.0) on net8.0/net9.0/net10.0; these test-only dependencies do not flow into the core package. Licenses were checked in the restored package nuspecs. The core initially has no explicit runtime package dependencies; the netstandard2.0 SDK reference resolves NETStandard.Library 2.0.3 and Microsoft.NETCore.Platforms 1.1.0 as build inputs.
+
+Use `-ContinuousIntegration` for TRX reports and deterministic CI build metadata. The verifier also runs isolated release-notes/provenance fixtures, then compares restored core/DI archive SHA-512 hashes to the newly packed artifacts before each consumer runs. Consumer version checks use the central project version rather than a fixed initial version. Hosted Windows/Linux checks, tag-only publication and NuGet OIDC policy setup are described in the CI/CD guide; adding the workflow does not establish a successful remote run.
 
 Consumers are intentionally outside the solution: they reference packed packages, not source projects, and require packing first. `eng/verify.ps1` packs both core and DI, verifies the DI nuspec's per-TFM minimum dependency ranges, and forces matching `lib/<asset>/KingbaseConnector.dll` and `KingbaseConnector.DependencyInjection.dll` through NuGet-generated paths. It checks actual TargetFrameworkAttribute values and runs Standard assets on .NET 8 and modern assets on their matching .NET 8/9/10 hosts. Consumers cover configuration, exact numerics, parameter ownership, Reader API shape, closed factory/command contracts, immutable/redacted DataSource configuration and typed/BCL DI lifetimes/disposal. Standard assets use Microsoft DI 10 while hosted on .NET 8; modern assets use their matching 8/9/10 floors. Wire execution and keyed resolution have additional modern-asset tests. Do not interpret this as complete G03 or Framework/Linux/ARM64 acceptance.
 

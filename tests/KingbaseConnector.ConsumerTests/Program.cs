@@ -5,12 +5,12 @@ using System.Data.Common;
 using KingbaseConnector;
 using Microsoft.Extensions.DependencyInjection;
 
-if (args.Length != 1)
-    throw new ArgumentException("Supply the expected package asset framework name.");
+if (args.Length != 2)
+    throw new ArgumentException("Supply the expected package asset framework name and project version.");
 
 var assembly = Assembly.Load("KingbaseConnector");
-if (assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+')[0] != "0.1.0")
-    throw new InvalidOperationException("The package must use the standard 0.1.0 version without a prerelease suffix.");
+if (assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+')[0] != args[1])
+    throw new InvalidOperationException("The package must match the centrally managed project version.");
 var actual = assembly.GetCustomAttribute<TargetFrameworkAttribute>()!.FrameworkName;
 if (actual != args[0])
     throw new InvalidOperationException($"Expected {args[0]}, loaded {actual} from {assembly.Location}.");

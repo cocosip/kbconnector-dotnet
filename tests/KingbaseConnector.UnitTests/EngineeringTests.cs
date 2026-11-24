@@ -11,7 +11,7 @@ public class EngineeringTests
         var assembly = Assembly.Load("KingbaseConnector");
         Assert.Equal($".NETCoreApp,Version=v{Environment.Version.Major}.0",
             assembly.GetCustomAttribute<TargetFrameworkAttribute>()!.FrameworkName);
-        Assert.Equal(new Version(0, 1, 0, 0), assembly.GetName().Version);
+        Assert.Equal(typeof(EngineeringTests).Assembly.GetName().Version, assembly.GetName().Version);
     }
 
     [Fact]

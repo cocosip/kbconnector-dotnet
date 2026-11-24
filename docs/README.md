@@ -8,6 +8,7 @@ Baseline date: 2026-11-23. Last updated: 2026-11-24. The repository includes the
 | [Feature and version matrix](kbconnector-feature-matrix.md) | Stable feature IDs, official evidence, candidate server profiles, proposed contracts, and acceptance requirements. |
 | [Development guide](kbconnector-development.md) | Repository setup, implementation order, dependencies, validation workflow, and the definition of a completed feature. |
 | [Development progress](kbconnector-development-progress.md) | The single current status record for milestones, work packages, all matrix features, blockers, and completion evidence. |
+| [CI/CD and releases](ci-cd.md) | Windows/Linux offline gates, exact-package consumption, version tags, release notes and NuGet trusted publishing setup. |
 | [Official driver inventory](reference/official-driver-inventory.json) | Paths and complete SHA-256 identities for 25 Kdbndp.dll files representing 10 unique binaries, with framework metadata and selected static evidence. |
 
 Use the design to understand the intended behavior, the matrix to identify a feature's requirements, and the development guide and tracker to implement and complete it. Update the tracker with each completed functional unit; do not maintain another editable completion list in the design or matrix.

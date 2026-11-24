@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param()
+param(
+    [switch]$ContinuousIntegration,
+    [string]$PackageReleaseNotes = ''
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -11,15 +14,25 @@ function Invoke-DotNet {
 
 Push-Location (Split-Path $PSScriptRoot -Parent)
 try {
+    & (Join-Path $PSScriptRoot 'Test-ReleaseNotes.ps1')
+    & (Join-Path $PSScriptRoot 'Test-PackageProvenance.ps1')
+    $ciProperties = @()
+    if ($ContinuousIntegration) { $ciProperties += '-p:ContinuousIntegrationBuild=true' }
+    $testReporting = if ($ContinuousIntegration) {
+        @('--logger', 'trx;LogFilePrefix=offline', '--results-directory', (Join-Path (Get-Location) 'artifacts/test-results'))
+    } else { @() }
+    $packProperties = @($ciProperties)
+    if ($PackageReleaseNotes) { $packProperties += "-p:PackageReleaseNotes=$PackageReleaseNotes" }
     Invoke-DotNet restore KingbaseConnector.slnx
-    Invoke-DotNet build KingbaseConnector.slnx -c Release --no-restore
-    Invoke-DotNet test KingbaseConnector.slnx -c Release --no-build --no-restore
-    Invoke-DotNet pack src/KingbaseConnector -c Release --no-build --no-restore -o artifacts/packages
-    Invoke-DotNet pack src/KingbaseConnector.DependencyInjection -c Release --no-build --no-restore -o artifacts/packages
+    Invoke-DotNet build KingbaseConnector.slnx -c Release --no-restore @ciProperties
+    Invoke-DotNet test KingbaseConnector.slnx -c Release --no-build --no-restore @testReporting
+    Invoke-DotNet pack src/KingbaseConnector -c Release --no-build --no-restore -o artifacts/packages @packProperties
+    Invoke-DotNet pack src/KingbaseConnector.DependencyInjection -c Release --no-build --no-restore -o artifacts/packages @packProperties
 
     # Check the shipped dependency ranges, rather than only the source project's evaluated versions.
     [xml]$buildProps = Get-Content Directory.Build.props -Raw
     $packageVersion = $buildProps.Project.PropertyGroup.Version
+    & (Join-Path $PSScriptRoot 'Assert-PackageVersions.ps1') -PackageDirectory artifacts/packages -Version $packageVersion
     $packagePath = Join-Path (Get-Location) "artifacts/packages/KingbaseConnector.DependencyInjection.$packageVersion.nupkg"
     $package = [IO.Compression.ZipFile]::OpenRead($packagePath)
     try {
@@ -63,11 +76,12 @@ try {
         $buildProperties = @("-p:TargetFramework=$($entry[1])", "-p:KingbaseAsset=$($entry[0])",
             "-p:BaseIntermediateOutputPath=$consumerCache/$($entry[0])/obj/",
             "-p:OutputPath=$consumerCache/$($entry[0])/bin/",
-            "-p:RestorePackagesPath=$consumerCache/packages")
+            "-p:RestorePackagesPath=$consumerCache/packages") + $ciProperties
         Invoke-DotNet restore $consumer @buildProperties "-p:RestoreAdditionalProjectSources=$(Join-Path (Get-Location) 'artifacts/packages')"
+        & (Join-Path $PSScriptRoot 'Assert-PackageProvenance.ps1') -PackageDirectory artifacts/packages -RestorePackagesPath "$consumerCache/packages" -Version $packageVersion
         Invoke-DotNet build $consumer -c Release --no-restore @buildProperties
         $consumerDll = Join-Path $consumerCache "$($entry[0])/bin/KingbaseConnector.ConsumerTests.dll"
-        Invoke-DotNet $consumerDll $entry[2]
+        Invoke-DotNet $consumerDll $entry[2] $packageVersion
     }
 }
 finally { Pop-Location }

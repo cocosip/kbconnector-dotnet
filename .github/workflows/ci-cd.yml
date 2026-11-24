@@ -1,0 +1,175 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*.*.*', '*.*.*']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CI: true
+  KINGBASE_TEST_LIVE: '0'
+  NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve the centrally managed version
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$properties = Get-Content -LiteralPath Directory.Build.props -Raw
+          $version = [string]$properties.Project.PropertyGroup.Version
+          if ($version -cnotmatch '\A(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\z') {
+            throw 'Directory.Build.props must define a standard major.minor.patch version.'
+          }
+          $release = $env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF.StartsWith('refs/tags/')
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "release=$($release.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Validate release tag and generate notes
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: ./eng/New-ReleaseNotes.ps1 -Tag $env:RELEASE_TAG
+
+      - name: Setup .NET SDK and test runtimes
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Cache NuGet dependencies
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.NUGET_PACKAGES }}
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props', '**/Directory.Build.props', 'NuGet.Config') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Verify offline tests and all package assets
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $verification = @{ ContinuousIntegration = $true }
+          if ($env:GITHUB_REF.StartsWith('refs/tags/')) {
+            $verification.PackageReleaseNotes = "https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$env:RELEASE_TAG"
+          }
+          ./eng/verify.ps1 @verification
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-${{ matrix.os }}
+          path: artifacts/test-results/**/*.trx
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Stage the tested release version checker
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Copy-Item -LiteralPath eng/Assert-PackageVersions.ps1 -Destination artifacts/packages/Assert-PackageVersions.ps1
+
+      - name: Upload verified packages and release notes
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuget-packages
+          path: |
+            artifacts/packages/KingbaseConnector*.nupkg
+            artifacts/packages/RELEASE_NOTES.md
+            artifacts/packages/Assert-PackageVersions.ps1
+          if-no-files-found: error
+          retention-days: 30
+
+  # Publish exactly the tested Windows artifact after the full OS matrix succeeds.
+  publish:
+    needs: build-and-test
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && needs.build-and-test.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Download verified packages and release notes
+        uses: actions/download-artifact@v8
+        with:
+          name: nuget-packages
+          path: artifacts/packages
+
+      - name: Validate downloaded package versions against the tag and configuration
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.build-and-test.outputs.version }}
+        run: ./artifacts/packages/Assert-PackageVersions.ps1 -PackageDirectory artifacts/packages -Version $env:VERSION -Tag $env:GITHUB_REF_NAME
+
+      - name: NuGet login with trusted publishing
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER || 'virtual' }}
+
+      - name: Publish packages to NuGet
+        shell: bash
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+          VERSION: ${{ needs.build-and-test.outputs.version }}
+        run: |
+          set -euo pipefail
+          packages=(
+            "artifacts/packages/KingbaseConnector.$VERSION.nupkg"
+            "artifacts/packages/KingbaseConnector.DependencyInjection.$VERSION.nupkg"
+          )
+          test -s artifacts/packages/RELEASE_NOTES.md
+          for package in "${packages[@]}"; do test -s "$package"; done
+          for package in "${packages[@]}"; do
+            dotnet nuget push "$package" \
+              --api-key "$NUGET_API_KEY" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build-and-test.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" --verify-tag \
+            --title "KingbaseConnector $VERSION" \
+            --notes-file artifacts/packages/RELEASE_NOTES.md \
+            artifacts/packages/*.nupkg artifacts/packages/RELEASE_NOTES.md

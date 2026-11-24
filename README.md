@@ -12,6 +12,8 @@ The core targets `netstandard2.0`, `netstandard2.1`, `net8.0`, `net9.0`, and `ne
 
 This restores, builds, runs offline tests, packs, and runs a consumer for each explicitly selected package asset. Standard assets run on .NET 8; this does not certify .NET Framework or other platforms. Tests do not contact a database by default. `KINGBASE_TEST_LIVE=1` enables the live-test gate, which rejects execution until a real profile and acceptance tests are registered.
 
+The [CI/CD workflow](docs/ci-cd.md) runs these checks on Windows and Linux for master pushes, pull requests and manual runs. A pushed version tag matching `Directory.Build.props` enables NuGet trusted publishing for core/DI and generates a GitHub Release after both OS jobs pass. `./eng/verify.ps1 -ContinuousIntegration` also produces TRX reports locally. Hosted workflow execution and publishing-policy setup remain separate acceptance evidence.
+
 Official reference DLLs are comparison inputs only and are excluded from product references and packages.
 
 `KingbaseNumeric` preserves high-precision numeric values without rounding:
