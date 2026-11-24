@@ -4,15 +4,15 @@ Last updated: 2026-11-24. This is the single current implementation and acceptan
 
 ## 1. Current snapshot
 
-DP01 engineering is implemented. DP03 implements the first configuration slice, offline server-requested PG password/MD5 authentication, an internal bounded startup coordinator and TCP/platform TLS tested against local loopback peers; DP04 adds bounded PG framing/control/error primitives. Explicit package consumers run on Windows x64 .NET 8/9/10. No real Kingbase server or live profile is accepted yet; query execution, complete public login, ownership/synchronization and server discovery remain open. The user requires the separate KingbaseConnector.DependencyInjection deliverable; registration contracts are defined, pending usable Connection/DataSource ownership.
+DP01 engineering is implemented. DP03 implements the first configuration slice, offline server-requested PG password/MD5 authentication, an internal bounded startup coordinator and TCP/platform TLS tested against local loopback peers; DP04 adds bounded PG framing/control/error primitives and an owned internal text-query session. Explicit package consumers run on Windows x64 .NET 8/9/10. No real Kingbase server or live profile is accepted yet; public query/login APIs, cancellation-channel synchronization and server discovery remain open. The user requires the separate KingbaseConnector.DependencyInjection deliverable; registration contracts and per-TFM dependency ranges are defined, pending usable Connection/DataSource ownership.
 
 | Product feature status | Count |
 | --- | ---: |
 | Complete | 1 |
 | Implemented, acceptance pending | 0 |
-| In progress | 14 |
+| In progress | 17 |
 | Blocked | 0 |
-| Not started | 96 |
+| Not started | 93 |
 | Deferred: later L scope and subsequent V8 work | 11 |
 | Not applicable | 0 |
 | Total matrix features | 122 |
@@ -32,7 +32,7 @@ Documentation deliverables are tracked separately from product functionality:
 | Phase | Status | Exit requirement | Evidence |
 | --- | --- | --- | --- |
 | V9-0 | Not started: runtime discovery | Register actual target profiles; establish version/mode, directory, and routine protocol facts. Static reference evidence is already available. | No live profiles registered. |
-| V9-1 | In progress | Engineering and the minimum connection/query/type/transaction/pool/metadata paths, including relevant failure behavior. | DP01 engineering and DP03/DP04 offline subsets; E01-E06. |
+| V9-1 | In progress | Engineering and the minimum connection/query/type/transaction/pool/metadata paths, including relevant failure behavior. | DP01 engineering and DP03/DP04 offline subsets; E01-E07. |
 | V9-2 | Not started | Complete required functional coverage including the exceptional explicit MySQL backend; resolve and validate applicable conditional features. | None yet. |
 | V9-3 | Not started | Version/deployment and exceptional MySQL-only acceptance, both-protocol pooling/faults/resources, package consumers, and the V9 release gate. | None yet. |
 | V8-1 | Deferred until the V9 gate | Establish V8R6C9B14 profiles and implement verified differences in the shared core. | Static D8-91 evidence only. |
@@ -48,7 +48,7 @@ Work-package checkboxes can be marked complete when the named subset and its exi
 - [x] **DP01 - Engineering and package structure** (V9-1; G01, G02). SDK/solution/shared props/CPM/core and test projects build all five TFMs; offline checks, packaging and explicit asset consumers execute. Optional DI remains with the later DataSource lifetime contract; G02/G03/G08 are partial. Evidence: E01.
 - [ ] **DP02 - Server profiles and bootstrap discovery** (V9-0; C03-C05, G08). Register authorized profiles and confirm raw/product version, mode, catalog, and routine output facts. Establish isolated official comparison entry points. Can proceed alongside DP01 when environments exist. Evidence: none.
 - [ ] **DP03 - Connection, configuration, and authentication foundation** (V9-1; C01-C02, C06-C10, C16, C18-C20, G06, G11). In progress: configuration (E02), offline password/MD5 (E04), internal startup (E05) and loopback TCP/platform-TLS subsets (E06). Public connection integration, shared initialization deadlines, custom CA policy, credential sources, full session configuration, remaining algorithms and complete login remain open. Use DP02 evidence for identity-dependent behavior.
-- [ ] **DP04 - Protocol state and failure handling** (V9-1; Q01, Q05, Q17-Q18, P06, G07). In progress: independent bounded framing/frontend/control-error-parser subset (E03). Session/query ownership, cancellation-channel closure, synchronization and uncertain outcomes remain pending transport/authentication/execution.
+- [ ] **DP04 - Protocol state and failure handling** (V9-1; Q01, Q05-Q06, Q17-Q18, P06, G07). In progress: bounded framing/frontend/control-error parsers (E03) and owned internal text-query exchanges (E07). Public execution/Reader ownership, extended protocol, cancellation-channel closure and uncertain-outcome contracts remain pending.
 - [ ] **DP05 - Type system and basic codecs** (V9-1; T01-T03, T05, T07-T10, T28, T30). After bootstrap/catalog contracts, implement type lookup and the basic input/result paths, exact conversion, typed getters, NULL handling, and bounds. Later mode-specific coverage for these features remains part of DP08. Evidence: none.
 - [ ] **DP06 - Commands, parameters, and Reader foundation** (V9-1/2; Q02-Q04, Q06, Q15-Q16, M01, M06). After DP04/DP05, deliver named/positional parameter planning, streaming/multiple results, Reader behavior, and foundational metadata. Evidence: none.
 - [ ] **DP07 - Pooling and session cleanup** (V9-1/2/3; P01-P03). After DP04/DP06, implement the built-in shared pool manager: private/direct pool identity, bounded leases/waiters, PG reset, generations, clear/expiry/dispose, credential rotation and unused-registry reclamation, transaction-reservation ownership, and resource/cancellation races. Complete transaction-affine reacquisition with DP10; MySQL reset and cross-backend acceptance remain DP22; P01-P03 stay open until applicable coverage passes. Evidence: none.
@@ -86,7 +86,7 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 | [ ] | C03 | Full product version detection | Not started | Not run | Not run | - |
 | [ ] | C04 | Automatic detection / explicit CompatibilityMode | Not started | Not run | Not run | - |
 | [ ] | C05 | Full-mode / standalone edition compatibility | Not started | Not run | Not run | - |
-| [ ] | C06 | Session encoding / parameter status | In progress | Passed: E03/E05 subsets | Not run | Strict UTF8 parsing/startup confirmation; lexical/codec updates pending |
+| [ ] | C06 | Session encoding / parameter status | In progress | Passed: E03/E05/E07 subsets | Not run | Strict UTF8/startup and bounded query parameter updates; typed/lexical consumers pending |
 | [ ] | C07 | TLS, CA, hostname validation | In progress | Passed: E06 subset | Not run | Platform TLS/strict upgrade/untrusted rejection; custom CA and positive trust/name cases pending |
 | [ ] | C08 | Password / MD5 authentication | In progress | Passed: E04/E05 subsets | Not run | Offline exchange/startup coordinator; network/complete login pending |
 | [ ] | C09 | SCRAM-SHA-256 | Not started | Not run | Not run | - |
@@ -107,12 +107,12 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 
 | Done | ID | Feature | Status | SIM | LIVE | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| [ ] | Q01 | Simple / Extended Query | In progress | Passed: E03 subset | Not run | E03: framing/Simple Query encoder only; execution/Extended Query pending |
+| [ ] | Q01 | Simple / Extended Query | In progress | Passed: E03/E07 subsets | Not run | Bounded internal Simple Query text execution; public/Extended Query pending |
 | [ ] | Q02 | Nonquery / scalar / reader | Not started | Not run | Not run | - |
 | [ ] | Q03 | Named and positional parameters | Not started | Not run | Not run | - |
 | [ ] | Q04 | Parameter types, precision/scale, typed NULL | Not started | Not run | Not run | - |
-| [ ] | Q05 | Synchronous/asynchronous execution, cancellation, and timeouts | Not started | Not run | Not run | - |
-| [ ] | Q06 | Multiple results and statements | Not started | Not run | Not run | - |
+| [ ] | Q05 | Synchronous/asynchronous execution, cancellation, and timeouts | In progress | Passed: E07 subset | Not run | Internal sync/async queries and cancellation retirement; public deadlines/cancel channel pending |
+| [ ] | Q06 | Multiple results and statements | In progress | Passed: E07 subset | Not run | Bounded separate text results/tags; public NextResult/typed outputs pending |
 | [ ] | Q07 | Explicit Prepare / Unprepare | Not started | Not run | Not run | - |
 | [ ] | Q08 | Automatic preparation | Not started | Not run | Not run | - |
 | [ ] | Q09 | Sequential batch / DbBatch | Not started | Not run | Not run | - |
@@ -123,8 +123,8 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 | [ ] | Q14 | SQL Server routine outputs / return codes | Not started | Not run | Not run | - |
 | [ ] | Q15 | SequentialAccess / Stream / TextReader | Not started | Not run | Not run | - |
 | [ ] | Q16 | CommandBehavior / reader contract | Not started | Not run | Not run | - |
-| [ ] | Q17 | SQLSTATE / Notice / deterministic exceptions | In progress | Passed: E03 subset | Not run | E03: internal SQLSTATE/error fields only; public exceptions/notices/outcomes pending |
-| [ ] | Q18 | Synchronization after Cancel / damaged connection handling | Not started | Not run | Not run | - |
+| [ ] | Q17 | SQLSTATE / Notice / deterministic exceptions | In progress | Passed: E03/E07 subsets | Not run | Safe internal errors/notices and query error draining; public exceptions/events/outcomes pending |
+| [ ] | Q18 | Synchronization after Cancel / damaged connection handling | In progress | Passed: E07 subset | Not run | Ordinary errors drain to Ready; malformed/cancelled exchanges retire; cancel channel/pools pending |
 | [ ] | Q19 | DeriveParameters | Not started | Not run | Not run | - |
 | [ ] | Q20 | MySQL commands / prepared execution / results | Not started | Not run | Not run | - |
 
@@ -355,3 +355,14 @@ When a unit is finished, update its row, package, phase, and section 1 counts in
 - Failure diagnosis: the first TLS fixture used an ephemeral server key rejected by Windows Schannel. The server error confirmed this fixture limitation; exporting/reloading its test-only PFX with UserKeySet corrected it without changing client validation or machine trust. Exported private-key bytes are cleared, certificates disposed, and peer failures awaited rather than hidden by client EOF.
 - LIVE/resources/follow-up: no registered Kingbase profile or LIVE result. The transport owns its socket/stream; failures and in-flight cancellation close both, while later cancellation of the creation token leaves a successful transport open. Custom CA/client certificates, isolated hostname-mismatch and positive trusted-chain tests, revocation policy, Standard/older-host DNS cancellation latency, shared deadlines, identity, pooling and DI remain pending. No database objects or trust-store changes were made.
 - Code review: independent read-only review found no actionable defects; its suggestion to use the explicit Standard TLS overload was applied and accepted in follow-up review, together with IPv6 coverage. Full verification passed after the final source/test changes.
+
+### E07 - DP04 owned bounded PG text-query exchanges (2026-11-24)
+
+- Scope/state: Q01/Q05/Q06/Q17/Q18 and C06/G07 internal subsets In progress. PgQuerySession owns an authenticated UTF8 wire and executes one bounded synchronous/asynchronous Simple Query exchange at a time. Public Command/Reader, Extended Query, typed codecs, cancellation-channel synchronization and pooling remain open.
+- Source/artifact: `Protocol/PgQuerySession.cs`, `PgQuerySessionTests.cs` and design section 7. Local `KingbaseConnector.0.1.0.nupkg` SHA-256 `3A70E1BC6F291D122602A1D005D760AF125CD9485EE63A43A04B736C2461F150`.
+- Contract/provenance: independently implements W21/W22 text RowDescription/DataRow, CommandComplete, EmptyQueryResponse and ReadyForQuery using existing BCL-only framing. Retains signed metadata values, raw unsigned OIDs, strict UTF8, NULL versus empty text, separate statement results and command tags. No static OID/type-catalog assumptions or identity queries. The exchange returns results only at ReadyForQuery; ordinary server errors discard results, drain to ReadyForQuery and throw safe SQLSTATE text before another query is allowed.
+- Bounds: 1 MiB outbound UTF8 SQL including terminator; 1 MiB aggregate backend payload enforced from frame headers before body allocation; 4096 frames, 256 results, 1024 rows and 1024 columns per result. Session parameter retention is independently capped at 256 entries and 1 MiB UTF8 name/value bytes including terminators across repeated queries; replacing values releases previous allowance.
+- Commands/results: 54 initial cases failed against temporary unimplemented signatures. Four additional empty-query phase cases and two retained-parameter cases reproduced missing checks before correction. `./eng/verify.ps1` passed after the final additions: 156 protocol plus 55 unit cases per net8.0/net9.0/net10.0 (633 passes), 3 visible live-gate skips, all five product TFMs without warnings/errors and five explicit configuration/version package consumers. Windows x64 SDK 10.0.403; Standard internal query paths compile, while query runtime cases execute on modern assets.
+- SIM: 63 new cases per modern host cover one-byte fragmentation, unknown raw OIDs/signed metadata, Unicode/NULL/empty rows, zero-column/zero-row/nonquery/empty/multiple results, immutable returned data, repeated session parameters and notices, exact/over budgets, every truncated metadata/row payload, malformed counts/lengths/UTF8/trailing bytes/phases, unsupported binary/COPY/async messages, pre-cancel/local SQL validation, concurrent-exchange rejection, failed writes, truncated I/O, cancellation and disposal while reading. A TCP loopback case composes transport, trust startup and text query on the same socket and verifies peer EOF after session disposal.
+- Error recovery/review: independent connected-source review found no actionable issues. A possible EmptyQueryResponse/ErrorResponse ordering concern was checked against W22's rule that errors/notices may interrupt any response phase; two explicit tests now verify errors after completed/empty results are drained and reported before reuse. This does not allow additional statement results after EmptyQueryResponse. A review reflection probe failed setup and contributed no behavioral evidence; acceptance relies on the executed owning tests.
+- LIVE/resources/follow-up: no real Kingbase profile or LIVE result. Initial local validation, pre-cancellation and rejected concurrent calls preserve the session; failures after exchange start retire it unless a valid ReadyForQuery confirmed error synchronization. Socket/wire disposal is idempotent and blocked test reads terminate. The review's remaining boundaries are U01/U02 identity/mode/catalog, typed/public execution, COPY/streaming/cancellation channels/pooling, functional Connection/DataSource/DI and broader authentication/TLS/deployment/framework-host acceptance. Those remain pending, not judged complete by this module.
