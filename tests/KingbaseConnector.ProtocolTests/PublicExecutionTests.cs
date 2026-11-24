@@ -540,15 +540,15 @@ public sealed class PublicExecutionTests
         connection.Close(); await peer.WaitAsync(guard.Token);
     }
 
-    static TcpListener Listen() { var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); return listener; }
-    static KingbaseConnectionStringBuilder Settings(TcpListener listener) => new()
+    internal static TcpListener Listen() { var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); return listener; }
+    internal static KingbaseConnectionStringBuilder Settings(TcpListener listener) => new()
     {
         Host = "127.0.0.1", Port = ((IPEndPoint)listener.LocalEndpoint).Port, Username = "user", Database = "db",
         Password = "private-password", SslMode = KingbaseSslMode.Disable, Pooling = false
     };
     static byte[] Tag(string tag) => Frame('C', Encoding.ASCII.GetBytes(tag + "\0"));
-    static byte[] Value(string value) => Join(Frame('1'), Frame('2'), Description(1, Oid("int4"), 4), Row([value]), Complete(), Ready());
-    static async Task Initialize(NetworkStream stream, CancellationToken token, bool readStartup = true)
+    internal static byte[] Value(string value) => Join(Frame('1'), Frame('2'), Description(1, Oid("int4"), 4), Row([value]), Complete(), Ready());
+    internal static async Task Initialize(NetworkStream stream, CancellationToken token, bool readStartup = true)
     {
         if (readStartup) await ReadStartupAsync(stream, token);
         await stream.WriteAsync(Join(Frame('R', Int32(0)), Status("client_encoding", "UTF8"), Status("server_version", "14"),
@@ -558,7 +558,7 @@ public sealed class PublicExecutionTests
         Assert.Contains("FROM sys_catalog.sys_type", await ReadQueryAsync(stream, token));
         await stream.WriteAsync(Catalog(Types.Select(t => new PgTypeDescription(Oid(t.Name), 90, t.Name, t.Size, 'b', 'U', 0, 0, 0, -1))), token);
     }
-    static async Task<byte[][]> ReadExtended(NetworkStream stream, CancellationToken token)
+    internal static async Task<byte[][]> ReadExtended(NetworkStream stream, CancellationToken token)
     {
         var frames = new List<byte[]>();
         foreach (var code in "PBDES")

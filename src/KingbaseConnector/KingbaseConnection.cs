@@ -9,6 +9,7 @@ namespace KingbaseConnector;
 public sealed class KingbaseConnection : DbConnection
 {
     readonly object _sync = new();
+    readonly KingbaseDataSource? _owner;
     KingbaseConnectionStringBuilder _settings = new();
     PgPhysicalSession? _session;
     CancellationTokenSource? _opening;
@@ -21,6 +22,12 @@ public sealed class KingbaseConnection : DbConnection
     bool _opened;
     public KingbaseConnection() { }
     public KingbaseConnection(string connectionString) => ConnectionString = connectionString;
+    internal KingbaseConnection(string connectionString, KingbaseDataSource owner)
+    {
+        _settings = new KingbaseConnectionStringBuilder(connectionString);
+        _owner = owner;
+        _opened = true;
+    }
 #if !NETSTANDARD2_0
     [AllowNull]
 #endif
@@ -32,6 +39,7 @@ public sealed class KingbaseConnection : DbConnection
             lock (_sync)
             {
                 ThrowIfDisposed();
+                if (_owner is not null) throw new InvalidOperationException("A DataSource connection has immutable configuration; create another source.");
                 if (_state != ConnectionState.Closed) throw new InvalidOperationException("Close the Kingbase connection before changing its configuration.");
                 _settings = new KingbaseConnectionStringBuilder(value ?? "");
                 _opened = false;
@@ -49,17 +57,15 @@ public sealed class KingbaseConnection : DbConnection
     public override async Task OpenAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        CancellationTokenSource opening;
+        using var opening = _owner?.CreateOpening(cancellationToken) ?? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         string connectionString;
         lock (_sync)
         {
             ThrowIfDisposed();
             if (_state != ConnectionState.Closed) throw new InvalidOperationException("The Kingbase connection is not closed.");
-            _settings.Validate();
-            if (_settings.Pooling) throw new NotSupportedException("This execution slice requires Pooling=false; built-in pooling is not yet implemented.");
+            KingbaseDataSourceBuilder.ValidateExecutionSettings(_settings);
             if (System.Transactions.Transaction.Current is not null) throw new NotSupportedException("Automatic system transaction enlistment is not yet implemented.");
             connectionString = _settings.ConnectionString;
-            opening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _opening = opening;
             _generation++;
             _state = ConnectionState.Connecting;
@@ -73,22 +79,28 @@ public sealed class KingbaseConnection : DbConnection
                 throw new NotSupportedException("The first public execution slice requires PostgreSql compatibility mode.");
             if (!physical.Queries.Parameters.TryGetValue("client_encoding", out var encoding) || encoding != "UTF8")
                 throw new NotSupportedException("The Kingbase session no longer reports UTF8 encoding.");
-            lock (_sync)
-            {
-                opening.Token.ThrowIfCancellationRequested();
-                if (!ReferenceEquals(_opening, opening) || _state != ConnectionState.Connecting)
-                    throw new OperationCanceledException("Kingbase opening was closed.", opening.Token);
-                _session = physical;
-                physical = null;
-                _state = ConnectionState.Open;
-                _opened = true;
-            }
+            if (_owner is null) Publish(); else _owner.PublishOpen(Publish);
             Notify(ConnectionState.Connecting, ConnectionState.Open);
+
+            void Publish()
+            {
+                lock (_sync)
+                {
+                    opening.Token.ThrowIfCancellationRequested();
+                    if (!ReferenceEquals(_opening, opening) || _state != ConnectionState.Connecting)
+                        throw new OperationCanceledException("Kingbase opening was closed.", opening.Token);
+                    _session = physical;
+                    physical = null;
+                    _state = ConnectionState.Open;
+                    _opened = true;
+                }
+            }
         }
         catch (Exception error)
         {
             try { CloseCore(disposing: false, failedOpening: opening); } catch { }
             cancellationToken.ThrowIfCancellationRequested();
+            _owner?.EnsureAvailable();
             if (error is PgStartupException startup) throw new KingbaseException(startup.ServerError);
             if (error is PgQueryException query) throw new KingbaseException(query.ServerError);
             throw;
@@ -97,7 +109,6 @@ public sealed class KingbaseConnection : DbConnection
         {
             physical?.Dispose();
             lock (_sync) { if (ReferenceEquals(_opening, opening)) _opening = null; }
-            opening.Dispose();
         }
     }
     public override void Close() => CloseCore(disposing: false);
@@ -137,6 +148,7 @@ public sealed class KingbaseConnection : DbConnection
         lock (_sync)
         {
             OpenSession();
+            if (_owner is not null) throw new InvalidOperationException("A DataSource connection has immutable configuration; create another source.");
             if (_command is not null || _reader is not null) throw ActiveOperation();
             var settings = new KingbaseConnectionStringBuilder(_settings.ConnectionString) { Database = databaseName };
             settings.Validate();

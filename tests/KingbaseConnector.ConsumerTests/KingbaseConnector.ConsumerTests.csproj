@@ -6,8 +6,15 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="KingbaseConnector" GeneratePathProperty="true" ExcludeAssets="compile;runtime" />
+    <PackageReference Include="KingbaseConnector.DependencyInjection" GeneratePathProperty="true" ExcludeAssets="compile;runtime" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Condition="'$(KingbaseAsset)' != 'netstandard2.0' And '$(KingbaseAsset)' != 'netstandard2.1'" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" VersionOverride="[10.0.0,)" Condition="'$(KingbaseAsset)' == 'netstandard2.0' Or '$(KingbaseAsset)' == 'netstandard2.1'" />
     <Reference Include="KingbaseConnector">
       <HintPath>$(PkgKingbaseConnector)/lib/$(KingbaseAsset)/KingbaseConnector.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="KingbaseConnector.DependencyInjection">
+      <HintPath>$(PkgKingbaseConnector_DependencyInjection)/lib/$(KingbaseAsset)/KingbaseConnector.DependencyInjection.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>

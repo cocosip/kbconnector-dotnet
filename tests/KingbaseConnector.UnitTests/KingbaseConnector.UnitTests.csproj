@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../../src/KingbaseConnector/KingbaseConnector.csproj" />
+    <ProjectReference Include="../../src/KingbaseConnector.DependencyInjection/KingbaseConnector.DependencyInjection.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
   </ItemGroup>
 </Project>

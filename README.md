@@ -46,4 +46,21 @@ var amount = await command.ExecuteScalarAsync();
 
 The default TLS mode verifies the server certificate and hostname. Configure a trusted server certificate before using this example. The public execution path is covered by simulated peers; no real Kingbase server is accepted yet.
 
-`KingbaseDataReader` buffers completed PG results with exact typed/provider numeric access, binary/text slices and basic column metadata. A connection owns its returned Reader until close. Default, CloseConnection, SingleRow and SingleResult behaviors are supported. Unknown schema facts remain unset; raw PG identities are available in `GetSchemaTable` provider columns. Streaming/SequentialAccess, local/system transactions, retained preparation, DataSource, pooling and the required dependency-injection package remain pending.
+`KingbaseDataReader` buffers completed PG results with exact typed/provider numeric access, binary/text slices and basic column metadata. A connection owns its returned Reader until close. Default, CloseConnection, SingleRow and SingleResult behaviors are supported. Unknown schema facts remain unset; raw PG identities are available in `GetSchemaTable` provider columns. Streaming/SequentialAccess, local/system transactions, retained preparation and pooling remain pending.
+
+`KingbaseDataSourceBuilder.Build()` snapshots validated configuration. Its source creates independent connections with immutable configuration and redacted connection strings. Disposing the source rejects new opens and reopening, cancels pending opens, and lets already-open connections and Readers finish. Modern assets derive from `DbDataSource`; Standard assets expose typed creation/open methods.
+
+The separate `KingbaseConnector.DependencyInjection` package provides closed transient connections and lazy singleton DataSources:
+
+```csharp
+using Microsoft.Extensions.DependencyInjection;
+
+var services = new ServiceCollection();
+services.AddKingbaseDataSource(
+    "Host=localhost;Database=app;Username=user;Password=secret;Pooling=false");
+using var provider = services.BuildServiceProvider();
+var source = provider.GetRequiredService<KingbaseDataSource>();
+using var connection = await source.OpenConnectionAsync();
+```
+
+Use `AddKingbaseConnection` for transient connections, or `AddKeyedKingbaseDataSource` for multiple keyed sources on modern assets. Unkeyed BCL aliases are added when absent; duplicate provider/key registrations reject atomically. The container owns resolved services. DI uses Microsoft.Extensions lower-bound ranges `[8.0.0,)` on net8.0, `[9.0.0,)` on net9.0, and `[10.0.0,)` on net10.0 and Standard assets. DataSources currently require explicit `Pooling=false`; built-in private/shared pools and direct DataSource commands remain future work.

@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Data;
 using System.Data.Common;
 using KingbaseConnector;
+using Microsoft.Extensions.DependencyInjection;
 
 if (args.Length != 1)
     throw new ArgumentException("Supply the expected package asset framework name.");
@@ -95,6 +96,54 @@ try
 {
     connection.Open();
     throw new InvalidOperationException("The selected asset reopened a disposed connection.");
+}
+catch (ObjectDisposedException) { }
+
+var diAssembly = Assembly.Load("KingbaseConnector.DependencyInjection");
+if (diAssembly.GetCustomAttribute<TargetFrameworkAttribute>()!.FrameworkName != args[0])
+    throw new InvalidOperationException("The DI asset does not match the explicitly selected core asset.");
+var sourceBuilder = new KingbaseDataSourceBuilder("Host=localhost;Database=app;Username=user;Password=private;Pooling=false");
+using var source = sourceBuilder.Build();
+sourceBuilder.ConnectionStringBuilder.Database = "changed";
+using var owned = source.CreateConnection();
+if (owned.Database != "app" || source.ConnectionString.Contains("private") || owned.ConnectionString.Contains("private"))
+    throw new InvalidOperationException("The selected asset failed immutable/redacted DataSource configuration.");
+var modern = args[0].StartsWith(".NETCoreApp", StringComparison.Ordinal);
+if (((object)source is DbDataSource) != modern)
+    throw new InvalidOperationException("The selected asset has an incorrect DataSource BCL base.");
+var services = new ServiceCollection();
+services.AddKingbaseConnection("Host=localhost;Database=app;Username=user;Pooling=false");
+services.AddKingbaseDataSource("Host=localhost;Database=app;Username=user;Pooling=false");
+var container = services.BuildServiceProvider();
+using var scope = container.CreateScope();
+var scopedConnection = scope.ServiceProvider.GetRequiredService<KingbaseConnection>();
+var aliasConnection = scope.ServiceProvider.GetRequiredService<DbConnection>();
+var singleton = container.GetRequiredService<KingbaseDataSource>();
+if (ReferenceEquals(scopedConnection, aliasConnection) || aliasConnection is not KingbaseConnection ||
+    scopedConnection.State != ConnectionState.Closed || !ReferenceEquals(singleton, scope.ServiceProvider.GetRequiredService<KingbaseDataSource>()))
+    throw new InvalidOperationException("The selected asset failed DI connection/source lifetimes.");
+if (modern && !ReferenceEquals(singleton, container.GetRequiredService<DbDataSource>()))
+    throw new InvalidOperationException("The selected asset failed its BCL DataSource alias.");
+var keyed = typeof(KingbaseServiceCollectionExtensions).GetMethod("AddKeyedKingbaseDataSource");
+if ((keyed is not null) != modern)
+    throw new InvalidOperationException("The selected asset has an incorrect keyed DI API surface.");
+scope.Dispose(); container.Dispose(); source.Dispose();
+try
+{
+    scopedConnection.Open();
+    throw new InvalidOperationException("A container-owned connection survived scope disposal.");
+}
+catch (ObjectDisposedException) { }
+try
+{
+    singleton.CreateConnection();
+    throw new InvalidOperationException("A container-owned source survived container disposal.");
+}
+catch (ObjectDisposedException) { }
+try
+{
+    await owned.OpenAsync();
+    throw new InvalidOperationException("A disposed source allowed a new connection open.");
 }
 catch (ObjectDisposedException) { }
 

@@ -35,11 +35,7 @@ internal sealed class PgPhysicalSession : IDisposable
             throw new NotSupportedException("The PG physical session requires PostgreSql wire protocol.");
         if (settings.RootCertificate.Length != 0)
             throw new NotSupportedException("Custom root certificates are not yet supported by the PG transport.");
-        // Validate aggregate startup size and all credential text before creating a transport.
-        PgFrontendMessages.PasswordTextLength(settings.Password);
-        PgPasswordAuthentication.Md5InputLengths(settings.Username, settings.Password);
-        var startupMessage = PgFrontendMessages.Startup(settings.Username, settings.Database,
-            settings.ApplicationName, settings.SearchPath, settings.Timezone);
+        var startupMessage = CreateStartupMessage(settings);
 
         var elapsed = Stopwatch.StartNew();
         var budget = (long)settings.Timeout * 1000;
@@ -89,6 +85,15 @@ internal sealed class PgPhysicalSession : IDisposable
             if (budget != 0 && (deadline.IsCancellationRequested || elapsed.ElapsedMilliseconds >= budget))
                 throw new TimeoutException("PG session initialization timed out.");
         }
+    }
+
+    internal static byte[] CreateStartupMessage(KingbaseConnectionStringBuilder settings)
+    {
+        // Validate aggregate startup size and all credential text before creating a transport or source.
+        PgFrontendMessages.PasswordTextLength(settings.Password);
+        PgPasswordAuthentication.Md5InputLengths(settings.Username, settings.Password);
+        return PgFrontendMessages.Startup(settings.Username, settings.Database,
+            settings.ApplicationName, settings.SearchPath, settings.Timezone);
     }
 
     static async Task WatchDeadlineAsync(long budget, Stopwatch elapsed, CancellationTokenSource deadline, CancellationToken stop)
