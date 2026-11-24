@@ -4,15 +4,15 @@ Last updated: 2026-11-24. This is the single current implementation and acceptan
 
 ## 1. Current snapshot
 
-DP01 engineering is implemented. DP03 implements the first configuration slice, offline server-requested PG password/MD5 authentication and an internal bounded startup coordinator; DP04 adds bounded PG frame I/O, selected frontend encoders and strict backend control/error parsers with deterministic stream tests. Explicit package consumers run on Windows x64 .NET 8/9/10. No network connection or live profile is accepted yet; query execution, complete login, ownership/synchronization and server discovery remain open. The user requires the separate KingbaseConnector.DependencyInjection deliverable; registration contracts are defined, pending usable Connection/DataSource ownership.
+DP01 engineering is implemented. DP03 implements the first configuration slice, offline server-requested PG password/MD5 authentication, an internal bounded startup coordinator and TCP/platform TLS tested against local loopback peers; DP04 adds bounded PG framing/control/error primitives. Explicit package consumers run on Windows x64 .NET 8/9/10. No real Kingbase server or live profile is accepted yet; query execution, complete public login, ownership/synchronization and server discovery remain open. The user requires the separate KingbaseConnector.DependencyInjection deliverable; registration contracts are defined, pending usable Connection/DataSource ownership.
 
 | Product feature status | Count |
 | --- | ---: |
 | Complete | 1 |
 | Implemented, acceptance pending | 0 |
-| In progress | 12 |
+| In progress | 14 |
 | Blocked | 0 |
-| Not started | 98 |
+| Not started | 96 |
 | Deferred: later L scope and subsequent V8 work | 11 |
 | Not applicable | 0 |
 | Total matrix features | 122 |
@@ -32,7 +32,7 @@ Documentation deliverables are tracked separately from product functionality:
 | Phase | Status | Exit requirement | Evidence |
 | --- | --- | --- | --- |
 | V9-0 | Not started: runtime discovery | Register actual target profiles; establish version/mode, directory, and routine protocol facts. Static reference evidence is already available. | No live profiles registered. |
-| V9-1 | In progress | Engineering and the minimum connection/query/type/transaction/pool/metadata paths, including relevant failure behavior. | DP01 engineering and DP03/DP04 offline subsets; E01-E05. |
+| V9-1 | In progress | Engineering and the minimum connection/query/type/transaction/pool/metadata paths, including relevant failure behavior. | DP01 engineering and DP03/DP04 offline subsets; E01-E06. |
 | V9-2 | Not started | Complete required functional coverage including the exceptional explicit MySQL backend; resolve and validate applicable conditional features. | None yet. |
 | V9-3 | Not started | Version/deployment and exceptional MySQL-only acceptance, both-protocol pooling/faults/resources, package consumers, and the V9 release gate. | None yet. |
 | V8-1 | Deferred until the V9 gate | Establish V8R6C9B14 profiles and implement verified differences in the shared core. | Static D8-91 evidence only. |
@@ -47,7 +47,7 @@ Work-package checkboxes can be marked complete when the named subset and its exi
 
 - [x] **DP01 - Engineering and package structure** (V9-1; G01, G02). SDK/solution/shared props/CPM/core and test projects build all five TFMs; offline checks, packaging and explicit asset consumers execute. Optional DI remains with the later DataSource lifetime contract; G02/G03/G08 are partial. Evidence: E01.
 - [ ] **DP02 - Server profiles and bootstrap discovery** (V9-0; C03-C05, G08). Register authorized profiles and confirm raw/product version, mode, catalog, and routine output facts. Establish isolated official comparison entry points. Can proceed alongside DP01 when environments exist. Evidence: none.
-- [ ] **DP03 - Connection, configuration, and authentication foundation** (V9-1; C01-C02, C06-C10, C16, C18-C20, G06, G11). In progress: first local configuration slice (E02), offline PG password/MD5 exchange (E04) and internal startup coordinator (E05); networking, credential sources, full session configuration, remaining algorithms and complete login remain open. Use DP02 evidence for identity-dependent behavior.
+- [ ] **DP03 - Connection, configuration, and authentication foundation** (V9-1; C01-C02, C06-C10, C16, C18-C20, G06, G11). In progress: configuration (E02), offline password/MD5 (E04), internal startup (E05) and loopback TCP/platform-TLS subsets (E06). Public connection integration, shared initialization deadlines, custom CA policy, credential sources, full session configuration, remaining algorithms and complete login remain open. Use DP02 evidence for identity-dependent behavior.
 - [ ] **DP04 - Protocol state and failure handling** (V9-1; Q01, Q05, Q17-Q18, P06, G07). In progress: independent bounded framing/frontend/control-error-parser subset (E03). Session/query ownership, cancellation-channel closure, synchronization and uncertain outcomes remain pending transport/authentication/execution.
 - [ ] **DP05 - Type system and basic codecs** (V9-1; T01-T03, T05, T07-T10, T28, T30). After bootstrap/catalog contracts, implement type lookup and the basic input/result paths, exact conversion, typed getters, NULL handling, and bounds. Later mode-specific coverage for these features remains part of DP08. Evidence: none.
 - [ ] **DP06 - Commands, parameters, and Reader foundation** (V9-1/2; Q02-Q04, Q06, Q15-Q16, M01, M06). After DP04/DP05, deliver named/positional parameter planning, streaming/multiple results, Reader behavior, and foundational metadata. Evidence: none.
@@ -82,12 +82,12 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 | Done | ID | Feature | Status | SIM | LIVE | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
 | [ ] | C01 | ConnectionStringBuilder / factory | In progress | Passed: E02 subset | Not run | E02: builder only; factory pending |
-| [ ] | C02 | TCP, DNS, synchronous/asynchronous Open | Not started | Not run | Not run | - |
+| [ ] | C02 | TCP, DNS, synchronous/asynchronous Open | In progress | Passed: E06 subset | Not run | Internal sync/async loopback transport only; public Open/deadlines pending |
 | [ ] | C03 | Full product version detection | Not started | Not run | Not run | - |
 | [ ] | C04 | Automatic detection / explicit CompatibilityMode | Not started | Not run | Not run | - |
 | [ ] | C05 | Full-mode / standalone edition compatibility | Not started | Not run | Not run | - |
 | [ ] | C06 | Session encoding / parameter status | In progress | Passed: E03/E05 subsets | Not run | Strict UTF8 parsing/startup confirmation; lexical/codec updates pending |
-| [ ] | C07 | TLS, CA, hostname validation | Not started | Not run | Not run | - |
+| [ ] | C07 | TLS, CA, hostname validation | In progress | Passed: E06 subset | Not run | Platform TLS/strict upgrade/untrusted rejection; custom CA and positive trust/name cases pending |
 | [ ] | C08 | Password / MD5 authentication | In progress | Passed: E04/E05 subsets | Not run | Offline exchange/startup coordinator; network/complete login pending |
 | [ ] | C09 | SCRAM-SHA-256 | Not started | Not run | Not run | - |
 | [ ] | C10 | Separate SM3 authentication | Not started | Not run | Not run | - |
@@ -234,7 +234,7 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 | [ ] | G04 | Windows/Linux x64 | Not started | Not run | Not run | - |
 | [ ] | G05 | ARM64 / Framework hosts | Not started | Not run | Not run | - |
 | [ ] | G06 | Logging / Activity / Meter | Not started | Not run | Not run | - |
-| [ ] | G07 | Security / failure / resource stress | In progress | Passed: E03 subset | Not run | E03: bounded frame/fault/stream retirement cases only |
+| [ ] | G07 | Security / failure / resource stress | In progress | Passed: E03/E05/E06 subsets | Not run | Bounded framing/startup and loopback transport failure/cancellation only; stress pending |
 | [ ] | G08 | Differential / live test framework | In progress | Not run | Not run | E01: offline/live separation and fail-closed opt-in only |
 | [ ] | G09 | NuGet / provenance / licensing / compatibility notes | Not started | Not run | Not run | - |
 | [ ] | G10 | Trimming / NativeAOT | Deferred | Not run | Not run | - |
@@ -342,3 +342,14 @@ When a unit is finished, update its row, package, phase, and section 1 counts in
 - SIM: one-byte-fragmented trust/password/MD5 startup, literal outgoing bytes, repeated parameters, notices at either phase, server errors before/after authentication, phase/order/key/encoding/transaction errors, unsupported algorithms with no password response, message/payload limits, pre-cancellation versus pending-read cancellation, password-buffer clearing on success/write failure and one-time stream retirement.
 - LIVE/resources/follow-up: no real profile, socket or accepted LIVE result. The caller owns the successful wire; all failed exchanges after I/O retire it, preserving the original error. Returned password frames are cleared after the write even if it throws. Remaining transport/TLS, complete algorithms, session settings, public connection/exception/notice contracts, identity/catalog initialization and pool/reset/DI lifecycle remain pending.
 - Code review: independent review identified that the first payload-budget check happened after frame materialization. A header-only oversized-frame test reproduced the stall. Framing now checks each read against the remaining startup payload allowance before allocation/body reads; exact/zero/negative limits and sync/async body-unread cases are covered. Independent re-review found no further actionable issues; full verification passed after this fix.
+
+### E06 - DP03 TCP and platform TLS transport (2026-11-24)
+
+- Scope/state: C02/C07 and G07 transport/resource subsets In progress; DP03 remains open. Internal synchronous/asynchronous TCP connection and strict PG SSLRequest upgrade are implemented. Public Open, a shared initialization deadline, startup integration and Kingbase identity are pending.
+- Source/artifact: `Protocol/PgTransport.cs`, `PgTransportTests.cs` and design section 6.5. Local `KingbaseConnector.0.1.0.nupkg` SHA-256 `557020A3204520C0999FE3D59A23D48230EDBD8C55E47A04BF87019BFF0C90D4`.
+- Contract/provenance: independently implements W21/W23 with BCL TcpClient/SslStream and no new dependencies. Disable sends no SSLRequest; Require encrypts without certificate validation; VerifyFull uses system chain/hostname validation. Both TLS modes require an S reply and protected TLS, with no plaintext fallback. Every asset explicitly selects OS TLS protocols with SslProtocols.None. Revocation checking is disabled in this subset.
+- Commands/results: 14 new cases failed against temporary unimplemented signatures before implementation. `./eng/verify.ps1` passed after implementation and fixture correction: 93 protocol plus 55 unit cases on each net8.0/net9.0/net10.0 (444 passes), 3 visible live-gate skips, five product TFMs without warnings/errors and five explicit configuration/version package consumers. Windows x64 SDK 10.0.403; runtimes 8.0.33/9.0.22/10.0.14. Internal Standard transport is compiled, not directly exercised.
+- SIM: 15 loopback transport cases per modern runtime cover sync/async plaintext and encrypted round trips, exact SSLRequest bytes, untrusted-certificate rejection before application data, N/invalid/truncated replies without fallback, cancellation during SSL negotiation/TLS handshake, pre-cancel and input validation, token lifetime after success, stream ownership and repeated disposal. IPv6 literal ::1 ran successfully on this host; unsupported IPv6 hosts visibly skip that case.
+- Failure diagnosis: the first TLS fixture used an ephemeral server key rejected by Windows Schannel. The server error confirmed this fixture limitation; exporting/reloading its test-only PFX with UserKeySet corrected it without changing client validation or machine trust. Exported private-key bytes are cleared, certificates disposed, and peer failures awaited rather than hidden by client EOF.
+- LIVE/resources/follow-up: no registered Kingbase profile or LIVE result. The transport owns its socket/stream; failures and in-flight cancellation close both, while later cancellation of the creation token leaves a successful transport open. Custom CA/client certificates, isolated hostname-mismatch and positive trusted-chain tests, revocation policy, Standard/older-host DNS cancellation latency, shared deadlines, identity, pooling and DI remain pending. No database objects or trust-store changes were made.
+- Code review: independent read-only review found no actionable defects; its suggestion to use the explicit Standard TLS overload was applied and accepted in follow-up review, together with IPv6 coverage. Full verification passed after the final source/test changes.
