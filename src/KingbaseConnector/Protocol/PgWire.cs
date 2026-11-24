@@ -26,13 +26,14 @@ internal sealed class PgWire : IDisposable
         _maxMessageLength = maxMessageLength;
     }
 
-    internal PgMessage ReadMessage()
+    internal PgMessage ReadMessage(int maxPayloadLength = int.MaxValue)
     {
+        if (maxPayloadLength < 0) throw new ArgumentOutOfRangeException(nameof(maxPayloadLength));
         EnterOperation();
         try
         {
             ReadExactly(_header);
-            var payload = AllocatePayload();
+            var payload = AllocatePayload(maxPayloadLength);
             ReadExactly(payload);
             return new PgMessage(_header[0], payload);
         }
@@ -40,14 +41,16 @@ internal sealed class PgWire : IDisposable
         finally { Volatile.Write(ref _busy, 0); }
     }
 
-    internal async Task<PgMessage> ReadMessageAsync(CancellationToken cancellationToken = default)
+    internal async Task<PgMessage> ReadMessageAsync(CancellationToken cancellationToken = default,
+        int maxPayloadLength = int.MaxValue)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (maxPayloadLength < 0) throw new ArgumentOutOfRangeException(nameof(maxPayloadLength));
         EnterOperation();
         try
         {
             await ReadExactlyAsync(_header, cancellationToken).ConfigureAwait(false);
-            var payload = AllocatePayload();
+            var payload = AllocatePayload(maxPayloadLength);
             await ReadExactlyAsync(payload, cancellationToken).ConfigureAwait(false);
             return new PgMessage(_header[0], payload);
         }
@@ -85,10 +88,10 @@ internal sealed class PgWire : IDisposable
         }
     }
 
-    byte[] AllocatePayload()
+    byte[] AllocatePayload(int maxPayloadLength)
     {
         var length = PgBinary.ReadInt32(_header, 1);
-        if (length < 4 || length > _maxMessageLength)
+        if (length < 4 || length > _maxMessageLength || length - 4 > maxPayloadLength)
             throw new IOException("Invalid or oversized PG message length.");
         return length == 4 ? Array.Empty<byte>() : new byte[length - 4];
     }

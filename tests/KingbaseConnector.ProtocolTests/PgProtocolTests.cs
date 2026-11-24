@@ -8,6 +8,36 @@ public class PgProtocolTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task PerReadPayloadLimitIsEnforcedBeforeReadingTheBody(bool async)
+    {
+        var stream = new FragmentedStream(new byte[] { (byte)'D', 0, 0, 0, 7, 1, 2, 3 });
+        using var wire = new PgWire(stream);
+        if (async) await Assert.ThrowsAsync<IOException>(() => wire.ReadMessageAsync(maxPayloadLength: 2));
+        else Assert.Throws<IOException>(() => wire.ReadMessage(maxPayloadLength: 2));
+        Assert.Equal(5, stream.BytesRead);
+        Assert.Equal(1, stream.DisposeCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PerReadLimitAllowsExactAndZeroPayloadsAndInvalidArgumentsDoNotConsumeTheStream(bool async)
+    {
+        var stream = new FragmentedStream(new byte[] { (byte)'D', 0, 0, 0, 7, 1, 2, 3, (byte)'S', 0, 0, 0, 4 });
+        using var wire = new PgWire(stream);
+        if (async) await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => wire.ReadMessageAsync(maxPayloadLength: -1));
+        else Assert.Throws<ArgumentOutOfRangeException>(() => wire.ReadMessage(maxPayloadLength: -1));
+        Assert.Equal(0, stream.BytesRead);
+        var first = async ? await wire.ReadMessageAsync(maxPayloadLength: 3) : wire.ReadMessage(maxPayloadLength: 3);
+        Assert.Equal(new byte[] { 1, 2, 3 }, first.Payload);
+        var second = async ? await wire.ReadMessageAsync(maxPayloadLength: 0) : wire.ReadMessage(maxPayloadLength: 0);
+        Assert.Empty(second.Payload);
+        Assert.Equal(0, stream.DisposeCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task FragmentedAndConsecutiveMessagesKeepTheirBoundaries(bool async)
     {
         var first = new byte[] { (byte)'D', 0, 0, 0, 7, 1, 2, 3 };

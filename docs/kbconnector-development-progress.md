@@ -4,15 +4,15 @@ Last updated: 2026-11-24. This is the single current implementation and acceptan
 
 ## 1. Current snapshot
 
-DP01 engineering is implemented. DP03 implements the first configuration slice and offline server-requested PG password/MD5 authentication; DP04 adds bounded PG frame I/O, selected frontend encoders and strict backend control/error parsers with deterministic stream tests. Explicit package consumers run on Windows x64 .NET 8/9/10. No network connection or live profile is accepted yet; query execution, complete login, ownership/synchronization and server discovery remain open. The user requires the separate KingbaseConnector.DependencyInjection deliverable; registration contracts are defined, pending usable Connection/DataSource ownership.
+DP01 engineering is implemented. DP03 implements the first configuration slice, offline server-requested PG password/MD5 authentication and an internal bounded startup coordinator; DP04 adds bounded PG frame I/O, selected frontend encoders and strict backend control/error parsers with deterministic stream tests. Explicit package consumers run on Windows x64 .NET 8/9/10. No network connection or live profile is accepted yet; query execution, complete login, ownership/synchronization and server discovery remain open. The user requires the separate KingbaseConnector.DependencyInjection deliverable; registration contracts are defined, pending usable Connection/DataSource ownership.
 
 | Product feature status | Count |
 | --- | ---: |
 | Complete | 1 |
 | Implemented, acceptance pending | 0 |
-| In progress | 11 |
+| In progress | 12 |
 | Blocked | 0 |
-| Not started | 99 |
+| Not started | 98 |
 | Deferred: later L scope and subsequent V8 work | 11 |
 | Not applicable | 0 |
 | Total matrix features | 122 |
@@ -32,7 +32,7 @@ Documentation deliverables are tracked separately from product functionality:
 | Phase | Status | Exit requirement | Evidence |
 | --- | --- | --- | --- |
 | V9-0 | Not started: runtime discovery | Register actual target profiles; establish version/mode, directory, and routine protocol facts. Static reference evidence is already available. | No live profiles registered. |
-| V9-1 | In progress | Engineering and the minimum connection/query/type/transaction/pool/metadata paths, including relevant failure behavior. | DP01 engineering and DP03/DP04 offline subsets; E01-E04. |
+| V9-1 | In progress | Engineering and the minimum connection/query/type/transaction/pool/metadata paths, including relevant failure behavior. | DP01 engineering and DP03/DP04 offline subsets; E01-E05. |
 | V9-2 | Not started | Complete required functional coverage including the exceptional explicit MySQL backend; resolve and validate applicable conditional features. | None yet. |
 | V9-3 | Not started | Version/deployment and exceptional MySQL-only acceptance, both-protocol pooling/faults/resources, package consumers, and the V9 release gate. | None yet. |
 | V8-1 | Deferred until the V9 gate | Establish V8R6C9B14 profiles and implement verified differences in the shared core. | Static D8-91 evidence only. |
@@ -47,7 +47,7 @@ Work-package checkboxes can be marked complete when the named subset and its exi
 
 - [x] **DP01 - Engineering and package structure** (V9-1; G01, G02). SDK/solution/shared props/CPM/core and test projects build all five TFMs; offline checks, packaging and explicit asset consumers execute. Optional DI remains with the later DataSource lifetime contract; G02/G03/G08 are partial. Evidence: E01.
 - [ ] **DP02 - Server profiles and bootstrap discovery** (V9-0; C03-C05, G08). Register authorized profiles and confirm raw/product version, mode, catalog, and routine output facts. Establish isolated official comparison entry points. Can proceed alongside DP01 when environments exist. Evidence: none.
-- [ ] **DP03 - Connection, configuration, and authentication foundation** (V9-1; C01-C02, C06-C10, C16, C18-C20, G06, G11). In progress: first local configuration slice (E02) and offline PG password/MD5 exchange (E04); networking, credential sources, session initialization, remaining algorithms and complete login remain open. Use DP02 evidence for identity-dependent behavior.
+- [ ] **DP03 - Connection, configuration, and authentication foundation** (V9-1; C01-C02, C06-C10, C16, C18-C20, G06, G11). In progress: first local configuration slice (E02), offline PG password/MD5 exchange (E04) and internal startup coordinator (E05); networking, credential sources, full session configuration, remaining algorithms and complete login remain open. Use DP02 evidence for identity-dependent behavior.
 - [ ] **DP04 - Protocol state and failure handling** (V9-1; Q01, Q05, Q17-Q18, P06, G07). In progress: independent bounded framing/frontend/control-error-parser subset (E03). Session/query ownership, cancellation-channel closure, synchronization and uncertain outcomes remain pending transport/authentication/execution.
 - [ ] **DP05 - Type system and basic codecs** (V9-1; T01-T03, T05, T07-T10, T28, T30). After bootstrap/catalog contracts, implement type lookup and the basic input/result paths, exact conversion, typed getters, NULL handling, and bounds. Later mode-specific coverage for these features remains part of DP08. Evidence: none.
 - [ ] **DP06 - Commands, parameters, and Reader foundation** (V9-1/2; Q02-Q04, Q06, Q15-Q16, M01, M06). After DP04/DP05, deliver named/positional parameter planning, streaming/multiple results, Reader behavior, and foundational metadata. Evidence: none.
@@ -86,9 +86,9 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 | [ ] | C03 | Full product version detection | Not started | Not run | Not run | - |
 | [ ] | C04 | Automatic detection / explicit CompatibilityMode | Not started | Not run | Not run | - |
 | [ ] | C05 | Full-mode / standalone edition compatibility | Not started | Not run | Not run | - |
-| [ ] | C06 | Session encoding / parameter status | In progress | Passed: E03 subset | Not run | E03: strict UTF8 ParameterStatus parser only; session application pending |
+| [ ] | C06 | Session encoding / parameter status | In progress | Passed: E03/E05 subsets | Not run | Strict UTF8 parsing/startup confirmation; lexical/codec updates pending |
 | [ ] | C07 | TLS, CA, hostname validation | Not started | Not run | Not run | - |
-| [ ] | C08 | Password / MD5 authentication | In progress | Passed: E04 subset | Not run | E04: offline exchange only; complete login pending |
+| [ ] | C08 | Password / MD5 authentication | In progress | Passed: E04/E05 subsets | Not run | Offline exchange/startup coordinator; network/complete login pending |
 | [ ] | C09 | SCRAM-SHA-256 | Not started | Not run | Not run | - |
 | [ ] | C10 | Separate SM3 authentication | Not started | Not run | Not run | - |
 | [ ] | C11 | SCRAM-SM3 / SM4 | Not started | Not run | Not run | - |
@@ -98,7 +98,7 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 | [ ] | C15 | Keepalive / broken-connection detection | Not started | Not run | Not run | - |
 | [ ] | C16 | Credential sources and rotation | Not started | Not run | Not run | - |
 | [ ] | C17 | Passfile / environment variables | Not started | Not run | Not run | - |
-| [ ] | C18 | Startup / session configuration | Not started | Not run | Not run | - |
+| [ ] | C18 | Startup / session configuration | In progress | Passed: E05 subset | Not run | Bounded internal user/database/UTF8 startup only; other settings/reset pending |
 | [ ] | C19 | Connection state / ChangeDatabase | Not started | Not run | Not run | - |
 | [ ] | C20 | Wire protocol selection / endpoint contract | In progress | Passed: E02 subset | Not run | E02: local validation only; backend/handshake/pools pending |
 | [ ] | C21 | MySQL handshake / TLS / authentication | Not started | Not run | Not run | - |
@@ -332,3 +332,13 @@ When a unit is finished, update its row, package, phase, and section 1 counts in
 - SIM: exact UTF8 cleartext/empty-password packets, three independent MD5 vectors, AuthenticationOk with no challenge, exactly one response followed by AuthenticationOk, duplicate/post-completion challenges, unsupported algorithms, incorrect message codes, truncated/trailing payloads, invalid Unicode/NUL and safe diagnostics, terminal failed exchanges and unmodified raw input salt.
 - LIVE/resources/follow-up: no registered server profile, network connection or accepted LIVE result. Temporary credential/hash buffers are cleared in finally; generated frames belong to the caller and must be cleared after successful or failed writes. Existing immutable credential strings cannot be erased. Complete transport/TLS/login, SCRAM, SM3, credential callbacks/rotation and server-dependent acceptance remain open.
 - Code review: independent read-only review found no actionable defects, independently recomputed all three MD5 vectors, passed the 26 authentication cases on all three modern hosts and built the five product TFMs without warnings/errors.
+
+### E05 - DP03/DP04 internal bounded PG startup exchange (2026-11-24)
+
+- Scope/state: C06/C08/C18 and DP03/DP04 remain In progress. The internal coordinator sends StartupMessage, processes supported authentication, parameters/notices/key/error messages and returns only after an idle ReadyForQuery plus confirmed UTF8 and exactly one backend key. It does not select a transport, secure a socket, establish Kingbase identity or implement public Open.
+- Source/artifact: `Protocol/PgStartup.cs`, `PgStartupTests.cs`, the per-read payload limit in `PgWire` and its framing boundary tests. Local `KingbaseConnector.0.1.0.nupkg` SHA-256 `FC3518A79602D5C189D9DECE765DC5240871E946EC3F2F155187C266E8FC8DC2`.
+- Contract/provenance: independently implements the W21/W22 PG startup phase using existing framing/authentication primitives and no additional dependencies. Bounds the exchange to 256 backend frames and 1 MiB aggregate payload. Latest repeated ParameterStatus values replace previous ones. Structured notices are parsed/discarded in this internal subset; public notice events remain open.
+- Commands/results: 11 new tests failed against temporary unimplemented signatures before implementation. After the review correction below, `./eng/verify.ps1` passed: 78 protocol plus 55 unit cases on each net8.0/net9.0/net10.0 (399 passes), 3 visible live-gate skips, five product TFMs without warnings/errors and five explicit configuration/version package consumers. Internal startup runtime SIM uses modern assets; Standard assets compile only for this subset.
+- SIM: one-byte-fragmented trust/password/MD5 startup, literal outgoing bytes, repeated parameters, notices at either phase, server errors before/after authentication, phase/order/key/encoding/transaction errors, unsupported algorithms with no password response, message/payload limits, pre-cancellation versus pending-read cancellation, password-buffer clearing on success/write failure and one-time stream retirement.
+- LIVE/resources/follow-up: no real profile, socket or accepted LIVE result. The caller owns the successful wire; all failed exchanges after I/O retire it, preserving the original error. Returned password frames are cleared after the write even if it throws. Remaining transport/TLS, complete algorithms, session settings, public connection/exception/notice contracts, identity/catalog initialization and pool/reset/DI lifecycle remain pending.
+- Code review: independent review identified that the first payload-budget check happened after frame materialization. A header-only oversized-frame test reproduced the stall. Framing now checks each read against the remaining startup payload allowance before allocation/body reads; exact/zero/negative limits and sync/async body-unread cases are covered. Independent re-review found no further actionable issues; full verification passed after this fix.
