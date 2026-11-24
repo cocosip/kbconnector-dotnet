@@ -6,6 +6,8 @@ if (args.Length != 1)
     throw new ArgumentException("Supply the expected package asset framework name.");
 
 var assembly = Assembly.Load("KingbaseConnector");
+if (assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+')[0] != "0.1.0")
+    throw new InvalidOperationException("The package must use the standard 0.1.0 version without a prerelease suffix.");
 var actual = assembly.GetCustomAttribute<TargetFrameworkAttribute>()!.FrameworkName;
 if (actual != args[0])
     throw new InvalidOperationException($"Expected {args[0]}, loaded {actual} from {assembly.Location}.");

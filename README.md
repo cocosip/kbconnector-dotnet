@@ -4,7 +4,7 @@ Independent managed ADO.NET driver for KingbaseES, developed against the [design
 
 This is an early development build. Package identity and licensing are provisional; no public release or live-server compatibility is claimed. The [progress tracker](docs/kbconnector-development-progress.md) records implemented subsets and acceptance evidence.
 
-The core targets `netstandard2.0`, `netstandard2.1`, `net8.0`, `net9.0`, and `net10.0`. Install the SDK pinned in `global.json` and the .NET 8/9/10 runtimes, then run:
+The core targets `netstandard2.0`, `netstandard2.1`, `net8.0`, `net9.0`, and `net10.0`. Install an SDK that supports `net10.0` and `.slnx`, plus the .NET 8/9/10 runtimes, then run:
 
 ```powershell
 ./eng/verify.ps1

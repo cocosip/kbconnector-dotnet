@@ -16,7 +16,7 @@ try {
     Invoke-DotNet test KingbaseConnector.slnx -c Release --no-build --no-restore
     Invoke-DotNet pack src/KingbaseConnector -c Release --no-build --no-restore -o artifacts/packages
 
-    # A fresh package cache prevents a previous 0.1.0-dev build from satisfying these checks.
+    # A fresh package cache prevents a previous build of the same version from satisfying these checks.
     $consumerCache = Join-Path (Get-Location) "artifacts/consumers/$([Guid]::NewGuid().ToString('N'))"
     $consumer = 'tests/KingbaseConnector.ConsumerTests/KingbaseConnector.ConsumerTests.csproj'
     $assets = @(

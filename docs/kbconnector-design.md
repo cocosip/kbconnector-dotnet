@@ -107,7 +107,6 @@ The proposed structure is shown below. The documentation baseline adds `docs/`; 
 KingbaseConnector.slnx
 Directory.Build.props
 Directory.Packages.props
-global.json
 src/
   KingbaseConnector/
   KingbaseConnector.DependencyInjection/
@@ -122,14 +121,14 @@ docs/
 
 - Enable CPM in `Directory.Packages.props`; individual `PackageReference` entries carry no versions. Introduce TFM-specific dependencies only where necessary.
 - Use `Directory.Build.props` for shared versions, nullability, deterministic builds, and common compilation settings. Product packages share one version. Server V8/V9 does not determine the package major version or .NET TFM.
-- Manage product and test projects in `KingbaseConnector.slnx`. At implementation start, pin an SDK in `global.json` that has been verified to build net10.0 and slnx. Do not copy SDK or test dependency versions from the reference repository without validation.
+- Manage product and test projects in `KingbaseConnector.slnx`. Use an installed SDK that supports net10.0 and slnx; do not pin its version in `global.json`. Record the SDK used for validation. Do not copy test dependency versions from the reference repository without validation.
 - Provide all modes in one core package, with an optional separate DI integration package. The core does not depend on EF Core, embed the official driver, or split V8/V9 into different core packages.
 - Prefer the standard library. Use `Microsoft.Extensions.Logging.Abstractions` for logging and `ActivitySource`/`Meter` for diagnostics. If algorithms such as SM3 require dependencies, select maintained libraries instead of automatically retaining the old `BouncyCastle.dll` or copying an embedded TLS implementation.
 - Validate minimum netstandard dependency versions on actual hosts. Running tests on net10.0 does not justify raising every product dependency to the same minimum. The NuGet dependency graph is an acceptance target.
 - Execute real consumer tests for the .NET 8/9/10 assets. Validate netstandard2.0/2.1 assets using hosts that explicitly select those assets; automatic NuGet selection of a modern asset does not count as Standard testing.
 - Validate Windows and Linux x64 by default. Add ARM64 as a separate validation item. Fully managed code does not certify untested platforms. Standard2.0 targeting alone does not establish .NET Framework host support.
 
-DP01 engineering selection (2026-11-24): SDK 10.0.403 is pinned with roll-forward disabled; provisional shared package version is 0.1.0-dev. The five-target core has no explicit runtime dependency at this stage. VSTest 18.0.1, xUnit 2.9.3 and its Visual Studio adapter 3.1.5 are test-only. `eng/verify.ps1` is the local restore/build/test/pack/explicit-consumer entry point; the development guide defines host/asset selection and the fail-closed live opt-in. These engineering decisions do not settle U06 licensing/publication or validate server functionality.
+DP01 engineering selection (2026-11-24): validation used SDK 10.0.403; the repository does not pin an SDK version, following the user's development preference. The shared package version is 0.1.0, with no prerelease suffix, as requested by the user. This version format does not establish release readiness. The five-target core has no explicit runtime dependency at this stage. VSTest 18.0.1, xUnit 2.9.3 and its Visual Studio adapter 3.1.5 are test-only. `eng/verify.ps1` is the local restore/build/test/pack/explicit-consumer entry point; the development guide defines host/asset selection and the fail-closed live opt-in. These engineering decisions do not settle U06 licensing/publication or validate server functionality.
 
 ## 5. Architecture and Public Contracts
 

@@ -25,7 +25,6 @@ The intended layout is:
 KingbaseConnector.slnx
 Directory.Build.props
 Directory.Packages.props
-global.json
 src/
   KingbaseConnector/
   KingbaseConnector.DependencyInjection/
@@ -42,7 +41,7 @@ Create these files as work requires them; the layout is not evidence that any pr
 
 | Area | Setup requirement | Feature |
 | --- | --- | --- |
-| SDK and solution | Pin a tested SDK capable of building net10.0 and .slnx in global.json. Record the selected version; do not copy a stale reference pin. | G01 |
+| SDK and solution | Use an installed SDK capable of building net10.0 and .slnx without a global.json version pin. Record the SDK used for each validation. | G01 |
 | Shared build | Use Directory.Build.props for the common product version, nullable annotations, deterministic builds, and shared compiler settings. | G01 |
 | Dependencies | Enable NuGet Central Package Management in Directory.Packages.props. Keep PackageReference versions centralized and apply TFM conditions only where necessary. | G01, G03 |
 | Core | Target netstandard2.0, netstandard2.1, net8.0, net9.0, and net10.0. Keep the wire and compatibility implementation shared. | G02, G03 |
@@ -134,7 +133,7 @@ dotnet test tests/KingbaseConnector.ProtocolTests -c Release --no-restore
 dotnet pack src/KingbaseConnector -c Release --no-build -o artifacts/packages
 ```
 
-The executable aggregate entry point is `./eng/verify.ps1` (PowerShell 7). It restores/builds the solution, runs tests, packs, and validates all five explicit package assets using fresh per-run package caches and consumer outputs. SDK 10.0.403 is pinned without roll-forward. Unit/protocol/integration projects use VSTest (`Microsoft.NET.Test.Sdk` 18.0.1, MIT), xUnit 2.9.3 (Apache-2.0), and `xunit.runner.visualstudio` 3.1.5 (Apache-2.0) on net8.0/net9.0/net10.0; these test-only dependencies do not flow into the core package. Licenses were checked in the restored package nuspecs. The core initially has no explicit runtime package dependencies; the netstandard2.0 SDK reference resolves NETStandard.Library 2.0.3 and Microsoft.NETCore.Platforms 1.1.0 as build inputs.
+The executable aggregate entry point is `./eng/verify.ps1` (PowerShell 7). It restores/builds the solution, runs tests, packs, and validates all five explicit package assets using fresh per-run package caches and consumer outputs. SDK selection follows the installed environment; the repository has no `global.json` version pin. Validation used SDK 10.0.403. Unit/protocol/integration projects use VSTest (`Microsoft.NET.Test.Sdk` 18.0.1, MIT), xUnit 2.9.3 (Apache-2.0), and `xunit.runner.visualstudio` 3.1.5 (Apache-2.0) on net8.0/net9.0/net10.0; these test-only dependencies do not flow into the core package. Licenses were checked in the restored package nuspecs. The core initially has no explicit runtime package dependencies; the netstandard2.0 SDK reference resolves NETStandard.Library 2.0.3 and Microsoft.NETCore.Platforms 1.1.0 as build inputs.
 
 Consumers are intentionally outside the solution: they reference the packed package, not the source project, and require packing first. `eng/verify.ps1` forces each `lib/<asset>/KingbaseConnector.dll` through a NuGet-generated package path, checks its TargetFrameworkAttribute at runtime, and runs Standard assets on .NET 8 and modern assets on their matching .NET 8/9/10 hosts. They prove assembly loading and the initial public configuration contract (canonical alias/defaults, Validate, password-safe ToString, explicit MySQL port); expand their assertions as later public APIs are implemented. Do not interpret this as complete G03 or Framework/Linux/ARM64 acceptance.
 
