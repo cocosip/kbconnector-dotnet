@@ -4,15 +4,15 @@ Last updated: 2026-11-24. This is the single current implementation and acceptan
 
 ## 1. Current snapshot
 
-DP01 engineering is implemented. DP03 implements the first configuration slice, offline server-requested PG password/MD5 authentication, an internal bounded startup coordinator and TCP/platform TLS tested against local loopback peers; DP04 adds bounded PG framing/control/error primitives and an owned internal text-query session. Explicit package consumers run on Windows x64 .NET 8/9/10. No real Kingbase server or live profile is accepted yet; public query/login APIs, cancellation-channel synchronization and server discovery remain open. The user requires the separate KingbaseConnector.DependencyInjection deliverable; registration contracts and per-TFM dependency ranges are defined, pending usable Connection/DataSource ownership.
+DP01 engineering is implemented. DP03 implements the first configuration slice, offline server-requested PG password/MD5 authentication, an internal bounded startup coordinator and TCP/platform TLS tested against local loopback peers; DP04 adds bounded PG framing/control/error primitives and an owned internal text-query session. DP02/DP03 now add a documented candidate version query, bounded full-version parsing and an offline identity/mode probe. Explicit package consumers run on Windows x64 .NET 8/9/10. No real Kingbase server or live profile is accepted yet; public query/login APIs, cancellation-channel synchronization, catalog bootstrap and server acceptance remain open. The user requires the separate KingbaseConnector.DependencyInjection deliverable; registration contracts and per-TFM dependency ranges are defined, pending usable Connection/DataSource ownership.
 
 | Product feature status | Count |
 | --- | ---: |
 | Complete | 1 |
 | Implemented, acceptance pending | 0 |
-| In progress | 17 |
+| In progress | 20 |
 | Blocked | 0 |
-| Not started | 93 |
+| Not started | 90 |
 | Deferred: later L scope and subsequent V8 work | 11 |
 | Not applicable | 0 |
 | Total matrix features | 122 |
@@ -31,8 +31,8 @@ Documentation deliverables are tracked separately from product functionality:
 
 | Phase | Status | Exit requirement | Evidence |
 | --- | --- | --- | --- |
-| V9-0 | Not started: runtime discovery | Register actual target profiles; establish version/mode, directory, and routine protocol facts. Static reference evidence is already available. | No live profiles registered. |
-| V9-1 | In progress | Engineering and the minimum connection/query/type/transaction/pool/metadata paths, including relevant failure behavior. | DP01 engineering and DP03/DP04 offline subsets; E01-E07. |
+| V9-0 | In progress: offline probe; runtime discovery pending | Register actual target profiles; establish version/mode, directory, and routine protocol facts. | Documented candidate query/grammar and offline probe E08; no live profiles. |
+| V9-1 | In progress | Engineering and the minimum connection/query/type/transaction/pool/metadata paths, including relevant failure behavior. | DP01 engineering and DP02/DP03/DP04 offline subsets; E01-E08. |
 | V9-2 | Not started | Complete required functional coverage including the exceptional explicit MySQL backend; resolve and validate applicable conditional features. | None yet. |
 | V9-3 | Not started | Version/deployment and exceptional MySQL-only acceptance, both-protocol pooling/faults/resources, package consumers, and the V9 release gate. | None yet. |
 | V8-1 | Deferred until the V9 gate | Establish V8R6C9B14 profiles and implement verified differences in the shared core. | Static D8-91 evidence only. |
@@ -46,7 +46,7 @@ Do not check a phase complete solely because its work-package list is checked. A
 Work-package checkboxes can be marked complete when the named subset and its exit condition are satisfied. A package that implements only part of a feature must identify that subset in its evidence entry; the full feature remains open in section 4 until all requirements pass. Dependencies below define development order, not additional scope or already implemented behavior.
 
 - [x] **DP01 - Engineering and package structure** (V9-1; G01, G02). SDK/solution/shared props/CPM/core and test projects build all five TFMs; offline checks, packaging and explicit asset consumers execute. Optional DI remains with the later DataSource lifetime contract; G02/G03/G08 are partial. Evidence: E01.
-- [ ] **DP02 - Server profiles and bootstrap discovery** (V9-0; C03-C05, G08). Register authorized profiles and confirm raw/product version, mode, catalog, and routine output facts. Establish isolated official comparison entry points. Can proceed alongside DP01 when environments exist. Evidence: none.
+- [ ] **DP02 - Server profiles and bootstrap discovery** (V9-0; C03-C05, G08). In progress: documented version query/grammar and offline version/mode probe E08. Register authorized profiles and confirm raw/product output, mode, catalog, editions and routine facts; establish isolated official comparison entry points. No live profile is accepted.
 - [ ] **DP03 - Connection, configuration, and authentication foundation** (V9-1; C01-C02, C06-C10, C16, C18-C20, G06, G11). In progress: configuration (E02), offline password/MD5 (E04), internal startup (E05) and loopback TCP/platform-TLS subsets (E06). Public connection integration, shared initialization deadlines, custom CA policy, credential sources, full session configuration, remaining algorithms and complete login remain open. Use DP02 evidence for identity-dependent behavior.
 - [ ] **DP04 - Protocol state and failure handling** (V9-1; Q01, Q05-Q06, Q17-Q18, P06, G07). In progress: bounded framing/frontend/control-error parsers (E03) and owned internal text-query exchanges (E07). Public execution/Reader ownership, extended protocol, cancellation-channel closure and uncertain-outcome contracts remain pending.
 - [ ] **DP05 - Type system and basic codecs** (V9-1; T01-T03, T05, T07-T10, T28, T30). After bootstrap/catalog contracts, implement type lookup and the basic input/result paths, exact conversion, typed getters, NULL handling, and bounds. Later mode-specific coverage for these features remains part of DP08. Evidence: none.
@@ -83,8 +83,8 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 | --- | --- | --- | --- | --- | --- | --- |
 | [ ] | C01 | ConnectionStringBuilder / factory | In progress | Passed: E02 subset | Not run | E02: builder only; factory pending |
 | [ ] | C02 | TCP, DNS, synchronous/asynchronous Open | In progress | Passed: E06 subset | Not run | Internal sync/async loopback transport only; public Open/deadlines pending |
-| [ ] | C03 | Full product version detection | Not started | Not run | Not run | - |
-| [ ] | C04 | Automatic detection / explicit CompatibilityMode | Not started | Not run | Not run | - |
+| [ ] | C03 | Full product version detection | In progress | Passed: E08 subset | Not run | Documented bounded version probe/parser; actual profiles/release adaptation pending |
+| [ ] | C04 | Automatic detection / explicit CompatibilityMode | In progress | Passed: E08 subset | Not run | Offline configured/reported/effective mode and provenance; public/catalog/live integration pending |
 | [ ] | C05 | Full-mode / standalone edition compatibility | Not started | Not run | Not run | - |
 | [ ] | C06 | Session encoding / parameter status | In progress | Passed: E03/E05/E07 subsets | Not run | Strict UTF8/startup and bounded query parameter updates; typed/lexical consumers pending |
 | [ ] | C07 | TLS, CA, hostname validation | In progress | Passed: E06 subset | Not run | Platform TLS/strict upgrade/untrusted rejection; custom CA and positive trust/name cases pending |
@@ -198,7 +198,7 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 | [ ] | P03 | Lifetime / pool clearing / generations | Not started | Not run | Not run | - |
 | [ ] | P04 | Multiple hosts / failover | Not started | Not run | Not run | - |
 | [ ] | P05 | Primary/read-only targets and selection policy | Not started | Not run | Not run | - |
-| [ ] | P06 | One active operation per connection | Not started | Not run | Not run | - |
+| [ ] | P06 | One active operation per connection | In progress | Passed: E07 subset | Not run | Internal query exchange gate only; public Reader/COPY/connection ownership pending |
 | [ ] | P07 | Modern query multiplexing | Deferred | Not run | Not run | - |
 
 ### Schema and EF foundation contracts
@@ -234,7 +234,7 @@ SIM and LIVE are independent: Not run, Passed, Failed, or N/A with an explicit r
 | [ ] | G04 | Windows/Linux x64 | Not started | Not run | Not run | - |
 | [ ] | G05 | ARM64 / Framework hosts | Not started | Not run | Not run | - |
 | [ ] | G06 | Logging / Activity / Meter | Not started | Not run | Not run | - |
-| [ ] | G07 | Security / failure / resource stress | In progress | Passed: E03/E05/E06 subsets | Not run | Bounded framing/startup and loopback transport failure/cancellation only; stress pending |
+| [ ] | G07 | Security / failure / resource stress | In progress | Passed: E03/E05-E08 subsets | Not run | Bounded wire/startup/query/identity and transport failures; full stress/resource acceptance pending |
 | [ ] | G08 | Differential / live test framework | In progress | Not run | Not run | E01: offline/live separation and fail-closed opt-in only |
 | [ ] | G09 | NuGet / provenance / licensing / compatibility notes | Not started | Not run | Not run | - |
 | [ ] | G10 | Trimming / NativeAOT | Deferred | Not run | Not run | - |
@@ -262,7 +262,7 @@ The unresolved design items below are dependencies to resolve; they do not mean 
 | Design item | Current dependency | Affected work | Next action |
 | --- | --- | --- | --- |
 | U01 | No registered authorized real-server profiles; on 2026-11-24 the user confirmed no test environment is currently available and requested continued offline development. | DP02; server-dependent acceptance across DP03-DP16 and DP20-DP22. | Continue independent offline units; register available V9 environments without storing credentials when provided. |
-| U02 | Full product version query/grammar and reliable deployment identification remain unconfirmed. | C03-C05, DP02/DP03. | Establish bounded read-only queries and retain the actual returned strings. |
+| U02 | Candidate full-version SQL/grammar have static W24/W25 references and offline E08 implementation; per-mode runtime output, catalog and reliable deployment identification remain unconfirmed. | C03-C05, DP02/DP03. | Run the bounded probe on registered profiles and retain exact returned strings/catalog/edition facts before identity/adaptation acceptance. |
 | U03 | Routine output/return-code formats and any need for protocol extensions remain unconfirmed. | Q10-Q14, DP09. | Compare actual routine result/protocol behavior per mode. |
 | U04 | V8 mode/deployment existence and additional V8 target builds remain unconfirmed. | V01-V03, DP17/DP18. | Register V8R6C9B14 facts during the V8 stage; agree additional builds before expanding scope. |
 | U05 | Conditional cryptography, integrated authentication, transaction affinity/promotion, and backend-specific transaction recovery environments are not registered. | C11-C13, X04-X05, DP10/DP15. | Register the required server/platform/security configuration and establish applicability separately, including PG preparation versus native MySQL XA and recovery. |
@@ -366,3 +366,13 @@ When a unit is finished, update its row, package, phase, and section 1 counts in
 - SIM: 63 new cases per modern host cover one-byte fragmentation, unknown raw OIDs/signed metadata, Unicode/NULL/empty rows, zero-column/zero-row/nonquery/empty/multiple results, immutable returned data, repeated session parameters and notices, exact/over budgets, every truncated metadata/row payload, malformed counts/lengths/UTF8/trailing bytes/phases, unsupported binary/COPY/async messages, pre-cancel/local SQL validation, concurrent-exchange rejection, failed writes, truncated I/O, cancellation and disposal while reading. A TCP loopback case composes transport, trust startup and text query on the same socket and verifies peer EOF after session disposal.
 - Error recovery/review: independent connected-source review found no actionable issues. A possible EmptyQueryResponse/ErrorResponse ordering concern was checked against W22's rule that errors/notices may interrupt any response phase; two explicit tests now verify errors after completed/empty results are drained and reported before reuse. This does not allow additional statement results after EmptyQueryResponse. A review reflection probe failed setup and contributed no behavioral evidence; acceptance relies on the executed owning tests.
 - LIVE/resources/follow-up: no real Kingbase profile or LIVE result. Initial local validation, pre-cancellation and rejected concurrent calls preserve the session; failures after exchange start retire it unless a valid ReadyForQuery confirmed error synchronization. Socket/wire disposal is idempotent and blocked test reads terminate. The review's remaining boundaries are U01/U02 identity/mode/catalog, typed/public execution, COPY/streaming/cancellation channels/pooling, functional Connection/DataSource/DI and broader authentication/TLS/deployment/framework-host acceptance. Those remain pending, not judged complete by this module.
+
+### E08 - DP02/DP03 offline Kingbase V9 identity and mode probe (2026-11-24)
+
+- Scope/state: C03/C04 and DP02 remain In progress. The internal probe obtains a full product version separately from handshake server_version, accepts only branded major 9, and resolves configured/effective/reported compatibility modes with explicit provenance. No catalog, edition, deployment or release capability is inferred.
+- Source/artifact: `KingbaseProductVersion.cs`, `Protocol/PgIdentityProbe.cs`, `ProductVersionTests.cs`, `PgIdentityProbeTests.cs` and the shared `QueryStream.cs` fixture extracted without behavior changes. Local `KingbaseConnector.0.1.0.nupkg` SHA-256 `0FE0A84969F39B9034F0942A90EE8D4B0F4862FF3696168D6C0CD7270051DD1F`.
+- Contract/provenance: W24 documents `SELECT version();`; W25 defines the full product-token grammar `VxxxRxxxCxxx[Mxxx[customer]]Bxxxy[PSxxx]`. The independent bounded parser preserves raw text, token and each numeric/customer component. Auto uses current database_mode ParameterStatus or exactly `SHOW database_mode`; explicit configuration skips that extra query and rejects conflicting/unknown reported values. Each query must produce exactly one non-NULL text scalar and idle ReadyForQuery. Actual per-mode/version output remains U02.
+- Commands/results: 54 initial cases failed against temporary unimplemented signatures. Final coverage adds 27 parser and 32 protocol cases per modern host; all 63 existing query cases passed after fixture extraction. `./eng/verify.ps1` passed: 188 protocol plus 82 unit cases per net8.0/net9.0/net10.0 (810 passes), 3 visible live-gate skips, five product TFMs without warnings/errors and five explicit configuration/version package consumers. Standard internal identity paths compile; runtime SIM uses modern assets.
+- SIM: fixed-width ASCII grammar, optional customization/customer/patch fields, raw preservation, bounds/NUL/branding/invalid tokens; exact probe SQL, all four modes and case handling, raw startup/product-version separation, explicit/Auto provenance, status changes, conflict/unknown mode, malformed/non-scalar/non-idle responses, server errors, I/O failure, pre-cancel and in-flight cancellation. All begun probe failures retire the owned session; pre-I/O local rejection preserves it.
+- Code review: independent connected-source review found no implementation blockers. Corrected W24's section citation to 2.4.2 against the cached official heading. The review did not claim live outputs or full-suite execution; the parent verified the completed full check and actual package hash.
+- LIVE/resources/follow-up: no server profile, database objects or LIVE result. Exclusive initialization ownership is required. V8, catalog loading, per-release capabilities, deployment facts, functional Connection/DataSource/DI and concurrent public lifecycle remain open; no placeholder public Open or fallback query was added.
