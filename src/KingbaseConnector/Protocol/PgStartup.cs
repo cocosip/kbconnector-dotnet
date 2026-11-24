@@ -19,11 +19,19 @@ internal static class PgStartup
     const int MaxBackendFrames = 256;
     const int MaxBackendPayload = 1024 * 1024;
 
-    internal static async Task<PgStartupResult> RunAsync(PgWire wire, string username, string database, string password,
+    internal static Task<PgStartupResult> RunAsync(PgWire wire, string username, string database, string password,
+        CancellationToken cancellationToken = default, string applicationName = "", string searchPath = "", string timezone = "")
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var startup = PgFrontendMessages.Startup(username, database, applicationName, searchPath, timezone);
+        return RunAsync(wire, startup, username, password, cancellationToken);
+    }
+
+    // The physical initializer can encode/validate the whole frame before creating a transport.
+    internal static async Task<PgStartupResult> RunAsync(PgWire wire, byte[] startup, string username, string password,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var startup = PgFrontendMessages.Startup(username, database);
         var auth = new PgPasswordAuthentication();
         var parameters = new Dictionary<string, string>(StringComparer.Ordinal);
         PgBackendKey? key = null;

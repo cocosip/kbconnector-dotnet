@@ -22,24 +22,27 @@ internal static class PgFrontendMessages
         return message;
     }
 
-    internal static byte[] Startup(string username, string database)
+    internal static byte[] Startup(string username, string database, string applicationName = "", string searchPath = "", string timezone = "")
     {
-        var userLength = CStringLength(username);
-        var databaseLength = CStringLength(database);
-        const string userKey = "user\0";
-        const string databaseKey = "database\0";
-        const string encodingPair = "client_encoding\0UTF8\0";
-        var length = 8L + userKey.Length + userLength + databaseKey.Length + databaseLength + encodingPair.Length + 1;
+        var pairs = new List<KeyValuePair<string, string>>
+        {
+            new("user", username), new("database", database), new("client_encoding", "UTF8")
+        };
+        if (applicationName.Length != 0) pairs.Add(new("application_name", applicationName));
+        if (searchPath.Length != 0) pairs.Add(new("search_path", searchPath));
+        if (timezone.Length != 0) pairs.Add(new("TimeZone", timezone));
+        var length = 9L;
+        foreach (var pair in pairs) length += CStringLength(pair.Key) + CStringLength(pair.Value);
         if (length > PgWire.MaxMessageLength) throw new ArgumentException("Oversized PG startup message.");
         var message = new byte[(int)length];
         PgBinary.WriteInt32(message, 0, message.Length);
         PgBinary.WriteInt32(message, 4, 196608);
         var offset = 8;
-        offset += PgBinary.Utf8.GetBytes(userKey, 0, userKey.Length, message, offset);
-        offset += PgBinary.Utf8.GetBytes(username, 0, username.Length, message, offset) + 1;
-        offset += PgBinary.Utf8.GetBytes(databaseKey, 0, databaseKey.Length, message, offset);
-        offset += PgBinary.Utf8.GetBytes(database, 0, database.Length, message, offset) + 1;
-        PgBinary.Utf8.GetBytes(encodingPair, 0, encodingPair.Length, message, offset);
+        foreach (var pair in pairs)
+        {
+            offset += PgBinary.Utf8.GetBytes(pair.Key, 0, pair.Key.Length, message, offset) + 1;
+            offset += PgBinary.Utf8.GetBytes(pair.Value, 0, pair.Value.Length, message, offset) + 1;
+        }
         return message;
     }
 
@@ -57,13 +60,18 @@ internal static class PgFrontendMessages
     internal static byte[] Sync() => new byte[] { (byte)'S', 0, 0, 0, 4 };
     internal static byte[] Password(string password)
     {
-        var textLength = CStringLength(password);
-        if (textLength > PgWire.MaxMessageLength - 4) throw new ArgumentException("Oversized PG password message.");
+        var textLength = PasswordTextLength(password);
         var message = new byte[5 + textLength];
         message[0] = (byte)'p';
         PgBinary.WriteInt32(message, 1, message.Length - 1);
         PgBinary.Utf8.GetBytes(password, 0, password.Length, message, 5);
         return message;
+    }
+    internal static int PasswordTextLength(string password)
+    {
+        var textLength = CStringLength(password);
+        if (textLength > PgWire.MaxMessageLength - 4) throw new ArgumentException("Oversized PG password message.");
+        return textLength;
     }
     internal static byte[] Terminate() => new byte[] { (byte)'X', 0, 0, 0, 4 };
 

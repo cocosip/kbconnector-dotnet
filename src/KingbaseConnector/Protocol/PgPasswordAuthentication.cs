@@ -51,12 +51,18 @@ internal sealed class PgPasswordAuthentication
         }
     }
 
-    static byte[] Md5Response(string username, string password, byte[] payload)
+    internal static (int Password, int User) Md5InputLengths(string username, string password)
     {
         var passwordLength = PgFrontendMessages.CStringLength(password) - 1;
         var userLength = PgFrontendMessages.CStringLength(username) - 1;
         if ((long)passwordLength + userLength > PgWire.MaxMessageLength - 4)
             throw new ArgumentException("Oversized PG authentication input.");
+        return (passwordLength, userLength);
+    }
+
+    static byte[] Md5Response(string username, string password, byte[] payload)
+    {
+        var (passwordLength, userLength) = Md5InputLengths(username, password);
         var credentials = new byte[passwordLength + userLength];
         var saltedHash = new byte[36];
         byte[]? innerHash = null;
