@@ -16,6 +16,7 @@ public sealed class KingbaseConnection : DbConnection
     KingbaseCommand? _command;
     CancellationTokenSource? _operationCancel;
     KingbaseDataReader? _reader;
+    KingbaseTransaction? _transaction;
     ConnectionState _state;
     long _generation;
     bool _disposed;
@@ -113,7 +114,8 @@ public sealed class KingbaseConnection : DbConnection
     }
     public override void Close() => CloseCore(disposing: false);
     void CloseCore(bool disposing, CancellationTokenSource? failedOpening = null,
-        KingbaseDataReader? expectedReader = null, PgPhysicalSession? expectedSession = null, long expectedGeneration = 0)
+        KingbaseDataReader? expectedReader = null, PgPhysicalSession? expectedSession = null, long expectedGeneration = 0,
+        KingbaseTransaction? expectedTransaction = null)
     {
         PgPhysicalSession? physical;
         CancellationTokenSource? opening;
@@ -123,6 +125,7 @@ public sealed class KingbaseConnection : DbConnection
         lock (_sync)
         {
             if (failedOpening is not null && !ReferenceEquals(_opening, failedOpening)) return;
+            if (expectedTransaction is not null && !ReferenceEquals(_transaction, expectedTransaction)) return;
             if (expectedReader is not null && (!ReferenceEquals(_reader, expectedReader) ||
                 !ReferenceEquals(_session, expectedSession) || _generation != expectedGeneration)) return;
             if (disposing) _disposed = true;
@@ -130,6 +133,7 @@ public sealed class KingbaseConnection : DbConnection
             physical = _session; _session = null;
             opening = _opening; _opening = null;
             _command = null;
+            _transaction = null;
             operationCancel = _operationCancel; _operationCancel = null;
             reader = _reader; _reader = null;
             _generation++;
@@ -150,6 +154,8 @@ public sealed class KingbaseConnection : DbConnection
             OpenSession();
             if (_owner is not null) throw new InvalidOperationException("A DataSource connection has immutable configuration; create another source.");
             if (_command is not null || _reader is not null) throw ActiveOperation();
+            if (_transaction is not null || _session!.Queries.TransactionStatus != PgTransactionStatus.Idle)
+                throw new InvalidOperationException("Cannot change databases while a transaction is active.");
             var settings = new KingbaseConnectionStringBuilder(_settings.ConnectionString) { Database = databaseName };
             settings.Validate();
             _settings = settings;
@@ -157,22 +163,77 @@ public sealed class KingbaseConnection : DbConnection
         Close();
         Open();
     }
-    protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel) =>
-        throw new NotSupportedException("Local transactions are not yet implemented.");
+    protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel) => BeginLocalTransactionAsync(isolationLevel, CancellationToken.None).GetAwaiter().GetResult();
+    public new KingbaseTransaction BeginTransaction() => (KingbaseTransaction)BeginDbTransaction(IsolationLevel.Unspecified);
+    public new KingbaseTransaction BeginTransaction(IsolationLevel isolationLevel) => (KingbaseTransaction)BeginDbTransaction(isolationLevel);
+#if !NETSTANDARD2_0
+    protected override async ValueTask<DbTransaction> BeginDbTransactionAsync(IsolationLevel isolationLevel, CancellationToken cancellationToken) =>
+        await BeginLocalTransactionAsync(isolationLevel, cancellationToken).ConfigureAwait(false);
+    public new ValueTask<KingbaseTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
+        new(BeginLocalTransactionAsync(IsolationLevel.Unspecified, cancellationToken));
+    public new ValueTask<KingbaseTransaction> BeginTransactionAsync(IsolationLevel isolationLevel, CancellationToken cancellationToken = default) =>
+        new(BeginLocalTransactionAsync(isolationLevel, cancellationToken));
+#else
+    public Task<KingbaseTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
+        BeginLocalTransactionAsync(IsolationLevel.Unspecified, cancellationToken);
+    public Task<KingbaseTransaction> BeginTransactionAsync(IsolationLevel isolationLevel, CancellationToken cancellationToken = default) =>
+        BeginLocalTransactionAsync(isolationLevel, cancellationToken);
+#endif
+    async Task<KingbaseTransaction> BeginLocalTransactionAsync(IsolationLevel isolationLevel, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (!Enum.IsDefined(typeof(IsolationLevel), isolationLevel)) throw new ArgumentOutOfRangeException(nameof(isolationLevel));
+        if (isolationLevel is not IsolationLevel.Unspecified and not IsolationLevel.ReadCommitted)
+            throw new NotSupportedException("This transaction slice supports only explicit ReadCommitted isolation.");
+        var transaction = new KingbaseTransaction(this);
+        using var command = new KingbaseCommand("BEGIN ISOLATION LEVEL READ COMMITTED", this, transaction, KingbaseTransactionOperation.Begin);
+        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+        return transaction;
+    }
+    internal bool OwnsTransaction(KingbaseTransaction transaction) { lock (_sync) return ReferenceEquals(_transaction, transaction); }
+    internal void CloseTransaction(KingbaseTransaction transaction) => CloseCore(disposing: false, expectedTransaction: transaction);
     public override void EnlistTransaction(System.Transactions.Transaction? transaction) =>
         throw new NotSupportedException("System transaction enlistment is not yet implemented.");
     protected override DbCommand CreateDbCommand() { lock (_sync) { ThrowIfDisposed(); return new KingbaseCommand("", this); } }
     public new KingbaseCommand CreateCommand() => (KingbaseCommand)CreateDbCommand();
 
-    internal (PgPhysicalSession Session, long Generation) BeginExecution(KingbaseCommand command, CancellationTokenSource operationCancel)
+    internal (PgPhysicalSession Session, long Generation) BeginExecution(KingbaseCommand command, CancellationTokenSource operationCancel,
+        KingbaseTransaction? transaction = null, KingbaseTransactionOperation operation = KingbaseTransactionOperation.None)
     {
         lock (_sync)
         {
             var physical = OpenSession();
             if (_command is not null || _reader is not null) throw ActiveOperation();
+            if (operation == KingbaseTransactionOperation.Begin)
+            {
+                if (_transaction is not null || physical.Queries.TransactionStatus != PgTransactionStatus.Idle)
+                    throw new InvalidOperationException("A transaction is already active on this Kingbase connection.");
+                _transaction = transaction;
+            }
+            else if ((transaction is not null && !ReferenceEquals(transaction, _transaction)) ||
+                (operation != KingbaseTransactionOperation.None && transaction is null))
+                throw new InvalidOperationException("The command transaction is not the active transaction on this connection.");
             _command = command;
             _operationCancel = operationCancel;
             return (physical, _generation);
+        }
+    }
+    internal void ObserveTransaction(KingbaseCommand command, PgPhysicalSession session, long generation,
+        KingbaseTransactionOperation operation, bool completed, PgTransactionStatus status, bool endsTransaction)
+    {
+        lock (_sync)
+        {
+            if (!ReferenceEquals(_session, session) || _generation != generation || !ReferenceEquals(_command, command))
+            {
+                if (completed && operation is KingbaseTransactionOperation.Commit or KingbaseTransactionOperation.Rollback) return;
+                throw new InvalidOperationException("The Kingbase command no longer owns its connection.");
+            }
+            if (status == PgTransactionStatus.Idle || (completed && endsTransaction)) _transaction = null;
+            if (operation == KingbaseTransactionOperation.Begin && !completed)
+            {
+                _transaction = null;
+                if (status != PgTransactionStatus.Idle) session.Dispose();
+            }
         }
     }
     internal void PublishReader(KingbaseCommand command, PgPhysicalSession session, long generation, KingbaseDataReader reader)
@@ -217,6 +278,7 @@ public sealed class KingbaseConnection : DbConnection
             previous = _state;
             _state = ConnectionState.Broken;
             _session = null;
+            _transaction = null;
             _command = null;
             _operationCancel = null;
         }

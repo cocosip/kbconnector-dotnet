@@ -46,7 +46,21 @@ var amount = await command.ExecuteScalarAsync();
 
 The default TLS mode verifies the server certificate and hostname. Configure a trusted server certificate before using this example. The public execution path is covered by simulated peers; no real Kingbase server is accepted yet.
 
-`KingbaseDataReader` buffers completed PG results with exact typed/provider numeric access, binary/text slices and basic column metadata. A connection owns its returned Reader until close. Default, CloseConnection, SingleRow and SingleResult behaviors are supported. Unknown schema facts remain unset; raw PG identities are available in `GetSchemaTable` provider columns. Streaming/SequentialAccess, local/system transactions, retained preparation and pooling remain pending.
+`KingbaseDataReader` buffers completed PG results with exact typed/provider numeric access, binary/text slices and basic column metadata. A connection owns its returned Reader until close. Default, CloseConnection, SingleRow and SingleResult behaviors are supported. Unknown schema facts remain unset; raw PG identities are available in `GetSchemaTable` provider columns. Streaming/SequentialAccess, system transactions, retained preparation and pooling remain pending.
+
+Local `KingbaseTransaction` supports synchronous/asynchronous Begin, Commit and Rollback on the initial PG path:
+
+```csharp
+using var transaction = await connection.BeginTransactionAsync();
+using var update = new KingbaseCommand("UPDATE items SET amount=:amount WHERE id=:id", connection)
+    { Transaction = transaction };
+update.Parameters.AddWithValue("amount", 12.50m);
+update.Parameters.AddWithValue("id", 1);
+await update.ExecuteNonQueryAsync();
+await transaction.CommitAsync();
+```
+
+The default explicitly requests ReadCommitted. Other isolation levels, read-only options and managed savepoints remain pending. A null Command.Transaction participates in the connection's current transaction; an explicit reference must be its active transaction. Close or a broken session invalidates that owner. A COMMIT acknowledged as ROLLBACK fails explicitly. `KingbaseTransactionException.OutcomeUnknown` and `KingbaseTransaction.OutcomeUnknown` identify uncertain commits; cancellation remains `OperationCanceledException` with uncertainty available on the transaction. Never automatically replay an uncertain transaction. Disposal attempts rollback within five seconds, then closes its still-owned connection if cleanup cannot synchronize. These paths have loopback evidence; server isolation semantics remain unaccepted.
 
 `KingbaseDataSourceBuilder.Build()` snapshots validated configuration. Its source creates independent connections with immutable configuration and redacted connection strings. Disposing the source rejects new opens and reopening, cancels pending opens, and lets already-open connections and Readers finish. Modern assets derive from `DbDataSource`; Standard assets expose typed creation/open methods.
 

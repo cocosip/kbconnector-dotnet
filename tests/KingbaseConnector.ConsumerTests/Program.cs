@@ -73,6 +73,20 @@ if (!typeof(DbDataReader).IsAssignableFrom(typeof(KingbaseDataReader)) ||
     throw new InvalidOperationException("The selected asset failed its buffered reader API shape contract.");
 
 DbProviderFactory factory = KingbaseFactory.Instance;
+if (!typeof(DbTransaction).IsAssignableFrom(typeof(KingbaseTransaction)) || typeof(KingbaseTransaction).GetConstructors().Length != 0)
+    throw new InvalidOperationException("The selected asset failed its local transaction API shape contract.");
+using (var closedTransactionConnection = new KingbaseConnection())
+{
+    try { closedTransactionConnection.BeginTransaction(); throw new Exception("A closed connection began a transaction."); }
+    catch (InvalidOperationException) { }
+    try { await closedTransactionConnection.BeginTransactionAsync(); throw new Exception("A closed connection began an async transaction."); }
+    catch (InvalidOperationException) { }
+    try { closedTransactionConnection.BeginTransaction(IsolationLevel.Snapshot); throw new Exception("An unsupported isolation was accepted."); }
+    catch (NotSupportedException) { }
+    using var transactionCommand = closedTransactionConnection.CreateCommand();
+    transactionCommand.Transaction = null;
+    if (transactionCommand.Transaction is not null) throw new Exception("A null transaction was not retained.");
+}
 using DbConnection connection = factory.CreateConnection()!;
 connection.ConnectionString = "Host=localhost;Database=app;Username=user;Password=private;Pooling=false;Command Timeout=7";
 using DbCommand command = connection.CreateCommand();

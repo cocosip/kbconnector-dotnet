@@ -56,6 +56,9 @@ internal sealed class PgQuerySession : IDisposable
 
     internal IReadOnlyDictionary<string, string> Parameters { get; }
     internal bool IsDisposed => Volatile.Read(ref _disposed) != 0;
+    internal long WriteAttempts => _wire.WriteAttempts;
+    internal PgServerError? CommandRejection { get; private set; }
+    internal PgServerError? UncertainError { get; private set; }
     internal PgTransactionStatus TransactionStatus { get; private set; } = PgTransactionStatus.Idle;
 
     internal IReadOnlyList<PgTextResult> Execute(string sql) => ExecuteAsync(sql).GetAwaiter().GetResult();
@@ -80,6 +83,8 @@ internal sealed class PgQuerySession : IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
             throw new InvalidOperationException("A PG query exchange is already active.");
+        CommandRejection = null;
+        UncertainError = null;
         var started = false;
         var synchronized = false;
         byte[][]? outgoing = null;
@@ -165,6 +170,12 @@ internal sealed class PgQuerySession : IDisposable
                         break;
                     case (byte)'E':
                         serverError = PgBackendMessages.ParseError(message.Payload);
+                        var severity = serverError.Fields.TryGetValue((byte)'V', out var invariantSeverity)
+                            ? invariantSeverity : serverError.Fields[(byte)'S'];
+                        if (results.Count == 0 && severity == "ERROR" && serverError.SqlState != "40003" &&
+                            !serverError.SqlState.StartsWith("08", StringComparison.Ordinal))
+                            CommandRejection = serverError;
+                        else UncertainError = serverError;
                         results.Clear();
                         columns = null;
                         rows = null;

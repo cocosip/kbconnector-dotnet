@@ -8,6 +8,22 @@ namespace KingbaseConnector.ProtocolTests;
 public class PgQuerySessionTests
 {
     [Fact]
+    public async Task WriteAttemptsDistinguishLocalRejectionFromPotentialWireEffects()
+    {
+        using var stream = new QueryStream(Join(Complete("SELECT 0"), Ready('I')));
+        using var session = Session(stream);
+        using var canceled = new CancellationTokenSource(); canceled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => session.ExecuteAsync("COMMIT", canceled.Token));
+        await Assert.ThrowsAsync<ArgumentException>(() => session.ExecuteAsync(new string('x', 1024 * 1024)));
+        Assert.Equal(0, session.WriteAttempts);
+        await session.ExecuteAsync("SELECT 0");
+        Assert.Equal(1, session.WriteAttempts);
+        await Assert.ThrowsAnyAsync<IOException>(() => session.ExecuteAsync("COMMIT"));
+        Assert.Equal(2, session.WriteAttempts);
+        Assert.True(session.IsDisposed);
+    }
+
+    [Fact]
     public async Task FragmentedTextResultsPreserveMetadataNullEmptyAndUnicodeWithoutOidAssumptions()
     {
         var stream = new QueryStream(Join(

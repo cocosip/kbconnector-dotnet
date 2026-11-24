@@ -6,13 +6,15 @@ namespace KingbaseConnector.Protocol;
 
 internal sealed class PgParameterBindings
 {
-    PgParameterBindings(string sql, PgQueryParameter[] parameters)
+    PgParameterBindings(string sql, PgQueryParameter[] parameters, bool endsTransaction)
     {
         Sql = sql;
         Parameters = Array.AsReadOnly(parameters);
+        EndsTransaction = endsTransaction;
     }
     internal string Sql { get; }
     internal IReadOnlyList<PgQueryParameter> Parameters { get; }
+    internal bool EndsTransaction { get; }
     internal static PgParameterBindings Create(string sql, KingbaseParameterCollection parameters,
         PgTypeCatalog catalog, KingbaseCompatibilityMode mode, bool? standardConformingStrings)
     {
@@ -42,7 +44,7 @@ internal sealed class PgParameterBindings
         // Validate all inputs and aggregate size before copying any mutable buffer.
         for (var i = 0; i < values.Length; i++)
             if (values[i].Value is byte[] bytes) values[i] = new PgQueryParameter(values[i].TypeOid, (byte[])bytes.Clone());
-        return new PgParameterBindings(plan.Sql, values);
+        return new PgParameterBindings(plan.Sql, values, plan.EndsTransaction);
     }
 
     static PgTypeDescription Resolve(KingbaseParameter p, PgTypeCatalog catalog)

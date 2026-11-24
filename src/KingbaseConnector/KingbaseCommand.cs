@@ -12,6 +12,8 @@ public sealed class KingbaseCommand : DbCommand
     readonly object _sync = new();
     readonly KingbaseParameterCollection _parameters = new();
     KingbaseConnection? _connection;
+    KingbaseTransaction? _transaction;
+    readonly KingbaseTransactionOperation _transactionOperation;
     string _text = "";
     int? _timeout;
     CommandType _type = CommandType.Text;
@@ -22,6 +24,8 @@ public sealed class KingbaseCommand : DbCommand
     CancellationTokenSource? _cancel;
     public KingbaseCommand() { }
     public KingbaseCommand(string? text, KingbaseConnection? connection) { CommandText = text!; Connection = connection; }
+    internal KingbaseCommand(string text, KingbaseConnection connection, KingbaseTransaction transaction, KingbaseTransactionOperation operation)
+        : this(text, connection) { _transaction = transaction; _transactionOperation = operation; }
 #if !NETSTANDARD2_0
     [AllowNull]
 #endif
@@ -58,9 +62,10 @@ public sealed class KingbaseCommand : DbCommand
     public new KingbaseConnection? Connection { get => (KingbaseConnection?)DbConnection; set => DbConnection = value; }
     protected override DbTransaction? DbTransaction
     {
-        get => null;
-        set { lock (_sync) { EnsureEditable(); if (value is not null) throw new NotSupportedException("Local transactions are not yet implemented."); } }
+        get { lock (_sync) return _transaction; }
+        set { lock (_sync) { EnsureEditable(); if (value is not null and not KingbaseTransaction) throw new ArgumentException("A Kingbase command requires a Kingbase transaction."); _transaction = (KingbaseTransaction?)value; } }
     }
+    public new KingbaseTransaction? Transaction { get => (KingbaseTransaction?)DbTransaction; set => DbTransaction = value; }
     protected override DbParameterCollection DbParameterCollection => _parameters;
     public new KingbaseParameterCollection Parameters => (KingbaseParameterCollection)DbParameterCollection;
     public override void Cancel() { lock (_sync) _cancel?.Cancel(); }
@@ -98,6 +103,7 @@ public sealed class KingbaseCommand : DbCommand
     {
         caller.ThrowIfCancellationRequested();
         KingbaseConnection connection;
+        KingbaseTransaction? transaction;
         string text;
         int timeout;
         CancellationTokenSource cancel;
@@ -112,6 +118,7 @@ public sealed class KingbaseCommand : DbCommand
             if (_type != CommandType.Text) throw new NotSupportedException("Only Text commands are implemented.");
             if (string.IsNullOrWhiteSpace(_text)) throw new InvalidOperationException("Kingbase CommandText is empty.");
             connection = _connection ?? throw new InvalidOperationException("The Kingbase command has no connection.");
+            transaction = _transaction;
             text = _text;
             timeout = _timeout ?? connection.DefaultCommandTimeout;
             cancel = new CancellationTokenSource();
@@ -126,18 +133,34 @@ public sealed class KingbaseCommand : DbCommand
         PgPhysicalSession? session = null;
         long generation = 0;
         KingbaseDataReader? reader = null;
+        var acknowledged = false;
+        PgQuerySession? queries = null;
+        long writeAttempts = 0;
         try
         {
-            (session, generation) = connection.BeginExecution(this, cancel);
-            var queries = session.Queries;
+            (session, generation) = connection.BeginExecution(this, cancel, transaction, _transactionOperation);
+            queries = session.Queries;
+            writeAttempts = queries.WriteAttempts;
             bool? conforming = queries.Parameters.TryGetValue("standard_conforming_strings", out var status)
                 ? status switch { "on" => true, "off" => false, _ => null } : null;
             CheckMode();
             var bindings = PgParameterBindings.Create(text, _parameters, session.Catalog, session.Identity.EffectiveMode, conforming);
             CheckCancellation();
             var results = await queries.ExecuteExtendedAsync(bindings.Sql, session.Catalog, bindings.Parameters, linked.Token).ConfigureAwait(false);
+            var rolledBack = false;
+            if (_transactionOperation != KingbaseTransactionOperation.None)
+            {
+                try { rolledBack = KingbaseTransaction.ValidateAcknowledgment(_transactionOperation, results, queries.TransactionStatus); }
+                catch { session.Dispose(); throw; }
+                acknowledged = true;
+            }
             CheckMode();
-            CheckCancellation();
+            connection.ObserveTransaction(this, session, generation, _transactionOperation, true, queries.TransactionStatus, bindings.EndsTransaction);
+            acknowledged = true;
+            if (rolledBack) throw new KingbaseTransactionException(outcomeUnknown: false);
+            if (_transactionOperation is KingbaseTransactionOperation.Commit or KingbaseTransactionOperation.Rollback)
+                return new KingbaseDataReader(results, session.Catalog);
+            if (_transactionOperation == KingbaseTransactionOperation.None) CheckCancellation();
             var capturedSession = session;
             reader = new KingbaseDataReader(results, session.Catalog, behavior,
                 r => connection.ReleaseReader(r, capturedSession, generation, (behavior & CommandBehavior.CloseConnection) != 0));
@@ -162,7 +185,28 @@ public sealed class KingbaseCommand : DbCommand
         catch (Exception error)
         {
             reader?.Close();
+            if (session is not null && session.IsUsable && !acknowledged && error is not KingbaseTransactionException)
+            {
+                try { connection.ObserveTransaction(this, session, generation, _transactionOperation, false, queries!.TransactionStatus, false); }
+                catch { session.Dispose(); }
+            }
             if (session is not null) connection.RetireIfBroken(session);
+            if (_transactionOperation == KingbaseTransactionOperation.Commit && !acknowledged && session is not null &&
+                queries is not null && queries.WriteAttempts != writeAttempts)
+            {
+                if (queries.CommandRejection is { } rejection)
+                {
+                    caller.ThrowIfCancellationRequested();
+                    throw new KingbaseException(rejection);
+                }
+                if (!session.IsUsable || queries.UncertainError is not null)
+                {
+                    transaction!.MarkOutcomeUnknown();
+                    caller.ThrowIfCancellationRequested();
+                    throw new KingbaseTransactionException(outcomeUnknown: true, error);
+                }
+            }
+            if (_transactionOperation != KingbaseTransactionOperation.None && acknowledged) throw;
             CheckCancellation();
             if (error is PgQueryException query) throw new KingbaseException(query.ServerError);
             throw;

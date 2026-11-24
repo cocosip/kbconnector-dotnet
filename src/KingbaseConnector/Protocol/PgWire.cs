@@ -16,6 +16,8 @@ internal sealed class PgWire : IDisposable
     readonly byte[] _header = new byte[5];
     int _disposed;
     int _busy;
+    long _writeAttempts;
+    internal long WriteAttempts => Interlocked.Read(ref _writeAttempts);
 
     internal PgWire(Stream stream, int maxMessageLength = MaxMessageLength)
     {
@@ -62,7 +64,7 @@ internal sealed class PgWire : IDisposable
     {
         ValidateOutgoing(message);
         EnterOperation();
-        try { _stream.Write(message, 0, message.Length); }
+        try { Interlocked.Increment(ref _writeAttempts); _stream.Write(message, 0, message.Length); }
         catch { RetireAfterFailure(); throw; }
         finally { Volatile.Write(ref _busy, 0); }
     }
@@ -72,7 +74,7 @@ internal sealed class PgWire : IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         ValidateOutgoing(message);
         EnterOperation();
-        try { await _stream.WriteAsync(message, 0, message.Length, cancellationToken).ConfigureAwait(false); }
+        try { Interlocked.Increment(ref _writeAttempts); await _stream.WriteAsync(message, 0, message.Length, cancellationToken).ConfigureAwait(false); }
         catch { RetireAfterFailure(); throw; }
         finally { Volatile.Write(ref _busy, 0); }
     }

@@ -8,14 +8,16 @@ internal sealed class PgParameterPlan
     const int MaxBytes = 1024 * 1024;
     const int MaxParameters = 1024;
 
-    PgParameterPlan(string sql, List<int> indexes)
+    PgParameterPlan(string sql, List<int> indexes, bool endsTransaction)
     {
         Sql = sql;
         ParameterIndexes = indexes.AsReadOnly();
+        EndsTransaction = endsTransaction;
     }
 
     internal string Sql { get; }
     internal IReadOnlyList<int> ParameterIndexes { get; }
+    internal bool EndsTransaction { get; }
 
     internal static PgParameterPlan Create(string sql, IReadOnlyList<string?> parameterNames,
         KingbaseCompatibilityMode mode, bool? standardConformingStrings)
@@ -40,10 +42,12 @@ internal sealed class PgParameterPlan
         var gapNewline = false;
         var output = new StringBuilder();
         var copied = 0;
+        var leadingWords = new List<string>(3);
+        var leading = true;
         for (var i = 0; i < sql.Length;)
         {
             var c = sql[i];
-            if (c is ' ' or '\t' or '\r' or '\n' or '\f')
+            if (c is ' ' or '\t' or '\r' or '\n' or '\f' or '\v')
             {
                 gapNewline |= c is '\r' or '\n';
                 i++;
@@ -64,6 +68,7 @@ internal sealed class PgParameterPlan
                 continue;
             }
             if (terminated) throw InvalidPlan();
+            if (leading && !IdentifierStart(c)) leading = false;
             if (c == ';')
             {
                 terminated = true;
@@ -97,7 +102,9 @@ internal sealed class PgParameterPlan
             }
             if (IdentifierStart(c))
             {
+                var start = i;
                 do { i++; } while (i < sql.Length && IdentifierPart(sql[i]));
+                if (leading && leadingWords.Count < 3) leadingWords.Add(sql.Substring(start, i - start).ToUpperInvariant());
                 continue;
             }
             if (c == '$')
@@ -172,7 +179,9 @@ internal sealed class PgParameterPlan
         output.Append(sql, copied, sql.Length - copied);
         var planned = output.ToString();
         if (planned.Length >= MaxBytes || PgFrontendMessages.CStringLength(planned) > MaxBytes) throw InvalidPlan();
-        return new PgParameterPlan(planned, indexes);
+        var endsTransaction = leadingWords.Count > 0 && (leadingWords[0] is "COMMIT" or "END" or "ABORT" ||
+            (leadingWords[0] == "ROLLBACK" && !leadingWords.Skip(1).Contains("TO")));
+        return new PgParameterPlan(planned, indexes, endsTransaction);
     }
 
     static Dictionary<string, int> IndexNames(string?[] names)
