@@ -70,7 +70,7 @@ internal static class PgIdentityProbe
         return value;
     }
 
-    static KingbaseCompatibilityMode ParseMode(string mode)
+    internal static KingbaseCompatibilityMode ParseMode(string mode)
     {
         if (mode.Equals("pg", StringComparison.OrdinalIgnoreCase)) return KingbaseCompatibilityMode.PostgreSql;
         if (mode.Equals("oracle", StringComparison.OrdinalIgnoreCase)) return KingbaseCompatibilityMode.Oracle;
