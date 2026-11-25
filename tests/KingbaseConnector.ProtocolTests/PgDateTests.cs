@@ -95,7 +95,7 @@ public sealed class PgDateTests
             Assert.Equal(DbType.Date, parameter.DbType);
         }
         Assert.Null(new PgTextCodecs(catalog).Encode(DateOid, Bind(new KingbaseParameter("p", DBNull.Value) { KingbaseDbType = KingbaseDbType.Date }, catalog).Value));
-        Assert.Throws<NotSupportedException>(() => Bind(new KingbaseParameter("p", new DateTime(2024, 1, 1)), catalog));
+        Assert.Equal(7018u, Bind(new KingbaseParameter("p", new DateTime(2024, 1, 1)), catalog).TypeOid);
         Assert.Throws<InvalidCastException>(() => Bind(new KingbaseParameter("p", DateTime.SpecifyKind(new DateTime(2024, 1, 1), DateTimeKind.Utc)) { DbType = DbType.Date }, catalog));
         Assert.Throws<InvalidCastException>(() => Bind(new KingbaseParameter("p", new DateTime(2024, 1, 1).AddTicks(1)) { DbType = DbType.Date }, catalog));
         Assert.Throws<ArgumentException>(() => Bind(new KingbaseParameter("p", new KingbaseDate(2024, 1, 1)) { DbType = DbType.String, KingbaseDbType = KingbaseDbType.Date }, catalog));

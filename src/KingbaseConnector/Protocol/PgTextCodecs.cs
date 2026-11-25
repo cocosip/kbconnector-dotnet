@@ -11,14 +11,17 @@ internal sealed class PgTextCodecs
     internal PgTextCodecs(PgTypeCatalog catalog) => _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
     internal Type GetFieldType(uint oid) => Resolve(oid).ClrType;
     internal Type GetProviderSpecificFieldType(uint oid) => Resolve(oid).Name switch
-    { "numeric" => typeof(KingbaseNumeric), "date" => typeof(KingbaseDate), _ => GetFieldType(oid) };
+    { "numeric" => typeof(KingbaseNumeric), "date" => typeof(KingbaseDate), "timestamp" => typeof(KingbaseTimestamp),
+        "timestamptz" => typeof(KingbaseTimestampTz), _ => GetFieldType(oid) };
     internal object DecodeProviderSpecific(uint oid, string? text, string? dateStyle = null)
     {
         var name = Resolve(oid).Name;
-        if (name is not ("numeric" or "date")) return Decode(oid, text, dateStyle);
+        if (name is not ("numeric" or "date" or "timestamp" or "timestamptz")) return Decode(oid, text, dateStyle);
         if (text is null) return DBNull.Value;
         ValidateText(text);
         if (name == "date") { RequireIsoDateStyle(dateStyle); return KingbaseDate.Parse(text); }
+        if (name == "timestamp") { RequireIsoDateStyle(dateStyle); return KingbaseTimestamp.Parse(text); }
+        if (name == "timestamptz") { RequireIsoDateStyle(dateStyle); return KingbaseTimestampTz.Parse(text); }
         return KingbaseNumeric.Parse(text);
     }
 
@@ -53,6 +56,8 @@ internal sealed class PgTextCodecs
             case "date": RequireIsoDateStyle(dateStyle); return KingbaseDate.Parse(text).ToDateTime();
             case "time": return PgTimeText.Parse(text);
             case "timetz": return KingbaseTimeTz.Parse(text);
+            case "timestamp": RequireIsoDateStyle(dateStyle); return KingbaseTimestamp.Parse(text).ToDateTime();
+            case "timestamptz": RequireIsoDateStyle(dateStyle); return KingbaseTimestampTz.Parse(text).ToDateTime();
             case "uuid":
                 if (text.Length == 36 && Guid.TryParseExact(text, "D", out var uuid)) return uuid;
                 throw InvalidText();
@@ -66,6 +71,19 @@ internal sealed class PgTextCodecs
         var (name, clrType) = Resolve(oid);
         if (value is null || value is DBNull) return null;
         if (name == "numeric" && value is KingbaseNumeric numeric) return numeric.ToString();
+        if (name == "timestamp") return value switch
+        {
+            KingbaseTimestamp timestamp => timestamp.ToString(),
+            DateTime timestamp => KingbaseTimestamp.FromDateTime(timestamp).ToString(),
+            _ => throw new InvalidCastException("PG TIMESTAMP input requires a calendar timestamp or Unspecified DateTime.")
+        };
+        if (name == "timestamptz") return value switch
+        {
+            KingbaseTimestampTz timestamp => timestamp.ToString(),
+            DateTime timestamp => KingbaseTimestampTz.FromDateTime(timestamp).ToString(),
+            DateTimeOffset timestamp => KingbaseTimestampTz.FromDateTimeOffset(timestamp).ToString(),
+            _ => throw new InvalidCastException("PG TIMESTAMPTZ input requires a UTC timestamp or explicit-offset instant.")
+        };
         if (name == "time") return value switch
         {
             TimeSpan time => PgTimeText.Format(time),
@@ -117,6 +135,7 @@ internal sealed class PgTextCodecs
             "date" => (typeof(DateTime), 4),
             "time" => (typeof(TimeSpan), 8),
             "timetz" => (typeof(KingbaseTimeTz), 12),
+            "timestamp" or "timestamptz" => (typeof(DateTime), 8),
             "uuid" => (typeof(Guid), 16),
             "bytea" => (typeof(byte[]), -1),
             "text" or "varchar" or "bpchar" or "json" or "jsonb" => (typeof(string), -1),
@@ -129,7 +148,7 @@ internal sealed class PgTextCodecs
     static void RequireIsoDateStyle(string? style)
     {
         if (style is not ("ISO, MDY" or "ISO, DMY" or "ISO, YMD"))
-            throw new NotSupportedException("PG DATE results require a confirmed ISO DateStyle.");
+            throw new NotSupportedException("PG calendar results require a confirmed ISO DateStyle.");
     }
 
     static void ValidateText(string text)

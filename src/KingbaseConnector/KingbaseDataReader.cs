@@ -97,6 +97,7 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     public override object GetProviderSpecificValue(int ordinal) => _codecs.DecodeProviderSpecific(Column(ordinal).TypeOid, RawValue(ordinal), Current!.DateStyle);
     public override T GetFieldValue<T>(int ordinal)
     {
+        if (typeof(T) == typeof(DateTimeOffset)) return (T)(object)GetFieldValue<KingbaseTimestampTz>(ordinal).ToDateTimeOffset();
 #if NET6_0_OR_GREATER
         if (typeof(T) == typeof(DateOnly)) return (T)(object)GetFieldValue<KingbaseDate>(ordinal).ToDateOnly();
         if (typeof(T) == typeof(TimeOnly))
@@ -106,7 +107,8 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
             return (T)(object)TimeOnly.FromTimeSpan(time);
         }
 #endif
-        return (T)(typeof(T) == typeof(KingbaseNumeric) || typeof(T) == typeof(KingbaseDate) ? GetProviderSpecificValue(ordinal) : GetValue(ordinal));
+        return (T)(typeof(T) == typeof(KingbaseNumeric) || typeof(T) == typeof(KingbaseDate) ||
+            typeof(T) == typeof(KingbaseTimestamp) || typeof(T) == typeof(KingbaseTimestampTz) ? GetProviderSpecificValue(ordinal) : GetValue(ordinal));
     }
     public override int GetValues(object[] values) => CopyValues(values, provider: false);
     public override int GetProviderSpecificValues(object[] values) => CopyValues(values, provider: true);

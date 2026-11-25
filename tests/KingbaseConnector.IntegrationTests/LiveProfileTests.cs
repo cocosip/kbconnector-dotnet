@@ -352,6 +352,125 @@ public sealed class LiveProfileTests
         Assert.Equal(baseline, await Scalar(second, "SHOW application_name", token));
     });
 
+    [LiveTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task PgTimestampCalendarAndInstantValuesPreparedAndInferred(bool automatic) => LiveProfile.RunPg(async (settings, token) =>
+    {
+        settings.MaxAutoPrepare = automatic ? 4 : 0; settings.AutoPrepareMinUsages = 2;
+        using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
+        await Scalar(connection, "SELECT pg_catalog.set_config('DateStyle','ISO, MDY',false)", token);
+        await Scalar(connection, "SELECT pg_catalog.set_config('TimeZone','UTC',false)", token);
+        using var command = new KingbaseCommand("SELECT @t, CAST(@t AS text), @z, CAST(@z AS text)", connection);
+        command.Parameters.Add(new KingbaseParameter("t", DBNull.Value) { KingbaseDbType = KingbaseDbType.Timestamp });
+        command.Parameters.Add(new KingbaseParameter("z", DBNull.Value) { KingbaseDbType = KingbaseDbType.TimestampTz });
+        if (!automatic) await command.PrepareAsync(token);
+        using (var reader = await command.ExecuteReaderAsync(token))
+        {
+            Assert.True(reader.Read()); Assert.True(reader.IsDBNull(0)); Assert.True(reader.IsDBNull(2));
+            Assert.Equal(typeof(DateTime), reader.GetFieldType(0)); Assert.Equal(typeof(DateTime), reader.GetFieldType(2));
+            Assert.Equal(typeof(KingbaseTimestamp), reader.GetProviderSpecificFieldType(0)); Assert.Equal(typeof(KingbaseTimestampTz), reader.GetProviderSpecificFieldType(2));
+        }
+        foreach (var row in new[] { ("0001-01-01 00:00:00", "0001-01-01 00:00:00+00"),
+            ("1582-10-10 12:34:56.123456", "1582-10-10 12:34:56.123456+00"),
+            ("2000-02-29 00:00:00.000001", "2000-02-29 00:00:00.000001+00"),
+            ("9999-12-31 23:59:59.999999", "9999-12-31 23:59:59.999999+00"),
+            ("10000-01-01 00:00:00", "10000-01-01 00:00:00+00"),
+            ("294276-12-31 23:59:59.999999", "294276-12-31 23:59:59.999999+00"),
+            ("0001-02-29 12:34:56.123456 BC", "0001-02-29 12:34:56.123456+00 BC"),
+            ("4714-11-24 00:00:00 BC", "4714-11-24 00:00:00+00 BC"), ("infinity", "infinity"), ("-infinity", "-infinity") })
+        {
+            var timestamp = KingbaseTimestamp.Parse(row.Item1); var instant = KingbaseTimestampTz.Parse(row.Item2);
+            command.Parameters[0].Value = timestamp; command.Parameters[1].Value = instant;
+            using var reader = await command.ExecuteReaderAsync(token); Assert.True(reader.Read());
+            Assert.Equal(row.Item1, reader.GetString(1)); Assert.Equal(row.Item2, reader.GetString(3));
+            Assert.Equal(timestamp, reader.GetFieldValue<KingbaseTimestamp>(0)); Assert.Equal(instant, reader.GetFieldValue<KingbaseTimestampTz>(2));
+            if (timestamp.IsFinite && timestamp.Date.Year is >= 1 and <= 9999)
+            {
+                Assert.Equal(timestamp.ToDateTime(), reader.GetDateTime(0)); Assert.Equal(DateTimeKind.Unspecified, reader.GetDateTime(0).Kind);
+                Assert.Equal(instant.ToDateTime(), reader.GetDateTime(2)); Assert.Equal(DateTimeKind.Utc, reader.GetDateTime(2).Kind);
+                Assert.Equal(TimeSpan.Zero, reader.GetFieldValue<DateTimeOffset>(2).Offset);
+            }
+            else { Assert.Throws<OverflowException>(() => reader.GetValue(0)); Assert.Throws<OverflowException>(() => reader.GetValue(2)); }
+        }
+        await command.UnprepareAsync(token);
+        using var inferred = new KingbaseCommand("SELECT @p, CAST(@p AS text)", connection);
+        inferred.Parameters.AddWithValue("p", new DateTime(2024, 2, 29, 12, 34, 56).AddTicks(10));
+        if (!automatic) await inferred.PrepareAsync(token);
+        foreach (var kind in new[] { DateTimeKind.Unspecified, DateTimeKind.Utc })
+        {
+            inferred.Parameters[0].Value = DateTime.SpecifyKind(new DateTime(2024, 2, 29, 12, 34, 56).AddTicks(10), kind);
+            using var reader = await inferred.ExecuteReaderAsync(token); Assert.True(reader.Read());
+            Assert.Equal(kind == DateTimeKind.Utc ? "timestamptz" : "timestamp", reader.GetDataTypeName(0)); Assert.Equal(kind, reader.GetDateTime(0).Kind);
+            Assert.Equal(kind == DateTimeKind.Utc ? "2024-02-29 12:34:56.000001+00" : "2024-02-29 12:34:56.000001", reader.GetString(1));
+        }
+        inferred.Parameters[0].Value = new DateTimeOffset(2024, 3, 1, 2, 0, 0, TimeSpan.FromHours(14));
+        Assert.Equal(new DateTime(2024, 2, 29, 12, 0, 0, DateTimeKind.Utc), await inferred.ExecuteScalarAsync(token));
+        inferred.Parameters[0].Value = DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Local);
+        await Assert.ThrowsAsync<NotSupportedException>(() => inferred.ExecuteScalarAsync(token));
+        inferred.Parameters[0].Value = new DateTime(2024, 1, 1).AddTicks(1);
+        await Assert.ThrowsAsync<ArgumentException>(() => inferred.ExecuteScalarAsync(token));
+        inferred.Parameters[0].Value = new DateTime(2024, 1, 1);
+        Assert.Equal(new DateTime(2024, 1, 1), await inferred.ExecuteScalarAsync(token));
+    });
+
+    [LiveFact]
+    public Task PgTimestampTzNumericDisplayOffsetsNormalizeDstSecondsAndEras() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
+        await Scalar(connection, "SELECT pg_catalog.set_config('DateStyle','ISO, YMD',false)", token);
+        foreach (var row in new[] { ("UTC", "2024-03-10 06:59:59.999999+00", "2024-03-10 06:59:59.999999+00"),
+            ("Asia/Shanghai", "2024-03-10 06:59:59.999999+00", "2024-03-10 14:59:59.999999+08"),
+            ("America/New_York", "2024-03-10 06:59:59.999999+00", "2024-03-10 01:59:59.999999-05"),
+            ("America/New_York", "2024-03-10 07:00:00+00", "2024-03-10 03:00:00-04"),
+            ("America/New_York", "2024-11-03 05:30:00+00", "2024-11-03 01:30:00-04"),
+            ("America/New_York", "2024-11-03 06:30:00+00", "2024-11-03 01:30:00-05"),
+            ("America/New_York", "2024-07-01 12:00:00+00", "2024-07-01 08:00:00-04"),
+            ("America/New_York", "2024-01-01 12:00:00+00", "2024-01-01 07:00:00-05"),
+            ("Africa/Monrovia", "1970-01-01 00:00:00+00", "1969-12-31 23:15:30-00:44:30"),
+            ("ABC-01", "0001-12-31 23:00:00+00 BC", "0001-01-01 00:00:00+01"),
+            ("ABC+01", "0001-01-01 00:00:00+00", "0001-12-31 23:00:00-01 BC") })
+        {
+            await Scalar(connection, "SELECT pg_catalog.set_config('TimeZone','" + row.Item1 + "',false)", token);
+            using var command = new KingbaseCommand("SELECT TIMESTAMPTZ '" + row.Item2 + "', CAST(TIMESTAMPTZ '" + row.Item2 + "' AS text)", connection);
+            using var reader = await command.ExecuteReaderAsync(token); Assert.True(reader.Read());
+            Assert.Equal(row.Item3, reader.GetString(1)); Assert.Equal(row.Item2, reader.GetFieldValue<KingbaseTimestampTz>(0).ToString());
+            var value = KingbaseTimestampTz.Parse(row.Item2);
+            if (value.UtcValue.Date.Year > 0)
+            {
+                Assert.Equal(value.ToDateTime(), reader.GetDateTime(0)); Assert.Equal(DateTimeKind.Utc, reader.GetDateTime(0).Kind);
+                Assert.Equal(value.ToDateTimeOffset(), reader.GetFieldValue<DateTimeOffset>(0));
+            }
+            else Assert.Throws<OverflowException>(() => reader.GetDateTime(0));
+        }
+    });
+
+    [LiveFact]
+    public Task PgTimestampFormatRejectionRecoveryAndPoolTimezoneReset() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        settings.Pooling = true; settings.MaxPoolSize = 1;
+        using var source = new KingbaseDataSourceBuilder(settings.ConnectionString).Build(); using var connection = await source.OpenConnectionAsync(token);
+        var baselineZone = await Scalar(connection, "SHOW TimeZone", token); var baselineStyle = await Scalar(connection, "SHOW DateStyle", token);
+        var pid = await Scalar(connection, "SELECT pg_catalog.pg_backend_pid()", token);
+        await Scalar(connection, "SELECT pg_catalog.set_config('TimeZone','America/New_York',false)", token);
+        using var command = new KingbaseCommand("SELECT @t, @z, CAST(@t AS text)", connection);
+        command.Parameters.AddWithValue("t", new DateTime(2024, 2, 3, 12, 34, 56));
+        command.Parameters.AddWithValue("z", new DateTime(2024, 2, 3, 12, 34, 56, DateTimeKind.Utc));
+        await command.PrepareAsync(token);
+        foreach (var style in new[] { "SQL, DMY", "German, DMY" })
+        {
+            await Scalar(connection, "SELECT pg_catalog.set_config('DateStyle','" + style + "',false)", token);
+            using var reader = await command.ExecuteReaderAsync(token); Assert.True(reader.Read());
+            Assert.Equal(style == "SQL, DMY" ? "03/02/2024 12:34:56" : "03.02.2024 12:34:56", reader.GetString(2));
+            Assert.Throws<NotSupportedException>(() => reader.GetDateTime(0)); Assert.Throws<NotSupportedException>(() => reader.GetFieldValue<KingbaseTimestampTz>(1));
+        }
+        await Scalar(connection, "SELECT pg_catalog.set_config('DateStyle','ISO, DMY',false)", token);
+        Assert.Equal(new DateTime(2024, 2, 3, 12, 34, 56), await command.ExecuteScalarAsync(token));
+        await connection.CloseAsync(); await connection.OpenAsync(token);
+        Assert.Equal(pid, await Scalar(connection, "SELECT pg_catalog.pg_backend_pid()", token));
+        Assert.Equal(baselineZone, await Scalar(connection, "SHOW TimeZone", token)); Assert.Equal(baselineStyle, await Scalar(connection, "SHOW DateStyle", token));
+    });
+
     [LiveTheory(writes: true)]
     [InlineData(IsolationLevel.ReadCommitted)]
     [InlineData(IsolationLevel.RepeatableRead)]

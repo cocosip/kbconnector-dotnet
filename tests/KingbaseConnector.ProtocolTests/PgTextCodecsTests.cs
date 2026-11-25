@@ -7,7 +7,8 @@ public sealed class PgTextCodecsTests
 {
     static readonly (string Name, short Size)[] Types = [("bool", 1), ("int2", 2), ("int4", 4), ("int8", 8),
         ("oid", 4), ("float4", 4), ("float8", 8), ("text", -1), ("varchar", -1), ("bpchar", -1),
-        ("bytea", -1), ("uuid", 16), ("json", -1), ("jsonb", -1), ("numeric", -1), ("date", 4), ("time", 8), ("timetz", 12)];
+        ("bytea", -1), ("uuid", 16), ("json", -1), ("jsonb", -1), ("numeric", -1), ("date", 4), ("time", 8), ("timetz", 12),
+        ("timestamp", 8), ("timestamptz", 8)];
     static readonly Task<PgTypeCatalog> Catalog = LoadCatalog();
     static uint Oid(string name, uint first = 7000) => first + (uint)Array.FindIndex(Types, item => item.Name == name);
 

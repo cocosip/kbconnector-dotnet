@@ -73,5 +73,21 @@ session zones. The private profile rejects the Postgres display-style setting
 with SQLSTATE 22023; it is excluded from these format scenarios. Separate server
 casts reject +/-16-hour offsets and confirm synchronized error recovery. Invalid
 client submicrosecond input rejects and subsequent execution succeeds. These cases
-change only session settings. TIMESTAMP/TIMESTAMPTZ/INTERVAL, other modes' temporal
+change only session settings. INTERVAL, other modes' temporal
 types, other builds/platforms and LIVE TLS remain pending.
+
+PG TIMESTAMP/TIMESTAMPTZ cases compare literal expected server text with prepared
+calendar/instant binding, typed NULL, Kind-aware DateTime inference and explicit
+DateTimeOffset normalization. They exercise microseconds, BC leap days and era
+transitions, CLR boundaries, beyond-CLR years, exercised lower/upper calendar
+values and explicit infinities. Results retain Unspecified/UTC Kind and stable
+default/provider types; non-CLR conversion throws without losing provider access.
+ISO numeric output is checked under UTC, Asia/Shanghai and America/New_York,
+including spring/fall DST transitions and both occurrences of a repeated clock
+time. Africa/Monrovia in 1970 supplies IANA's known -00:44:30 historical offset;
+accepted fixed one-hour zones exercise display across the BC/AD boundary. The
+profile rejected a custom second-bearing TimeZone setting (22023), so the
+historical zone is used to validate actual second-offset output. SQL/German styles
+reject timestamp conversion; ISO recovery and same-backend DateStyle/TimeZone
+pool reset succeed. Only session settings change; these cases establish no
+binary temporal, other-mode timestamp or additional-platform acceptance.
