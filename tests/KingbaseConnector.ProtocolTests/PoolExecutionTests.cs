@@ -7,6 +7,11 @@ using static KingbaseConnector.ProtocolTests.PgSessionResetTests;
 
 namespace KingbaseConnector.ProtocolTests;
 
+[CollectionDefinition(nameof(GlobalPoolRegistryCollection), DisableParallelization = true)]
+public sealed class GlobalPoolRegistryCollection { }
+
+// ClearAllPools also clears private pools owned by other test classes.
+[Collection(nameof(GlobalPoolRegistryCollection))]
 public sealed partial class PoolExecutionTests
 {
     internal static KingbaseConnectionStringBuilder Configuration(TcpListener listener)
