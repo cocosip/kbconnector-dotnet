@@ -48,8 +48,8 @@ internal static class PgTestPeer
     internal static byte[] StartupError() => Frame('E', Encoding.ASCII.GetBytes("SERROR\0C28000\0Mprivate-auth-error\0\0"));
     internal static byte[] Description(int count, uint typeOid = 25, short typeSize = -1) => Frame('T', Join(Count(count), Join(Enumerable.Range(0, count).Select(i =>
         Join(Encoding.UTF8.GetBytes("c" + i + "\0"), new byte[6], Int32(unchecked((int)typeOid)), Count(typeSize), Int32(-1), Count(0))).ToArray())));
-    internal static byte[] Row(string[] values) => Frame('D', Join(Count(values.Length), Join(values.Select(value =>
-        Join(Int32(Encoding.UTF8.GetByteCount(value)), Encoding.UTF8.GetBytes(value))).ToArray())));
+    internal static byte[] Row(string?[] values) => Frame('D', Join(Count(values.Length), Join(values.Select(value =>
+        value is null ? Int32(-1) : Join(Int32(Encoding.UTF8.GetByteCount(value)), Encoding.UTF8.GetBytes(value))).ToArray())));
     internal static byte[] Complete() => Frame('C', Encoding.ASCII.GetBytes("SELECT 1\0"));
     internal static byte[] Status(string key, string value) => Frame('S', Encoding.UTF8.GetBytes(key + "\0" + value + "\0"));
     internal static byte[] Ready() => Frame('Z', [(byte)'I']);

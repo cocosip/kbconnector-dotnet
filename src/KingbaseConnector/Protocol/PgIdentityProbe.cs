@@ -80,5 +80,11 @@ internal static class PgIdentityProbe
         throw UnsupportedMode();
     }
 
+    internal static bool MatchesMode(string value, KingbaseCompatibilityMode expected)
+    {
+        try { return ParseMode(value) == expected; }
+        catch (NotSupportedException) { return false; }
+    }
+
     static NotSupportedException UnsupportedMode() => new("The reported database mode is unsupported or conflicts with configuration.");
 }

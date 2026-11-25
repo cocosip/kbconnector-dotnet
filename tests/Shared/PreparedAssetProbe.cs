@@ -867,7 +867,7 @@ internal static class PreparedAssetProbe
     static string[] TimestampValues(bool zoned) => ["2024-02-29 12:34:56.123456" + (zoned ? "+00" : ""),
         "0001-02-29 12:34:56.123456" + (zoned ? "+00" : "") + " BC", "infinity", "-infinity"];
 
-    static async Task<byte[][]> ReadFrames(Stream stream, string codes, CancellationToken token)
+    internal static async Task<byte[][]> ReadFrames(Stream stream, string codes, CancellationToken token)
     {
         var result = new List<byte[]>();
         foreach (var code in codes)
@@ -879,15 +879,15 @@ internal static class PreparedAssetProbe
         return result.ToArray();
     }
     static void Require(bool condition) { if (!condition) throw new InvalidOperationException("Exact-asset public preparation probe failed."); }
-    static byte[] Int32(int value) => [(byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value];
-    static byte[] Count(int value) => [(byte)(value >> 8), (byte)value];
-    static byte[] Join(params byte[][] parts) => parts.SelectMany(x => x).ToArray();
-    static byte[] Frame(char code, params byte[] payload) => Join([(byte)code], Int32(payload.Length + 4), payload);
-    static byte[] Ready() => Frame('Z', [(byte)'I']);
-    static byte[] Complete() => Frame('C', Encoding.ASCII.GetBytes("SELECT 1\0"));
-    static byte[] Status(string key, string value) => Frame('S', Encoding.UTF8.GetBytes(key + "\0" + value + "\0"));
-    static byte[] Row(params string?[] values) => Frame('D', Join(Count(values.Length), Join(values.Select(value =>
+    internal static byte[] Int32(int value) => [(byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value];
+    internal static byte[] Count(int value) => [(byte)(value >> 8), (byte)value];
+    internal static byte[] Join(params byte[][] parts) => parts.SelectMany(x => x).ToArray();
+    internal static byte[] Frame(char code, params byte[] payload) => Join([(byte)code], Int32(payload.Length + 4), payload);
+    internal static byte[] Ready() => Frame('Z', [(byte)'I']);
+    internal static byte[] Complete() => Frame('C', Encoding.ASCII.GetBytes("SELECT 1\0"));
+    internal static byte[] Status(string key, string value) => Frame('S', Encoding.UTF8.GetBytes(key + "\0" + value + "\0"));
+    internal static byte[] Row(params string?[] values) => Frame('D', Join(Count(values.Length), Join(values.Select(value =>
         value is null ? Int32(-1) : Join(Int32(Encoding.UTF8.GetByteCount(value)), Encoding.UTF8.GetBytes(value))).ToArray())));
-    static byte[] Description(int count, int oid = 25, int size = -1) => Frame('T', Join(Count(count), Join(Enumerable.Range(0, count)
+    internal static byte[] Description(int count, int oid = 25, int size = -1) => Frame('T', Join(Count(count), Join(Enumerable.Range(0, count)
         .Select(i => Join(Encoding.UTF8.GetBytes("c" + i + "\0"), new byte[6], Int32(oid), Count(size), Int32(-1), Count(0))).ToArray())));
 }

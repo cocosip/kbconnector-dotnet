@@ -33,7 +33,6 @@ public sealed class DataSourceTests
 
     [Theory]
     [InlineData("")]
-    [InlineData("Host=localhost;Username=u;Database=d;Pooling=true;Compatibility Mode=Oracle")]
     [InlineData("Host=localhost;Username=u;Database=d;Pooling=false;Wire Protocol=MySql;Port=3307;Compatibility Mode=MySql")]
     public void BuildRejectsInvalidOrUnimplementedExecutionSettings(string settings)
     {
@@ -50,18 +49,21 @@ public sealed class DataSourceTests
     }
 
     [Theory]
-    [InlineData(KingbaseCompatibilityMode.Oracle)]
-    [InlineData(KingbaseCompatibilityMode.MySql)]
-    [InlineData(KingbaseCompatibilityMode.SqlServer)]
-    public void NonPgModesBuildOnlyWithExplicitUnpooledExecution(KingbaseCompatibilityMode mode)
+    [InlineData(KingbaseCompatibilityMode.Oracle, false)]
+    [InlineData(KingbaseCompatibilityMode.MySql, false)]
+    [InlineData(KingbaseCompatibilityMode.SqlServer, false)]
+    [InlineData(KingbaseCompatibilityMode.Oracle, true)]
+    [InlineData(KingbaseCompatibilityMode.MySql, true)]
+    [InlineData(KingbaseCompatibilityMode.SqlServer, true)]
+    public void NonPgModesBuildWithDedicatedOrPooledExecution(KingbaseCompatibilityMode mode, bool pooling)
     {
         var builder = new KingbaseDataSourceBuilder(Settings);
         builder.ConnectionStringBuilder.CompatibilityMode = mode;
+        builder.ConnectionStringBuilder.Pooling = pooling;
         using var source = builder.Build();
         using var connection = source.CreateConnection();
         Assert.Equal(ConnectionState.Closed, connection.State);
-        builder.ConnectionStringBuilder.Pooling = true;
-        Assert.Throws<NotSupportedException>(() => builder.Build());
+        source.ClearPool();
     }
 
     [Theory]

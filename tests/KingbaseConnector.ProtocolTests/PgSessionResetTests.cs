@@ -14,14 +14,14 @@ public sealed class PgSessionResetTests
         "pg_catalog.current_setting('application_name'),pg_catalog.current_setting('search_path'),pg_catalog.current_setting('TimeZone')," +
         "pg_catalog.current_setting('default_transaction_isolation'),pg_catalog.current_setting('default_transaction_read_only')," +
         "pg_catalog.current_setting('default_transaction_deferrable'),pg_catalog.current_setting('DateStyle'),pg_catalog.current_setting('IntervalStyle')," +
-        "pg_catalog.current_setting('transaction_isolation'),pg_catalog.current_setting('transaction_read_only')";
+        "pg_catalog.current_setting('transaction_isolation'),pg_catalog.current_setting('transaction_read_only'),pg_catalog.current_setting('sql_mode',true)";
     const string RestoreSql = "SELECT pg_catalog.set_config('client_encoding',$1,false),pg_catalog.set_config('standard_conforming_strings',$2,false)," +
         "pg_catalog.set_config('application_name',$3,false),pg_catalog.set_config('search_path',$4,false),pg_catalog.set_config('TimeZone',$5,false)," +
         "pg_catalog.set_config('default_transaction_isolation',$6,false),pg_catalog.set_config('default_transaction_read_only',$7,false)," +
         "pg_catalog.set_config('default_transaction_deferrable',$8,false),pg_catalog.set_config('DateStyle',$9,false),pg_catalog.set_config('IntervalStyle',$10,false)";
     internal static string[] Baseline() => ["db", "user", "user", "pg", "UTF8", "on", "app';--\\中文", "\"Odd Schema\", public", "Asia/Shanghai",
-        "read committed", "off", "off", "ISO, MDY", "postgres", "read committed", "off"];
-    internal static byte[] State(string[]? values = null, char status = 'I') => Join(Description(16), Row(values ?? Baseline()), Complete(), Frame('Z', [(byte)status]));
+        "read committed", "off", "off", "ISO, MDY", "postgres", "read committed", "off", ""];
+    internal static byte[] State(string[]? values = null, char status = 'I') => Join(Description(17), Row(values ?? Baseline()), Complete(), Frame('Z', [(byte)status]));
     internal static byte[] Control(string tag, char status = 'I') => Join(Frame('C', Encoding.ASCII.GetBytes(tag + "\0")), Frame('Z', [(byte)status]));
     static byte[] Error(char status = 'I') => Join(Frame('E', Encoding.ASCII.GetBytes("SERROR\0C42501\0Mprivate-reset-error\0\0")), Frame('Z', [(byte)status]));
     static byte[] FreshCatalog(uint start = 12000) => Catalog(new[] { ("bool", (short)1), ("int2", (short)2), ("int4", (short)4),
@@ -329,7 +329,7 @@ public sealed class PgSessionResetTests
         var wrong = Baseline()[4..14]; wrong[2] = "private-ignored-setting";
         yield return ["restore", Join(Frame('1'), Frame('2'), Description(10), Row(wrong), Complete(), Ready())];
         yield return ["state", Join(Description(16), Complete(), Ready())];
-        yield return ["state", Join(Description(16), Row(Baseline()), Row(Baseline()), Complete(), Ready())];
+        yield return ["state", Join(Description(17), Row(Baseline()), Row(Baseline()), Complete(), Ready())];
         yield return ["state", State(status: 'T')];
         yield return ["state", Join(Status("unknown_session_state", "private-value"), State())];
         yield return ["state", Join(Status("server_version", "different-kernel"), State())];
@@ -413,10 +413,10 @@ public sealed class PgSessionResetTests
         yield return [Error()];
         yield return [State(status: 'T')];
         yield return [Join(Description(16), Complete(), Ready())];
-        yield return [Join(Description(16), Row(Baseline()), Row(Baseline()), Complete(), Ready())];
+        yield return [Join(Description(17), Row(Baseline()), Row(Baseline()), Complete(), Ready())];
         yield return [Join(Description(15), Row(Baseline()[..15]), Complete(), Ready())];
-        yield return [Join(Description(16), Row(Baseline()), Control("SHOW"))];
-        yield return [Join(Description(16), Frame('D', Join([0, 16], Int32(-1), Join(Baseline()[1..].Select(value =>
+        yield return [Join(Description(17), Row(Baseline()), Control("SHOW"))];
+        yield return [Join(Description(17), Frame('D', Join([0, 17], Int32(-1), Join(Baseline()[1..].Select(value =>
             Join(Int32(Encoding.UTF8.GetByteCount(value)), Encoding.UTF8.GetBytes(value))).ToArray()))), Complete(), Ready())];
     }
 

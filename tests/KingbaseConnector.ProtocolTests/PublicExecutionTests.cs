@@ -544,11 +544,11 @@ public sealed class PublicExecutionTests
     };
     static byte[] Tag(string tag) => Frame('C', Encoding.ASCII.GetBytes(tag + "\0"));
     internal static byte[] Value(string value) => Join(Frame('1'), Frame('2'), Description(1, Oid("int4"), 4), Row([value]), Complete(), Ready());
-    internal static async Task Initialize(Stream stream, CancellationToken token, bool readStartup = true)
+    internal static async Task Initialize(Stream stream, CancellationToken token, bool readStartup = true, string mode = "pg")
     {
         if (readStartup) await ReadStartupAsync(stream, token);
         await stream.WriteAsync(Join(Frame('R', Int32(0)), Status("client_encoding", "UTF8"), Status("server_version", "14"),
-            Status("database_mode", "pg"), Status("standard_conforming_strings", "on"), Frame('K', Join(Int32(1), Int32(2))), Ready()), token);
+            Status("database_mode", mode), Status("standard_conforming_strings", "on"), Frame('K', Join(Int32(1), Int32(2))), Ready()), token);
         Assert.Equal("SELECT pg_catalog.version();", await ReadQueryAsync(stream, token));
         await stream.WriteAsync(Scalar(Product), token);
         Assert.Contains("FROM sys_catalog.sys_type", await ReadQueryAsync(stream, token));

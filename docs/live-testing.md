@@ -344,3 +344,21 @@ unsupported type. Explicit pg_catalog.text avoids that unimplemented type family
 in the lexer case. Exact-asset loopback probes exercise explicit/automatic
 preparation in each non-PG mode. Pool reset, non-PG schema/key metadata, full type
 families, routines, deployment/platform parity and native MySQL remain open.
+
+Ordinary PG-wire pooling now has a separate four-mode acceptance scope. Direct
+Auto-mode pools and private explicit-mode DataSources run at max size 1 with
+configured application name/search path/time zone, including quote/backslash and
+Unicode startup values. They assert the initial configured values, then compare backend PID and baseline settings across
+leases after changing common session/transaction defaults, creating a temporary
+table, preparing a statement, LISTEN and an advisory lock, and leaving an explicit
+transaction failed. The next borrower must see the same PID, restored settings,
+no temp table/prepared/listening/lock state and invalidated old transaction/plan
+ownership. Oracle/MySQL also change a supported sql_mode flag and verify restore.
+Production verifies the captured optional sql_mode value, retaining NULL versus empty. Unknown modes, mode-case normalization, initial/report drift, optional-setting mismatches and idle validation are exercised separately
+with loopback peers; each exact package asset runs all four mode pool probes with
+bound startup restoration and changed catalog OIDs.
+
+These tests use temporary or session-scoped state. The probed MySQL variable
+assignment syntax rejects with 42601; no variable cleanup acceptance is inferred.
+The profiles normalize non-ASCII application-name bytes to question marks; the exact-value fixture uses ASCII application names and a Unicode search path. Non-PG metadata/types/routines, package state, full resource/load/platform and
+native MySQL acceptance remain open. Real TLS remains user-deferred.

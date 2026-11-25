@@ -134,8 +134,9 @@ internal sealed class PgSessionPool : IDisposable
         if (queries.TransactionStatus != PgTransactionStatus.Idle || results.Count != 1 || results[0].CommandTag != "SELECT 1" ||
             results[0].Columns.Count != 1 || results[0].Rows.Count != 1 || results[0].Rows[0].Count != 1 || results[0].Rows[0][0] != "1" ||
             !queries.Parameters.TryGetValue("client_encoding", out var encoding) || encoding != "UTF8" ||
-            (queries.Parameters.TryGetValue("database_mode", out var mode) && !mode.Equals("pg", StringComparison.OrdinalIgnoreCase)))
+            (queries.Parameters.TryGetValue("database_mode", out var mode) && !PgIdentityProbe.MatchesMode(mode, session.Identity.EffectiveMode)))
             throw new IOException("Invalid idle Kingbase session validation.");
+        session.ValidateReportedBaseline();
     }
 
     async Task ReturnAsync(Entry entry, bool canReset)
