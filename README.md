@@ -35,6 +35,10 @@ parameters.Add("optional_id", KingbaseDbType.Integer).Value = DBNull.Value;
 
 Each parameter belongs to one collection; nonempty names match case-insensitively with an optional `@`/`:` prefix. The PG path resolves actual catalog types, requires an explicit type for NULL, snapshots mutable byte inputs, and rejects unsupported directions or lossy size/precision/scale constraints. Other-mode parameter contracts remain pending.
 
+For PG XML, select `KingbaseDbType.Xml`, `DbType.Xml`, or `DataTypeName="pg_catalog.xml"` and supply a string or typed NULL. Ordinary strings continue to infer text. `DbType.String` can constrain the XML string representation; `DbType.Xml` requires XML. The actual XML catalog entry must have the supported base layout; missing XML rejects explicitly without making other types unavailable.
+
+XML results use `String` through `GetString`, `GetChars` and buffered `GetTextReader`. The driver preserves returned text without parsing documents or resolving entities. Input/output use the confirmed UTF8 protocol encoding; an embedded XML declaration does not select another client encoding. Server validation, document/content settings and server serialization still apply. XML objects, `XmlReader`/`TextReader` input and binary XML are unsupported. Existing 1 MiB text/exchange limits apply; `GetTextReader` does not provide network streaming. The [live test guide](docs/live-testing.md) records the bounded PG acceptance.
+
 `KingbaseConnection`, `KingbaseCommand` and `KingbaseFactory.Instance` expose the initial public PG execution path. It currently requires PostgreSql compatibility mode. Default `Pooling=true` rents ordinary PG sessions; `Pooling=false` creates dedicated sessions. Open confirms product identity and required catalog types; text commands bind values separately from SQL. Cancellation or an interrupted exchange closes the physical session; ordinary synchronized server errors allow reuse. `KingbaseException` exposes SQLSTATE safely; its explicit server text properties may contain sensitive data.
 
 ```csharp

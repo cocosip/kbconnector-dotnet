@@ -11,7 +11,7 @@ public sealed class PgTypeCatalogTests
         "FROM sys_catalog.sys_type AS t JOIN sys_catalog.sys_namespace AS n ON n.oid = t.typnamespace " +
         "WHERE n.nspname = 'pg_catalog' AND t.typisdefined AND t.typname IN " +
         "('bool','int2','int4','int8','oid','float4','float8','numeric','text','varchar','bpchar'," +
-        "'bytea','uuid','date','time','timetz','timestamp','timestamptz','interval','json','jsonb')";
+        "'bytea','uuid','date','time','timetz','timestamp','timestamptz','interval','json','jsonb','xml')";
 
     static readonly string[] Required = ["bool", "int2", "int4", "int8", "text", "bytea"];
 

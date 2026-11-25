@@ -11,7 +11,7 @@ namespace KingbaseConnector.Tests;
 // The consumer compiles this against each exact archive asset, including both Standard DLLs.
 internal static class PreparedAssetProbe
 {
-    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false)
+    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false)
     {
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
@@ -30,11 +30,28 @@ internal static class PreparedAssetProbe
             await stream.WriteAsync(Join(Description(1), Row("KingbaseES V009R001C001B0001"), Complete(), Ready()), token);
             var catalogQuery = await ReadFrames(stream, "Q", token);
             Require(Encoding.UTF8.GetString(catalogQuery[0]).Contains("FROM sys_catalog.sys_type", StringComparison.Ordinal));
-            var names = new[] { "bool", "int2", "int4", "int8", "text", "bytea", "date", "time", "timetz", "timestamp", "timestamptz", "interval" };
-            var sizes = new[] { "1", "2", "4", "8", "-1", "-1", "4", "8", "12", "8", "8", "16" };
+            var names = new[] { "bool", "int2", "int4", "int8", "text", "bytea", "date", "time", "timetz", "timestamp", "timestamptz", "interval", "xml" };
+            var sizes = new[] { "1", "2", "4", "8", "-1", "-1", "4", "8", "12", "8", "8", "16", "-1" };
             var rows = names.Select((name, i) => Row((12000 + i).ToString(CultureInfo.InvariantCulture), "90", "pg_catalog", name,
                 sizes[i], "b", "U", "t", "0", "0", "0", "-1")).ToArray();
             await stream.WriteAsync(Join(Description(12), Join(rows), Complete(), Ready()), token);
+            if (xml)
+            {
+                var preparation = await ReadFrames(stream, "PS", token);
+                Require(preparation[0].AsSpan(preparation[0].Length - 4).SequenceEqual(Int32(12012)));
+                await stream.WriteAsync(Join(Frame('1'), Ready()), token);
+                foreach (var value in new string?[] { "<r>汉😀&amp;</r>", null, "<x/><y/>" })
+                {
+                    var execute = await ReadFrames(stream, "BDES", token);
+                    Require(value is null ? BinaryPrimitives.ReadInt32BigEndian(execute[0].AsSpan(16, 4)) == -1 : Encoding.UTF8.GetString(execute[0]).Contains(value, StringComparison.Ordinal));
+                    await stream.WriteAsync(Join(Frame('2'), Description(1, 12012, -1), Row(value), Complete(), Ready()), token);
+                }
+                await ReadFrames(stream, "BDES", token);
+                await stream.WriteAsync(Join(Frame('2'), Frame('E', Encoding.UTF8.GetBytes("SERROR\0C2200N\0Minvalid XML\0\0")), Ready()), token);
+                await ReadFrames(stream, "BDES", token);
+                await stream.WriteAsync(Join(Frame('2'), Description(1, 12012, -1), Row("<recovered/>"), Complete(), Ready()), token);
+                Require(await stream.ReadAsync(new byte[1], token) == 0); return;
+            }
             if (batch)
             {
                 var batchPrepare = await ReadFrames(stream, "PS", token);
@@ -143,6 +160,30 @@ internal static class PreparedAssetProbe
         }.ConnectionString);
         await connection.OpenAsync(token);
         using var command = new KingbaseCommand("SELECT :p", connection);
+        if (xml)
+        {
+            var parameter = new KingbaseParameter("p", "<r>汉😀&amp;</r>") { DbType = System.Data.DbType.Xml };
+            Require(parameter.KingbaseDbType == KingbaseDbType.Xml);
+            command.Parameters.Add(parameter); await command.PrepareAsync(token);
+            foreach (var value in new string?[] { "<r>汉😀&amp;</r>", null, "<x/><y/>" })
+            {
+                parameter.Value = value is null ? DBNull.Value : value;
+                using var reader = await command.ExecuteReaderAsync(token);
+                Require(reader.GetFieldType(0) == typeof(string) && reader.GetDataTypeName(0) == "xml");
+                Require(reader.Read() && reader.IsDBNull(0) == (value is null));
+                if (value is not null)
+                {
+                    Require(reader.GetString(0) == value && reader.GetChars(0, 0, null, 0, 0) == value.Length);
+                    using var buffered = reader.GetTextReader(0); reader.Close();
+                    Require(await buffered.ReadToEndAsync() == value);
+                }
+            }
+            parameter.Value = "<invalid>";
+            try { await command.ExecuteScalarAsync(token); throw new InvalidOperationException("XML validation error was ignored."); }
+            catch (KingbaseException error) { Require(error.SqlState == "2200N"); }
+            parameter.Value = "<recovered/>"; Require((string)(await command.ExecuteScalarAsync(token))! == "<recovered/>");
+            connection.Close(); await peer.WaitAsync(token); return;
+        }
         if (batch)
         {
             using var valueBatch = connection.CreateBatch();

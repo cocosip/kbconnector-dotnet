@@ -697,6 +697,64 @@ public sealed class LiveProfileTests
         Assert.Equal(0, await Scalar(connection, "SELECT count(*)::int FROM kb_live_batch_scalar", token));
     });
 
+    [LiveTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task PgXmlDocumentsContentAndPreparedTextAccess(bool automatic) => LiveProfile.RunPg(async (settings, token) =>
+    {
+        settings.MaxAutoPrepare = automatic ? 2 : 0; settings.AutoPrepareMinUsages = 1;
+        using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
+        await Scalar(connection, "SET xmloption = 'content'", token);
+        using var count = new KingbaseCommand("SELECT count(*) FROM pg_catalog.pg_prepared_statements WHERE statement = 'SELECT $1, pg_typeof($1)::text, XMLSERIALIZE(CONTENT $1 AS text)'", connection);
+        await count.PrepareAsync(token); // Keep the observer outside automatic preparation capacity.
+        Assert.Equal(0L, await count.ExecuteScalarAsync(token));
+        using var command = new KingbaseCommand("SELECT @p, pg_typeof(@p)::text, XMLSERIALIZE(CONTENT @p AS text)", connection);
+        var p = new KingbaseParameter("p", "<root a=\"&amp;\">汉😀</root>") { KingbaseDbType = KingbaseDbType.Xml }; command.Parameters.Add(p);
+        if (!automatic) await command.PrepareAsync(token);
+        foreach (var text in new[] { (string)p.Value!, "<first/>text<second/>", "", "<root>" + new string('界', 90000) + "</root>" })
+        {
+            p.Value = text; using var reader = await command.ExecuteReaderAsync(token);
+            Assert.Equal(typeof(string), reader.GetFieldType(0)); Assert.Equal("xml", reader.GetDataTypeName(0));
+            Assert.True(reader.Read()); Assert.Equal("xml", reader.GetString(1));
+            Assert.Equal(text, reader.GetString(0)); Assert.Equal(text, reader.GetString(2));
+            Assert.Equal(text.Length, reader.GetChars(0, 0, null, 0, 0));
+            using var buffered = reader.GetTextReader(0); reader.Close(); Assert.Equal(text, await buffered.ReadToEndAsync());
+            Assert.Equal(1L, await count.ExecuteScalarAsync(token));
+        }
+    });
+
+    [LiveFact]
+    public Task PgXmlEmbeddedDeclarationDoesNotChangeUtf8ProtocolText() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
+        using var command = new KingbaseCommand("SELECT @p, XMLSERIALIZE(CONTENT @p AS text) LIKE '%<root>汉😀</root>'", connection);
+        command.Parameters.Add(new KingbaseParameter("p", "<?xml version=\"1.0\" encoding=\"UTF-16\"?><root>汉😀</root>") { DbType = DbType.Xml });
+        using var reader = await command.ExecuteReaderAsync(token); Assert.True(reader.Read());
+        Assert.Contains("<root>汉😀</root>", reader.GetString(0)); Assert.True(reader.GetBoolean(1));
+        Assert.DoesNotContain("UTF-16", reader.GetString(0), StringComparison.OrdinalIgnoreCase);
+    });
+
+    [LiveTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task PgXmlTypedNullAndInvalidDocumentRecovery(bool prepare) => LiveProfile.RunPg(async (settings, token) =>
+    {
+        using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
+        await Scalar(connection, "SET xmloption = 'document'", token);
+        using var command = new KingbaseCommand("SELECT @p", connection);
+        var p = new KingbaseParameter("p", DBNull.Value) { DataTypeName = "pg_catalog.xml", DbType = DbType.Xml }; command.Parameters.Add(p);
+        if (prepare) await command.PrepareAsync(token);
+        using (var reader = await command.ExecuteReaderAsync(token))
+        { Assert.Equal(typeof(string), reader.GetFieldType(0)); Assert.True(reader.Read()); Assert.True(reader.IsDBNull(0)); }
+        foreach (var invalid in new[] { "<root>", "<a/><b/>" })
+        {
+            p.Value = invalid;
+            var error = await Assert.ThrowsAsync<KingbaseException>(() => command.ExecuteScalarAsync(token));
+            Assert.Contains(error.SqlState, new[] { "2200M", "2200N" }); Assert.Equal(ConnectionState.Open, connection.State);
+            p.Value = "<recovered/>"; Assert.Equal("<recovered/>", await command.ExecuteScalarAsync(token));
+        }
+    });
+
     static async Task<object?> Scalar(KingbaseConnection connection, string sql, CancellationToken token)
     {
         using var command = new KingbaseCommand(sql, connection);

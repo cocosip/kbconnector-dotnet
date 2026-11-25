@@ -132,3 +132,17 @@ sequential behavior, without accepting non-PG batching, pipelining, streaming,
 concurrent isolation, uncertain transport outcomes or real TLS. Offline peers
 cover cancellation, total timeout, preparation-only failures, acknowledgment
 retention and aggregate buffer/count limits; exact-archive probes remain offline.
+
+PG XML cases are read-only apart from session settings. Explicit and automatic
+preparation use actual XML parameters, fresh document/fragment/empty content and
+a 90,000-character Unicode payload. An explicitly prepared observer checks the
+exact target statement in pg_prepared_statements after every execution. Check XML
+metadata, pg_typeof, independent XMLSERIALIZE text, GetChars and the buffered
+TextReader lifetime. A UTF-16 XML
+declaration sent over confirmed UTF8 verifies server-side serialization preserves
+Unicode without changing client encoding. Typed NULL and invalid XML cases run
+with and without explicit preparation under document policy, reject both
+malformed XML and a well-formed multi-root fragment, then verify same-session recovery. No
+external entity payload is sent to a real server. Offline codecs preserve a
+literal external-entity document without parsing it. These cases do not establish
+binary XML, network streaming, other-mode XML, COPY/arrays or routine outputs.

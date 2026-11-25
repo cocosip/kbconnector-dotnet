@@ -33,7 +33,7 @@ internal static class KingbaseParameterTypes
         KingbaseDbType.Uuid => "uuid", KingbaseDbType.Json => "json", KingbaseDbType.Jsonb => "jsonb",
         KingbaseDbType.Date => "date", KingbaseDbType.Time => "time", KingbaseDbType.TimeTz => "timetz",
         KingbaseDbType.Timestamp => "timestamp", KingbaseDbType.TimestampTz => "timestamptz",
-        KingbaseDbType.Interval => "interval", _ => throw Unsupported()
+        KingbaseDbType.Interval => "interval", KingbaseDbType.Xml => "xml", _ => throw Unsupported()
     };
 
     internal static DbType ToDbType(KingbaseDbType type) => type switch
@@ -45,6 +45,7 @@ internal static class KingbaseParameterTypes
         KingbaseDbType.Time or KingbaseDbType.TimeTz => DbType.Time,
         KingbaseDbType.Timestamp => DbType.DateTime, KingbaseDbType.TimestampTz => DbType.DateTimeOffset,
         KingbaseDbType.Interval => DbType.Object,
+        KingbaseDbType.Xml => DbType.Xml,
         KingbaseDbType.Text or KingbaseDbType.Varchar or KingbaseDbType.Json or KingbaseDbType.Jsonb => DbType.String, _ => throw Unsupported()
     };
 
@@ -56,12 +57,12 @@ internal static class KingbaseParameterTypes
         DbType.String => KingbaseDbType.Text, DbType.StringFixedLength => KingbaseDbType.Char,
         DbType.Binary => KingbaseDbType.Bytea, DbType.Guid => KingbaseDbType.Uuid, DbType.Date => KingbaseDbType.Date,
         DbType.Time => KingbaseDbType.Time, DbType.DateTime or DbType.DateTime2 => KingbaseDbType.Timestamp,
-        DbType.DateTimeOffset => KingbaseDbType.TimestampTz, _ => throw Unsupported()
+        DbType.DateTimeOffset => KingbaseDbType.TimestampTz, DbType.Xml => KingbaseDbType.Xml, _ => throw Unsupported()
     };
 
     internal static bool Compatible(DbType constraint, KingbaseDbType selected) => constraint switch
     {
-        DbType.String => selected is KingbaseDbType.Text or KingbaseDbType.Varchar or KingbaseDbType.Char or KingbaseDbType.Json or KingbaseDbType.Jsonb,
+        DbType.String => selected is KingbaseDbType.Text or KingbaseDbType.Varchar or KingbaseDbType.Char or KingbaseDbType.Json or KingbaseDbType.Jsonb or KingbaseDbType.Xml,
         DbType.VarNumeric => selected == KingbaseDbType.Numeric,
         DbType.Time => selected is KingbaseDbType.Time or KingbaseDbType.TimeTz,
         DbType.DateTime2 => selected == KingbaseDbType.Timestamp,

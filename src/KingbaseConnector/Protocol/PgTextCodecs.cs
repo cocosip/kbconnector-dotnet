@@ -146,7 +146,7 @@ internal sealed class PgTextCodecs
             "interval" => (typeof(KingbaseInterval), 16),
             "uuid" => (typeof(Guid), 16),
             "bytea" => (typeof(byte[]), -1),
-            "text" or "varchar" or "bpchar" or "json" or "jsonb" => (typeof(string), -1),
+            "text" or "varchar" or "bpchar" or "json" or "jsonb" or "xml" => (typeof(string), -1),
             _ => throw Unsupported()
         };
         if (type.Size != size) throw Unsupported();
