@@ -38,7 +38,7 @@ internal enum PgQueryExchange { Simple, Extended, Prepare, PreparedExecution, Cl
 /// <summary>Owns an authenticated wire and executes bounded PG exchanges with text results.</summary>
 internal sealed partial class PgQuerySession : IDisposable
 {
-    const int MaxPayload = 1024 * 1024;
+    const int MaxPayload = PgWire.MaxBufferedPayloadLength;
     const int MaxFrames = 4096;
     const int MaxResults = 256;
     const int MaxRows = 1024;
@@ -66,7 +66,8 @@ internal sealed partial class PgQuerySession : IDisposable
     }
 
     internal IReadOnlyDictionary<string, string> Parameters { get; }
-    internal bool IsDisposed => Volatile.Read(ref _disposed) != 0;
+    internal bool IsDisposed => Volatile.Read(ref _disposed) != 0 || _wire.IsDisposed;
+    internal Action<KingbaseNotificationEventArgs>? NotificationHandler { get; set; }
     internal long WriteAttempts => _wire.WriteAttempts;
     internal long ExecutionWriteAttempts { get; private set; }
     internal PgServerError? CommandRejection { get; private set; }
@@ -157,10 +158,14 @@ internal sealed partial class PgQuerySession : IDisposable
             {
                 var message = await _wire.ReadMessageAsync(cancellationToken, MaxPayload - payloadBytes).ConfigureAwait(false);
                 payloadBytes += message.Payload.Length;
-                if (serverError is not null && message.Code != (byte)'Z' && message.Code != (byte)'N' && message.Code != (byte)'S')
+                if (serverError is not null && message.Code != (byte)'Z' && message.Code != (byte)'N' && message.Code != (byte)'S' && message.Code != (byte)'A')
                     throw InvalidExchange();
                 switch (message.Code)
                 {
+                    case (byte)'A':
+                        var notification = PgBackendMessages.ParseNotification(message.Payload);
+                        NotificationHandler?.Invoke(notification);
+                        break;
                     case (byte)'1':
                         if (exchange is not (PgQueryExchange.Extended or PgQueryExchange.Prepare or PgQueryExchange.Describe) || extendedPhase != 0 || message.Payload.Length != 0)
                             throw InvalidExchange();
@@ -339,10 +344,11 @@ internal sealed partial class PgQuerySession : IDisposable
     static IOException InvalidExchange() => new("Invalid PG text-query exchange.");
     void ThrowIfDisposed()
     {
-        if (Volatile.Read(ref _disposed) != 0) throw new ObjectDisposedException(nameof(PgQuerySession));
+        if (IsDisposed) throw new ObjectDisposedException(nameof(PgQuerySession));
     }
     public void Dispose()
     {
+        NotificationHandler = null;
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
             InvalidatePreparedStatements();

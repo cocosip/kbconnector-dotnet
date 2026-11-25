@@ -85,7 +85,7 @@ public sealed class KingbaseTransaction : DbTransaction
         using var command = new KingbaseCommand(operation == KingbaseTransactionOperation.Commit ? "COMMIT" : "ROLLBACK", _owner, this, operation);
         await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
     }
-    async Task CleanupAsync()
+    internal async Task CleanupAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         if (!_owner.OwnsTransaction(this)) return;

@@ -16,6 +16,21 @@ The [CI/CD workflow](docs/ci-cd.md) runs these checks on Windows and Linux for m
 
 Official reference DLLs are comparison inputs only and are excluded from product references and packages.
 
+PG-wire connections expose command/Wait-driven notifications in the four tested compatibility modes:
+
+```csharp
+listener.Notification += (_, message) => HandleMessage(message.Channel, message.Payload);
+using var listen = new KingbaseCommand("LISTEN \"app_events\"", listener);
+await listen.ExecuteNonQueryAsync(cancellationToken);
+bool received = await listener.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+```
+
+`KingbaseNotificationEventArgs` exposes the sender `ProcessId`, `Channel` and `Payload`; channel/payload are server-supplied application data and are not automatically logged. There is no continuous background dispatch. Commands and explicit waits deliver notifications while owning the connection; handlers must return promptly and cannot execute commands, schema calls or another Wait on that connection. Other connections can perform independent work. Handler failures are surfaced after command acknowledgment and result/metadata validation, before a Reader is published; server errors and confirmed rollback outcomes take precedence. Already acknowledged writes are not undone. A handler failure during BEGIN triggers bounded rollback cleanup; failed cleanup closes the connection.
+
+`Wait(int timeoutMilliseconds = -1)` and `WaitAsync(int timeoutMilliseconds = -1, CancellationToken = default)` return true for a received notification and false on timeout. TimeSpan overloads require exact milliseconds; -1ms is infinite and zero polls. Wait requires an idle connection outside a transaction and sends no SQL. Timeout and caller cancellation preserve the session, including an incomplete notification frame, for the next Wait or command. At most one bounded frame read may finish after a wait ends; it is retained without dispatch until another explicit operation consumes it. Late frames are not consumed by an expired wait. Ordinary command cancellation retains its existing physical-retirement policy. Close aborts a wait and revokes ownership; malformed messages, EOF or fatal idle errors retire the session. Wait's deadline bounds I/O waiting, not application handler execution.
+
+LISTEN/NOTIFY follows server transaction semantics: rollback does not publish notifications and commit makes them available. Closing a pooled borrower clears the callback sink before cleanup, discards queued notifications and removes LISTEN subscriptions. A later borrower or a reconnected client must issue LISTEN again. Notifications are not durable and the driver does not replay missed messages or automatically resubscribe. Native MySQL wire notification support, broader profiles/platforms and real-server TLS remain outside the current acceptance evidence.
+
 `KingbaseNumeric` preserves high-precision numeric values without rounding:
 
 ```csharp

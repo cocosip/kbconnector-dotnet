@@ -167,6 +167,8 @@ public sealed partial class KingbaseConnection : DbConnection
             _closing = completion;
             previous = _state;
             physical = _session; _session = null;
+            if (physical is { IsUsable: true }) physical.Queries.NotificationHandler = null;
+            _notificationFailure = null;
             lease = _lease; _lease = null;
             opening = _opening; _opening = null;
             hadCommand = _command is not null;
@@ -256,7 +258,12 @@ public sealed partial class KingbaseConnection : DbConnection
         var transaction = new KingbaseTransaction(this, isolationLevel);
         var sql = "BEGIN ISOLATION LEVEL " + isolation + (readOnly switch { true => ", READ ONLY", false => ", READ WRITE", _ => "" });
         using var command = new KingbaseCommand(sql, this, transaction, KingbaseTransactionOperation.Begin);
-        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+        try { await command.ExecuteNonQueryAsync(token).ConfigureAwait(false); }
+        catch
+        {
+            try { await transaction.CleanupAsync().ConfigureAwait(false); } catch { }
+            throw;
+        }
         return transaction;
     }
     internal bool OwnsTransaction(KingbaseTransaction transaction) { lock (_sync) return ReferenceEquals(_transaction, transaction); }
@@ -298,6 +305,9 @@ public sealed partial class KingbaseConnection : DbConnection
                 throw new InvalidOperationException("The command transaction is not the active transaction on this connection.");
             _command = command;
             _operationCancel = operationCancel;
+            _notificationFailure = null;
+            var generation = _generation;
+            physical.Queries.NotificationHandler = notification => DispatchNotification(physical, generation, notification);
             return (physical, _generation);
         }
     }
@@ -328,6 +338,8 @@ public sealed partial class KingbaseConnection : DbConnection
             _command = null;
             _operationCancel = null;
             _reader = reader;
+            session.Queries.NotificationHandler = null;
+            _notificationFailure = null;
         }
     }
     internal void EndExecution(KingbaseCommand command, PgPhysicalSession session, long generation)
@@ -337,6 +349,8 @@ public sealed partial class KingbaseConnection : DbConnection
             {
                 _command = null;
                 _operationCancel = null;
+                if (session.IsUsable) session.Queries.NotificationHandler = null;
+                _notificationFailure = null;
             }
     }
     internal void ReleaseReader(KingbaseDataReader reader, PgPhysicalSession session, long generation, bool closeConnection)

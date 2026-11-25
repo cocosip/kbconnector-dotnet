@@ -49,6 +49,15 @@ internal static class PgBackendMessages
         return new PgBackendKey(PgBinary.ReadInt32(payload, 0), PgBinary.ReadInt32(payload, 4));
     }
 
+    internal static KingbaseNotificationEventArgs ParseNotification(byte[] payload)
+    {
+        if (payload.Length < 7) throw InvalidMessage();
+        var processId = PgBinary.ReadInt32(payload, 0); var offset = 4;
+        var channel = PgBinary.ReadCString(payload, ref offset); var text = PgBinary.ReadCString(payload, ref offset);
+        if (processId <= 0 || channel.Length == 0 || offset != payload.Length) throw InvalidMessage();
+        return new(processId, channel, text);
+    }
+
     internal static PgServerError ParseError(byte[] payload)
     {
         var offset = 0;

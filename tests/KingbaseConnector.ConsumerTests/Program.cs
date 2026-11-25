@@ -9,6 +9,9 @@ if (args.Length != 2)
     throw new ArgumentException("Supply the expected package asset framework name and project version.");
 
 var assembly = Assembly.Load("KingbaseConnector");
+foreach (var notificationMode in new[] { KingbaseCompatibilityMode.PostgreSql, KingbaseCompatibilityMode.Oracle, KingbaseCompatibilityMode.MySql, KingbaseCompatibilityMode.SqlServer })
+    await KingbaseConnector.Tests.NotificationAssetProbe.RunAsync(notificationMode);
+Console.WriteLine("PASS: notifications, resumable Wait timeout/cancellation, callback ownership and pooled borrower isolation");
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(adapterBatch: true);
 Console.WriteLine("PASS: DataAdapter batching snapshots, partial acknowledgments, unsent rows and continued groups");
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(commandBuilder: true);

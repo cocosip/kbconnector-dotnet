@@ -215,6 +215,7 @@ public sealed partial class KingbaseCommand : DbCommand
                 connection.ObserveTransaction(this, session, generation, _transactionOperation, true, queries.TransactionStatus, false);
                 acknowledged = true;
                 CheckCancellation();
+                connection.ThrowNotificationFailure(session, generation);
                 return null;
             }
             if (_transactionOperation == KingbaseTransactionOperation.Begin)
@@ -234,6 +235,7 @@ public sealed partial class KingbaseCommand : DbCommand
                 acknowledged = true;
                 CheckCancellation();
                 lock (_sync) if (!_disposed) { _prepared = statement; _preparedGeneration = generation; }
+                connection.ThrowNotificationFailure(session, generation);
                 return null;
             }
             var usePrepared = prepared is not null && prepared.IsValid && ReferenceEquals(prepared.Owner, queries) &&
@@ -275,7 +277,10 @@ public sealed partial class KingbaseCommand : DbCommand
             acknowledged = true;
             if (rolledBack) throw new KingbaseTransactionException(outcomeUnknown: false);
             if (_transactionOperation is not KingbaseTransactionOperation.None and not KingbaseTransactionOperation.Begin)
+            {
+                connection.ThrowNotificationFailure(session, generation);
                 return new KingbaseDataReader(results, session.Catalog);
+            }
             if (_transactionOperation == KingbaseTransactionOperation.None) CheckCancellation();
             ValidateResultSchema?.Invoke(results, session.Catalog);
             if ((behavior & CommandBehavior.KeyInfo) != 0)
@@ -287,6 +292,7 @@ public sealed partial class KingbaseCommand : DbCommand
             var capturedSession = session;
             reader = new KingbaseDataReader(results, session.Catalog, behavior,
                 r => connection.ReleaseReader(r, capturedSession, generation, (behavior & CommandBehavior.CloseConnection) != 0));
+            connection.ThrowNotificationFailure(session, generation);
             connection.PublishReader(this, session, generation, reader);
             return reader;
 

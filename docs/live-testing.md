@@ -427,3 +427,27 @@ precision rejection, and fresh native plus domain-base OIDs across pool leases.
 They do not establish exact-package LIVE, generic domains, DATETIMEOFFSET, binary
 formats, routine outputs/COPY or full server/platform acceptance. Real TLS remains
 user-deferred; offline TLS tests are retained.
+
+Notification acceptance adds 20 cases across the four PG-wire modes. Two isolated
+connections verify actual sender PID, Unicode/quote/backslash payload and timeout
+followed by same-session query reuse. Transaction tests prove rollback does not
+publish, commit delivers, and no callback is dispatched while no explicit read
+operation runs. Handlers reject same-connection commands/Wait; waits inside a
+transaction reject before I/O. Cancellation/zero-poll cases preserve the backend
+PID and subsequently receive an empty NOTIFY payload through synchronous Wait.
+Handler exceptions propagate after a complete message while a later command
+still succeeds. Max-size-1 private pools compare backend PIDs, queue a notification
+before closing the first borrower, verify no old handler/message/subscription
+survives cleanup, then register a new subscription and receive only its message.
+Raw sender/session identities and original results remain outside the repository.
+
+Loopback regressions separately cover partial headers/bodies across timeout and
+cancellation, late-frame retention, both directions of resumed byte-budget changes,
+malformed/EOF/flood behavior, callback reentrancy and result/error precedence,
+BEGIN cleanup success/failure, KeyInfo enrichment, acknowledged batch counts and
+stale-generation exception isolation. Each exact package asset runs the same public
+four-mode event/Wait/cancellation/error/pool-ownership probe. These are simulated
+package-consumer checks, not exact-package LIVE or cross-platform certification.
+There is no automatic replay/resubscription or background dispatch; ordinary query
+cancellation and graceful Cancel-channel acceptance remain separate. Native MySQL
+wire and real TLS are not accepted by these tests.
