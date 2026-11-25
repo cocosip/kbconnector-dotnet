@@ -185,3 +185,12 @@ information_schema.tables and Tables hide the other session's temporary table;
 all six relational collections must hide it while its owner retains visibility.
 No persistent objects, grants or server settings are
 changed; temporary objects disappear when each dedicated connection closes.
+
+Sequence/generation cases also use temporary objects. They check signed bigint
+bounds, negative increments, smallint/integer precision, cache/cycle options,
+identity-owned sequence inventory, exact quoted/literal restrictions and
+unchanged sequence last_value/is_called after metadata reads. Column cases
+separate ordinary defaults and nextval from ALWAYS/BY DEFAULT identity and
+generated expressions, compare an independent pg_attrdef expression oracle,
+and verify transactional DDL rollback. Restricted-role and same-role
+cross-session cases cover sequence privilege and temporary-schema visibility.

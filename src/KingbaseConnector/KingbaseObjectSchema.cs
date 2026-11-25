@@ -33,7 +33,11 @@ internal static class KingbaseObjectSchema
                 Length("CHARACTER_MAXIMUM_LENGTH"), Length("CHARACTER_OCTET_LENGTH"), Number("NUMERIC_PRECISION"), Number("NUMERIC_PRECISION_RADIX"),
                 Number("NUMERIC_SCALE"), Number("DATETIME_PRECISION"), Text("INTERVAL_TYPE"), Number("INTERVAL_PRECISION"),
                 Text("UDT_CATALOG", true), Text("UDT_SCHEMA", true), Text("UDT_NAME", true), Text("DOMAIN_CATALOG"), Text("DOMAIN_SCHEMA"), Text("DOMAIN_NAME"),
-                Text("COLLATION_CATALOG"), Text("COLLATION_SCHEMA"), Text("COLLATION_NAME")]),
+                Text("COLLATION_CATALOG"), Text("COLLATION_SCHEMA"), Text("COLLATION_NAME"),
+                Flag("IS_IDENTITY"), Text("IDENTITY_GENERATION"), LongNumber("IDENTITY_START"), LongNumber("IDENTITY_INCREMENT"),
+                LongNumber("IDENTITY_MAXIMUM"), LongNumber("IDENTITY_MINIMUM"), Flag("IDENTITY_CYCLE", false),
+                Text("IS_GENERATED", true), Text("GENERATION_EXPRESSION")]),
+        KingbaseGenerationSchema.Sequences,
         .. KingbaseRelationalSchema.All
     ];
 
@@ -41,7 +45,8 @@ internal static class KingbaseObjectSchema
 
     internal static KingbaseCommand Command(Definition definition, string?[]? restrictions, KingbaseConnection connection, KingbaseTransaction? transaction)
     {
-        var projection = string.Join(", ", definition.Fields.Select(field => field.Name.ToLowerInvariant() + "::pg_catalog." +
+        var projection = string.Join(", ", definition.Fields.Select(field => (definition.Name == "Columns" && field.Name == "IDENTITY_CYCLE" ?
+            "(CASE WHEN is_identity::pg_catalog.text OPERATOR(pg_catalog.=) 'YES' THEN identity_cycle END)" : field.Name.ToLowerInvariant()) + "::pg_catalog." +
             WireType(field.Type) + " AS \"" + field.Name + "\""));
         var command = new KingbaseCommand { Connection = connection, Transaction = transaction,
             ValidateResultSchema = (results, catalog) => ValidateHeader(definition, results, catalog) };
@@ -101,7 +106,9 @@ internal static class KingbaseObjectSchema
                         value = value is "YES" ? true : value is "NO" ? false : throw InvalidMetadata();
                     else if (field.Required && value is string text && (text.Length == 0 || text.IndexOf('\0') >= 0))
                         throw InvalidMetadata();
-                    else if (value is long length && length < 0 || value is int number &&
+                    else if (value is long length &&
+                        ((field.Name is "CHARACTER_MAXIMUM_LENGTH" or "CHARACTER_OCTET_LENGTH") && length < 0 ||
+                            field.Name == "CACHE_SIZE" && length <= 0 || (field.Name is "INCREMENT" or "IDENTITY_INCREMENT") && length == 0) || value is int number &&
                         (field.Name == "ORDINAL_POSITION" ? number <= 0 : field.Name != "NUMERIC_SCALE" && number < 0))
                         throw InvalidMetadata();
                     values[i] = value;
@@ -120,6 +127,7 @@ internal static class KingbaseObjectSchema
 
     internal static (string, Type, bool) Text(string name, bool required = false) => (name, typeof(string), required);
     internal static (string, Type, bool) Number(string name, bool required = false) => (name, typeof(int), required);
+    internal static (string, Type, bool) LongNumber(string name, bool required = false) => (name, typeof(long), required);
     static (string, Type, bool) Length(string name) => (name, typeof(long), false);
     internal static (string, Type, bool) Flag(string name, bool required = true) => (name, typeof(bool), required);
     static IOException InvalidMetadata() => new("Invalid Kingbase object schema metadata.");

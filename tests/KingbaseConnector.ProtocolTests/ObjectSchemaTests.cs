@@ -249,7 +249,7 @@ public sealed class ObjectSchemaTests
             {
                 "permission" => Join(Frame('E', Encoding.UTF8.GetBytes("SERROR\0C42501\0Mprivate-payload\0\0")), Ready()),
                 "shape" => Result("Schemas"),
-                "wire-type" => Join(Frame('1'), Frame('2'), Description(25, 9004, -1), ObjectRow(values), Complete(), Ready()),
+                "wire-type" => Join(Frame('1'), Frame('2'), Description(values.Length, 9004, -1), ObjectRow(values), Complete(), Ready()),
                 "duplicate" => Result(name, [values, values]),
                 _ => Result(name, [values])
             };
@@ -301,7 +301,7 @@ public sealed class ObjectSchemaTests
         });
     }
 
-    static string?[] Parameters(byte[] bind)
+    internal static string?[] Parameters(byte[] bind)
     {
         var offset = 5;
         while (bind[offset++] != 0) { }
@@ -329,7 +329,10 @@ public sealed class ObjectSchemaTests
             ("NUMERIC_PRECISION_RADIX", typeof(int)), ("NUMERIC_SCALE", typeof(int)), ("DATETIME_PRECISION", typeof(int)),
             ("INTERVAL_TYPE", typeof(string)), ("INTERVAL_PRECISION", typeof(int)), ("UDT_CATALOG", typeof(string)), ("UDT_SCHEMA", typeof(string)),
             ("UDT_NAME", typeof(string)), ("DOMAIN_CATALOG", typeof(string)), ("DOMAIN_SCHEMA", typeof(string)), ("DOMAIN_NAME", typeof(string)),
-            ("COLLATION_CATALOG", typeof(string)), ("COLLATION_SCHEMA", typeof(string)), ("COLLATION_NAME", typeof(string))]
+            ("COLLATION_CATALOG", typeof(string)), ("COLLATION_SCHEMA", typeof(string)), ("COLLATION_NAME", typeof(string)),
+            ("IS_IDENTITY", typeof(bool)), ("IDENTITY_GENERATION", typeof(string)), ("IDENTITY_START", typeof(long)), ("IDENTITY_INCREMENT", typeof(long)),
+            ("IDENTITY_MAXIMUM", typeof(long)), ("IDENTITY_MINIMUM", typeof(long)), ("IDENTITY_CYCLE", typeof(bool)),
+            ("IS_GENERATED", typeof(string)), ("GENERATION_EXPRESSION", typeof(string))]
     };
 
     internal static string?[] Values(string name) => name switch
@@ -338,7 +341,7 @@ public sealed class ObjectSchemaTests
         "Tables" => ["db", "MiXeD汉%_'\"", "TaBlE", "BASE TABLE"],
         "Views" => ["db", "MiXeD汉%_'\"", "TaBlE", null, "NONE", "YES"],
         _ => ["db", "MiXeD汉%_'\"", "TaBlE", "Column", "7", null, "NO", "numeric", null, "2147483648", "12", "10", "-3", null, null, null,
-            "db", "pg_catalog", "numeric", null, null, null, null, null, null]
+            "db", "pg_catalog", "numeric", null, null, null, null, null, null, "NO", null, null, null, null, null, null, "NEVER", null]
     };
 
     internal static byte[] Result(string name, string?[][]? rows = null) => Join(Frame('1'), Frame('2'), ObjectDescription(name),

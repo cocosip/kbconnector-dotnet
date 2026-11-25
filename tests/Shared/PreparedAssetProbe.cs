@@ -57,22 +57,35 @@ internal static class PreparedAssetProbe
                         ["TABLE_CATALOG", "TABLE_SCHEMA", "TABLE_NAME", "COLUMN_NAME", "ORDINAL_POSITION", "COLUMN_DEFAULT", "IS_NULLABLE", "DATA_TYPE",
                             "CHARACTER_MAXIMUM_LENGTH", "CHARACTER_OCTET_LENGTH", "NUMERIC_PRECISION", "NUMERIC_PRECISION_RADIX", "NUMERIC_SCALE",
                             "DATETIME_PRECISION", "INTERVAL_TYPE", "INTERVAL_PRECISION", "UDT_CATALOG", "UDT_SCHEMA", "UDT_NAME", "DOMAIN_CATALOG",
-                            "DOMAIN_SCHEMA", "DOMAIN_NAME", "COLLATION_CATALOG", "COLLATION_SCHEMA", "COLLATION_NAME"];
+                            "DOMAIN_SCHEMA", "DOMAIN_NAME", "COLLATION_CATALOG", "COLLATION_SCHEMA", "COLLATION_NAME", "IS_IDENTITY", "IDENTITY_GENERATION",
+                            "IDENTITY_START", "IDENTITY_INCREMENT", "IDENTITY_MAXIMUM", "IDENTITY_MINIMUM", "IDENTITY_CYCLE", "IS_GENERATED", "GENERATION_EXPRESSION"];
                     var width = fieldNames.Length;
                     var objectHeader = Frame('T', Join(Count(width), Join(Enumerable.Range(0, width).Select(i =>
                     {
                         var integer = name == "columns" && (i == 4 || i is >= 10 and <= 13 || i == 15);
-                        var length = name == "columns" && i is 8 or 9;
+                        var length = name == "columns" && (i is 8 or 9 or >= 27 and <= 30);
                         Require(sql.Contains(" AS \"" + fieldNames[i] + "\"", StringComparison.Ordinal));
                         return Join(Encoding.UTF8.GetBytes(fieldNames[i] + '\0'), new byte[6], Int32(integer ? 12002 : length ? 12003 : 12004),
                             Count(integer ? 4 : length ? 8 : -1), Int32(-1), Count(0));
                     }).ToArray())));
                     var values = name == "schemata" ? new string?[] { "db", "MiXeD汉%_'", "owner" } : name == "tables" ? ["db", "MiXeD汉%_'", "object", "BASE TABLE"] :
                         name == "views" ? ["db", "MiXeD汉%_'", "object", null, "NONE", "NO"] :
-                        ["db", "MiXeD汉%_'", "object", "column", "1", null, "YES", "text", null, null, null, null, null, null, null, null,
-                            "db", "pg_catalog", "text", null, null, null, null, null, null];
+                        ["db", "MiXeD汉%_'", "object", "column", "1", null, "NO", "bigint", null, null, "64", "2", "0", null, null, null,
+                            "db", "pg_catalog", "int8", null, null, null, null, null, null,
+                            "YES", "ALWAYS", "-2147483649", "-2", "-1", "-9223372036854775808", "YES", "NEVER", null];
                     await stream.WriteAsync(Join(Frame('1'), Frame('2'), objectHeader, Row(values), Complete(), Ready()), token);
                 }
+                var sequenceQuery = await ReadFrames(stream, "PBDES", token);
+                var sequenceSql = Encoding.UTF8.GetString(sequenceQuery[0]);
+                Require(sequenceSql.Contains("FROM pg_catalog.pg_sequence", StringComparison.Ordinal));
+                Require(sequenceSql.Contains("NOT pg_catalog.pg_is_other_temp_schema", StringComparison.Ordinal));
+                Require(sequenceSql.Contains("COLLATE pg_catalog.\"C\" OPERATOR(pg_catalog.=) $1", StringComparison.Ordinal));
+                Require(!sequenceSql.Contains("MiXeD汉%_'", StringComparison.Ordinal));
+                Require(Encoding.UTF8.GetString(sequenceQuery[1]).Contains("MiXeD汉%_'", StringComparison.Ordinal));
+                var sequenceHeader = Frame('T', Join(Count(SequenceFields.Length), Join(SequenceFields.Select(field =>
+                    Join(Encoding.UTF8.GetBytes(field.Name + '\0'), new byte[6], Int32(field.Type == typeof(int) ? 12002 : field.Type == typeof(long) ? 12003 : 12004),
+                        Count(field.Type == typeof(int) ? 4 : field.Type == typeof(long) ? 8 : -1), Int32(-1), Count(0))).ToArray())));
+                await stream.WriteAsync(Join(Frame('1'), Frame('2'), sequenceHeader, Row(SequenceValues), Complete(), Ready()), token);
                 foreach (var name in RelationalNames)
                 {
                     var query = await ReadFrames(stream, "PBDES", token);
@@ -216,11 +229,11 @@ internal static class PreparedAssetProbe
         using var command = new KingbaseCommand("SELECT :p", connection);
         if (schema)
         {
-            using var collections = await connection.GetSchemaAsync(token); Require(collections.Rows.Count == 15);
+            using var collections = await connection.GetSchemaAsync(token); Require(collections.Rows.Count == 16);
             using var source = connection.GetSchema("DataSourceInformation");
             Require((string)source.Rows[0]["DataSourceProductVersion"] == connection.ServerVersion);
             using var restrictions = await connection.GetSchemaAsync("Restrictions", null, token);
-            Require(restrictions.Columns.Count == 4 && restrictions.Rows.Count == 39);
+            Require(restrictions.Columns.Count == 4 && restrictions.Rows.Count == 42);
             using var types = await ((DbConnection)connection).GetSchemaAsync("DataTypes", token);
             var integer = types.Rows.Cast<System.Data.DataRow>().Single(row => (string)row["TypeName"] == "int4");
             Require((uint)integer["TypeOid"] == 12002 && (int)integer["ProviderDbType"] == (int)KingbaseDbType.Integer);
@@ -233,8 +246,27 @@ internal static class PreparedAssetProbe
                 using var objects = name is "Schemas" or "Views" ? connection.GetSchema(name, [null, "MiXeD汉%_'"]) :
                     await connection.GetSchemaAsync(name, [null, "MiXeD汉%_'"], token);
                 Require(objects.Rows.Count == 1 && (string)objects.Rows[0][1] == "MiXeD汉%_'");
-                if (name == "Columns") Require((int)objects.Rows[0]["ORDINAL_POSITION"] == 1 && (bool)objects.Rows[0]["IS_NULLABLE"] && objects.Rows[0]["COLUMN_DEFAULT"] is DBNull);
+                if (name == "Columns")
+                {
+                    Require(objects.Columns.Count == 34 && (int)objects.Rows[0]["ORDINAL_POSITION"] == 1 && !(bool)objects.Rows[0]["IS_NULLABLE"] && objects.Rows[0]["COLUMN_DEFAULT"] is DBNull);
+                    Require((bool)objects.Rows[0]["IS_IDENTITY"] && (string)objects.Rows[0]["IDENTITY_GENERATION"] == "ALWAYS");
+                    Require((long)objects.Rows[0]["IDENTITY_START"] == -2147483649L && (long)objects.Rows[0]["IDENTITY_INCREMENT"] == -2);
+                    Require((long)objects.Rows[0]["IDENTITY_MAXIMUM"] == -1 && (long)objects.Rows[0]["IDENTITY_MINIMUM"] == long.MinValue);
+                    Require((bool)objects.Rows[0]["IDENTITY_CYCLE"] && (string)objects.Rows[0]["IS_GENERATED"] == "NEVER" && objects.Rows[0]["GENERATION_EXPRESSION"] is DBNull);
+                }
                 if (name == "Views") Require(objects.Rows[0]["VIEW_DEFINITION"] is DBNull && !(bool)objects.Rows[0]["IS_UPDATABLE"]);
+            }
+            using (var sequences = await connection.GetSchemaAsync("Sequences", [null, "MiXeD汉%_'"], token))
+            {
+                Require(sequences.Rows.Count == 1 && sequences.Columns.Count == SequenceFields.Length);
+                for (var i = 0; i < SequenceFields.Length; i++)
+                {
+                    var field = SequenceFields[i]; var value = sequences.Rows[0][i];
+                    Require(sequences.Columns[i].ColumnName == field.Name && sequences.Columns[i].DataType == field.Type);
+                    Require(field.Type == typeof(int) ? (int)value == int.Parse(SequenceValues[i]!, CultureInfo.InvariantCulture) :
+                        field.Type == typeof(long) ? (long)value == long.Parse(SequenceValues[i]!, CultureInfo.InvariantCulture) :
+                        field.Type == typeof(bool) ? (bool)value == (SequenceValues[i] == "YES") : (string)value == SequenceValues[i]);
+                }
             }
             foreach (var name in RelationalNames)
             {
@@ -442,6 +474,13 @@ internal static class PreparedAssetProbe
     }
 
     static readonly string[] RelationalNames = ["PrimaryKeys", "UniqueKeys", "ForeignKeys", "ForeignKeyColumns", "Indexes", "IndexColumns"];
+    static readonly (string Name, Type Type)[] SequenceFields =
+        [("SEQUENCE_CATALOG", typeof(string)), ("SEQUENCE_SCHEMA", typeof(string)), ("SEQUENCE_NAME", typeof(string)), ("DATA_TYPE", typeof(string)),
+            ("NUMERIC_PRECISION", typeof(int)), ("NUMERIC_PRECISION_RADIX", typeof(int)), ("NUMERIC_SCALE", typeof(int)),
+            ("START_VALUE", typeof(long)), ("MINIMUM_VALUE", typeof(long)), ("MAXIMUM_VALUE", typeof(long)), ("INCREMENT", typeof(long)),
+            ("CYCLE_OPTION", typeof(bool)), ("CACHE_SIZE", typeof(long))];
+    static readonly string?[] SequenceValues = ["db", "MiXeD汉%_'", "sequence", "bigint", "64", "2", "0",
+        "-2147483649", "-9223372036854775808", "-1", "-2", "YES", "17"];
     static (string Name, bool Integer, bool Flag)[] RelationalFields(string name) => (name switch
     {
         "PrimaryKeys" or "UniqueKeys" => "TABLE_CATALOG TABLE_SCHEMA TABLE_NAME CONSTRAINT_NAME COLUMN_NAME ORDINAL_POSITION IS_DEFERRABLE INITIALLY_DEFERRED",

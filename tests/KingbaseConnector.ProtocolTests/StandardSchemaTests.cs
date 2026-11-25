@@ -13,7 +13,7 @@ public sealed class StandardSchemaTests
 {
     internal const string KeywordsSql = "SELECT word::text FROM pg_catalog.pg_get_keywords() WHERE catcode = 'R' ORDER BY word";
     static readonly string[] Collections = ["MetaDataCollections", "Restrictions", "DataSourceInformation", "DataTypes", "ReservedWords", "Schemas", "Tables", "Views", "Columns",
-        "PrimaryKeys", "UniqueKeys", "ForeignKeys", "ForeignKeyColumns", "Indexes", "IndexColumns"];
+        "Sequences", "PrimaryKeys", "UniqueKeys", "ForeignKeys", "ForeignKeyColumns", "Indexes", "IndexColumns"];
 
     [Theory]
     [InlineData(false)]
@@ -29,10 +29,10 @@ public sealed class StandardSchemaTests
             Assert.All(collections.Rows.Cast<DataRow>().Take(5), row => { Assert.Equal(0, row["NumberOfRestrictions"]); Assert.Equal(0, row["NumberOfIdentifierParts"]); });
             collections.Rows.Clear();
             using var fresh = async ? await bcl.GetSchemaAsync(null!, token) : bcl.GetSchema(null!);
-            Assert.Equal(15, fresh.Rows.Count);
+            Assert.Equal(16, fresh.Rows.Count);
             using var restrictions = async ? await bcl.GetSchemaAsync("restrictions", [], token) : bcl.GetSchema("restrictions", []);
             Columns(restrictions, ("CollectionName", typeof(string)), ("RestrictionName", typeof(string)), ("RestrictionDefault", typeof(string)), ("RestrictionNumber", typeof(int)));
-            Assert.Equal(39, restrictions.Rows.Count);
+            Assert.Equal(42, restrictions.Rows.Count);
             using var source = async ? await bcl.GetSchemaAsync("DataSourceInformation", token) : bcl.GetSchema("DataSourceInformation");
             Assert.Equal(17, source.Columns.Count); Assert.Single(source.Rows.Cast<DataRow>());
             Assert.Equal("KingbaseES", source.Rows[0]["DataSourceProductName"]);
@@ -71,6 +71,7 @@ public sealed class StandardSchemaTests
     [InlineData("Tables")]
     [InlineData("Views")]
     [InlineData("Columns")]
+    [InlineData("Sequences")]
     [InlineData("PrimaryKeys")]
     [InlineData("UniqueKeys")]
     [InlineData("ForeignKeys")]
@@ -147,7 +148,7 @@ public sealed class StandardSchemaTests
             await RejectAll(); release.SetResult();
             using var reader = await executing;
             Assert.True(reader.Read()); await RejectAll(); reader.Close();
-            using var schema = connection.GetSchema(); Assert.Equal(15, schema.Rows.Count);
+            using var schema = connection.GetSchema(); Assert.Equal(16, schema.Rows.Count);
             async Task RejectAll()
             {
                 foreach (var name in Collections)

@@ -227,7 +227,7 @@ await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(interval: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(batch: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(xml: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(schema: true);
-Console.WriteLine($"PASS: {actual} fifteen schema collections, 39 restrictions, relational facts and actual type OIDs on .NET {Environment.Version}");
+Console.WriteLine($"PASS: {actual} sixteen schema collections, 42 restrictions, generation/sequence/relational facts and actual type OIDs on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} XML OID binding, preparation, NULL, buffered text and server-error recovery on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} sequential batch preparation, parameter/result ordering and partial-success reporting on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} INTERVAL calendar/clock fields, four styles, typed NULL and exact TimeSpan access on .NET {Environment.Version}");
