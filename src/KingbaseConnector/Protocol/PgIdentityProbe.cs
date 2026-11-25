@@ -30,7 +30,7 @@ internal static class PgIdentityProbe
         try
         {
             // A configured search_path may put borrower-writable schemas before the system catalog.
-            var text = await ReadScalarAsync(session, "SELECT sys_catalog.version();", cancellationToken).ConfigureAwait(false);
+            var text = await ReadScalarAsync(session, "SELECT pg_catalog.version();", cancellationToken).ConfigureAwait(false);
             if (!KingbaseProductVersion.TryParse(text, out var version) || version is null || version.Major != 9)
                 throw new NotSupportedException("The endpoint did not report a supported Kingbase V9 product identity.");
 

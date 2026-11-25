@@ -25,7 +25,7 @@ public sealed class PgPhysicalSessionTests
         Assert.Equal(9, session.Identity.Version.Major);
         Assert.Equal("14.0-kernel", session.Identity.StartupVersion);
         Assert.Equal(mode ? PgModeSource.ParameterStatus : PgModeSource.Show, session.Identity.ReportedModeSource);
-        Assert.Equal((uint)6002, session.Catalog.ByName["sys_catalog.int4"].Oid);
+        Assert.Equal((uint)6002, session.Catalog.ByName["pg_catalog.int4"].Oid);
         Assert.Equal(1, session.Startup.BackendKey.ProcessId);
         creation.Cancel();
         var results = await session.Queries.ExecuteAsync("SELECT application-text", guard.Token);
@@ -106,7 +106,7 @@ public sealed class PgPhysicalSessionTests
             await PgTestPeer.ReadStartupAsync(stream, guard.Token);
             await Task.Delay(700, guard.Token);
             await stream.WriteAsync(PgTestPeer.StartupResponse(), guard.Token);
-            Assert.Equal("SELECT sys_catalog.version();", await PgTestPeer.ReadQueryAsync(stream, guard.Token));
+            Assert.Equal("SELECT pg_catalog.version();", await PgTestPeer.ReadQueryAsync(stream, guard.Token));
             // A fresh one-second query budget would receive a wrong product response at 1.2s.
             var closed = stream.ReadAsync(new byte[1], guard.Token).AsTask();
             if (await Task.WhenAny(closed, Task.Delay(500, guard.Token)) != closed)
@@ -135,7 +135,7 @@ public sealed class PgPhysicalSessionTests
             else
             {
                 await stream.WriteAsync(PgTestPeer.StartupResponse(), guard.Token);
-                Assert.Equal("SELECT sys_catalog.version();", await PgTestPeer.ReadQueryAsync(stream, guard.Token));
+                Assert.Equal("SELECT pg_catalog.version();", await PgTestPeer.ReadQueryAsync(stream, guard.Token));
                 await stream.WriteAsync(PgTestPeer.Scalar(phase == "version" ? "PostgreSQL 14" : Version), guard.Token);
                 if (phase == "catalog")
                 {
@@ -206,7 +206,7 @@ public sealed class PgPhysicalSessionTests
         Assert.Equal("user\0user\0database\0db\0client_encoding\0UTF8\0" + (optional
             ? "application_name\0应用'; SELECT password\0search_path\0\"Odd Schema\", public\0TimeZone\0Asia/Shanghai\0\0" : "\0"), startup);
         await stream.WriteAsync(PgTestPeer.StartupResponse(mode), token);
-        Assert.Equal("SELECT sys_catalog.version();", await PgTestPeer.ReadQueryAsync(stream, token));
+        Assert.Equal("SELECT pg_catalog.version();", await PgTestPeer.ReadQueryAsync(stream, token));
         await stream.WriteAsync(PgTestPeer.Scalar(Version), token);
         if (!mode)
         {
@@ -237,7 +237,7 @@ public sealed class PgPhysicalSessionTests
         if (phase != "startup")
         {
             await stream.WriteAsync(PgTestPeer.StartupResponse(mode: phase != "mode"), token);
-            Assert.Equal("SELECT sys_catalog.version();", await PgTestPeer.ReadQueryAsync(stream, token));
+            Assert.Equal("SELECT pg_catalog.version();", await PgTestPeer.ReadQueryAsync(stream, token));
             if (phase != "version")
             {
                 await stream.WriteAsync(PgTestPeer.Scalar(Version), token);

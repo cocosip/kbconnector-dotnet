@@ -2,7 +2,7 @@
 
 Independent managed ADO.NET driver for KingbaseES, developed against the [design and feature matrix](docs/README.md). V9 is the first target; V8 and EF Core providers follow later.
 
-This is an early development build. Package identity and licensing are provisional; no public release or live-server compatibility is claimed. The [progress tracker](docs/kbconnector-development-progress.md) records implemented subsets and acceptance evidence.
+This is an early development build. Package identity and licensing are provisional. Bounded live bootstrap and PG execution results are recorded in the [progress tracker](docs/kbconnector-development-progress.md); complete server compatibility and release readiness remain pending.
 
 The core targets `netstandard2.0`, `netstandard2.1`, `net8.0`, `net9.0`, and `net10.0`. Install an SDK that supports `net10.0` and `.slnx`, plus the .NET 8/9/10 runtimes, then run:
 
@@ -10,7 +10,7 @@ The core targets `netstandard2.0`, `netstandard2.1`, `net8.0`, `net9.0`, and `ne
 ./eng/verify.ps1
 ```
 
-This restores, builds, runs offline tests, packs, and runs a consumer for each explicitly selected package asset. Standard assets run on .NET 8; this does not certify .NET Framework or other platforms. Tests do not contact a database by default. `KINGBASE_TEST_LIVE=1` enables the live-test gate, which rejects execution until a real profile and acceptance tests are registered.
+This restores, builds, runs offline tests, packs, and runs a consumer for each explicitly selected package asset. Standard assets run on .NET 8; this does not certify .NET Framework or other platforms. Tests do not contact a database by default. The separate [private live suite](docs/live-testing.md) reads external process configuration; missing configuration fails when LIVE is explicitly enabled.
 
 The [CI/CD workflow](docs/ci-cd.md) runs these checks on Windows and Linux for master pushes, pull requests and manual runs. A pushed version tag matching `Directory.Build.props` enables NuGet trusted publishing for core/DI and generates a GitHub Release after both OS jobs pass. `./eng/verify.ps1 -ContinuousIntegration` also produces TRX reports locally. Hosted workflow execution and publishing-policy setup remain separate acceptance evidence.
 
@@ -46,7 +46,7 @@ command.Parameters.AddWithValue("amount", 1.2300m);
 var amount = await command.ExecuteScalarAsync();
 ```
 
-The default TLS mode verifies the server certificate and hostname using platform trust. For a private CA, add `Root Certificate=/path/to/root-ca.crt` with `SSL Mode=VerifyFull`. The file can contain a DER CA certificate or a PEM CA bundle with self-issued roots and optional intermediates; it replaces the allowed trust anchors without changing OS trust stores. Files are read on physical connection creation, so pooled reuse keeps its existing TLS session; clear the pool when new sessions must load a changed file. Invalid/missing files reject before TCP. Root Certificate with Require/Disable rejects instead of ignoring the setting. Revocation checking remains disabled. The public execution path is covered by simulated peers; no real Kingbase server is accepted yet.
+The default TLS mode verifies the server certificate and hostname using platform trust. For a private CA, add `Root Certificate=/path/to/root-ca.crt` with `SSL Mode=VerifyFull`. The file can contain a DER CA certificate or a PEM CA bundle with self-issued roots and optional intermediates; it replaces the allowed trust anchors without changing OS trust stores. Files are read on physical connection creation, so pooled reuse keeps its existing TLS session; clear the pool when new sessions must load a changed file. Invalid/missing files reject before TCP. Root Certificate with Require/Disable rejects instead of ignoring the setting. Revocation checking remains disabled. TLS policy has simulation coverage; the initial bounded live tests do not establish real-server certificate acceptance.
 
 The PG authentication path supports server-requested password/MD5 and SCRAM-SHA-256. SCRAM verifies the extended nonce and server signature before accepting authentication, applies the PG SASLprep/raw-password profile, and bounds server iterations to 1..1,000,000, SASL payloads to 16 KiB and salt to 1 KiB. SCRAM-SHA-256-PLUS/channel binding and SM3 algorithms remain pending; a PLUS-only offer rejects. Standard protocol vectors and loopback logins do not establish real Kingbase password-policy compatibility.
 

@@ -217,7 +217,7 @@ public sealed class PgExtendedQueryTests
             using var stream = socket.GetStream();
             await ReadStartupAsync(stream, timeout.Token);
             await stream.WriteAsync(StartupResponse(), timeout.Token);
-            Assert.Equal("SELECT sys_catalog.version();", await ReadQueryAsync(stream, timeout.Token));
+            Assert.Equal("SELECT pg_catalog.version();", await ReadQueryAsync(stream, timeout.Token));
             await stream.WriteAsync(Scalar("KingbaseES V009R001C001B0001"), timeout.Token);
             Assert.Contains("sys_catalog.sys_type", await ReadQueryAsync(stream, timeout.Token), StringComparison.Ordinal);
             await stream.WriteAsync(Catalog(Definitions()), timeout.Token);

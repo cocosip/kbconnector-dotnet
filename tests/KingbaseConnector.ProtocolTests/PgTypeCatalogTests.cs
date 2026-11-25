@@ -9,7 +9,7 @@ public sealed class PgTypeCatalogTests
     const string Sql = "SELECT t.oid, t.typnamespace, n.nspname, t.typname, t.typlen, t.typtype, " +
         "t.typcategory, t.typisdefined, t.typbasetype, t.typelem, t.typarray, t.typtypmod " +
         "FROM sys_catalog.sys_type AS t JOIN sys_catalog.sys_namespace AS n ON n.oid = t.typnamespace " +
-        "WHERE n.nspname = 'sys_catalog' AND t.typisdefined AND t.typname IN " +
+        "WHERE n.nspname = 'pg_catalog' AND t.typisdefined AND t.typname IN " +
         "('bool','int2','int4','int8','oid','float4','float8','numeric','text','varchar','bpchar'," +
         "'bytea','uuid','date','time','timetz','timestamp','timestamptz','interval','json','jsonb')";
 
@@ -28,9 +28,9 @@ public sealed class PgTypeCatalogTests
         Assert.Equal(Query(Sql), stream.Writes[0]);
         Assert.Equal(7, catalog.ByOid.Count);
         var type = catalog.ByOid[uint.MaxValue];
-        Assert.Same(type, catalog.ByName["sys_catalog.numeric"]);
+        Assert.Same(type, catalog.ByName["pg_catalog.numeric"]);
         Assert.Equal((uint)987, type.NamespaceOid);
-        Assert.Equal("sys_catalog", type.Namespace);
+        Assert.Equal("pg_catalog", type.Namespace);
         Assert.Equal("numeric", type.Name);
         Assert.Equal((short)-1, type.Size);
         Assert.Equal('d', type.Kind);
@@ -40,7 +40,7 @@ public sealed class PgTypeCatalogTests
         Assert.Equal((uint)4000000000, type.ArrayTypeOid);
         Assert.Equal(int.MinValue, type.TypeModifier);
         Assert.False(catalog.ByOid.ContainsKey(23));
-        Assert.False(catalog.ByName.ContainsKey("sys_catalog.INT4"));
+        Assert.False(catalog.ByName.ContainsKey("pg_catalog.INT4"));
         Assert.Throws<NotSupportedException>(() => ((IDictionary<uint, PgTypeDescription>)catalog.ByOid).Clear());
         Assert.Throws<NotSupportedException>(() => ((IDictionary<string, PgTypeDescription>)catalog.ByName).Clear());
         Assert.Equal(0, stream.DisposeCount);
@@ -67,7 +67,7 @@ public sealed class PgTypeCatalogTests
         yield return [1, "0"];
         yield return [1, "988"];
         yield return [2, "public"];
-        yield return [2, "SYS_CATALOG"];
+        yield return [2, "PG_CATALOG"];
         yield return [3, "user_secret_type"];
         foreach (var value in new[] { "0", "-3", "32768", "-32769", "1.0", " 4", "+4" }) yield return [4, value];
         foreach (var column in new[] { 5, 6 })
@@ -144,8 +144,8 @@ public sealed class PgTypeCatalogTests
         using var second = Session(new QueryStream(Response(Rows(8000))));
         var one = await PgTypeCatalog.LoadAsync(first, Identity());
         var two = await PgTypeCatalog.LoadAsync(second, Identity());
-        Assert.Equal((uint)5002, one.ByName["sys_catalog.int4"].Oid);
-        Assert.Equal((uint)8002, two.ByName["sys_catalog.int4"].Oid);
+        Assert.Equal((uint)5002, one.ByName["pg_catalog.int4"].Oid);
+        Assert.Equal((uint)8002, two.ByName["pg_catalog.int4"].Oid);
     }
 
     [Fact]
@@ -216,7 +216,7 @@ public sealed class PgTypeCatalogTests
     }
     static IEnumerable<string?[]> Rows(int firstOid = 5000) => Required.Select((name, i) => Fields(name,
         (firstOid + i).ToString(CultureInfo.InvariantCulture)));
-    static string?[] Fields(string name, string oid) => [oid, "987", "sys_catalog", name, "4", "b", "N", "t", "0", "0", "0", "-1"];
+    static string?[] Fields(string name, string oid) => [oid, "987", "pg_catalog", name, "4", "b", "N", "t", "0", "0", "0", "-1"];
     static byte[] Response(IEnumerable<string?[]> rows, char status = 'I') => Join(Description(12),
         Join(rows.Select(Row).ToArray()), Complete(), Ready(status));
     static byte[] Description(int count) => Frame('T', Join(new[] { (byte)(count >> 8), (byte)count },

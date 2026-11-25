@@ -8,7 +8,7 @@ internal sealed class KingbaseProductVersion
 {
     const string Prefix = "KingbaseES ";
     static readonly Regex ProductToken = new(
-        @"\AV(?<major>[0-9]{3})R(?<release>[0-9]{3})C(?<general>[0-9]{3})(?:M(?<custom>[0-9]{3})(?<customer>[A-Za-z0-9_]{0,20}))?B(?<build>[0-9]{3})(?<revision>[0-9])(?:PS(?<patch>[0-9]{3}))?\z",
+        @"\AV(?<major>[0-9]{3})R(?<release>[0-9]{3})C(?<general>[0-9]{3})(?:(?:M(?<custom>[0-9]{3})(?<customer>[A-Za-z0-9_]{0,20}))?B(?<build>[0-9]{3})(?<revision>[0-9])(?:PS(?<patch>[0-9]{3}))?)?\z",
         RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture);
 
     KingbaseProductVersion(string rawText, string token, Match match)
@@ -20,8 +20,8 @@ internal sealed class KingbaseProductVersion
         GeneralRelease = Number(match, "general");
         Customization = match.Groups["custom"].Success ? Number(match, "custom") : null;
         CustomerCode = match.Groups["customer"].Length == 0 ? null : match.Groups["customer"].Value;
-        Build = Number(match, "build");
-        BuildRevision = Number(match, "revision");
+        Build = match.Groups["build"].Success ? Number(match, "build") : null;
+        BuildRevision = match.Groups["revision"].Success ? Number(match, "revision") : null;
         PatchSet = match.Groups["patch"].Success ? Number(match, "patch") : null;
     }
 
@@ -32,8 +32,8 @@ internal sealed class KingbaseProductVersion
     internal int GeneralRelease { get; }
     internal int? Customization { get; }
     internal string? CustomerCode { get; }
-    internal int Build { get; }
-    internal int BuildRevision { get; }
+    internal int? Build { get; }
+    internal int? BuildRevision { get; }
     internal int? PatchSet { get; }
 
     internal static bool TryParse(string? text, out KingbaseProductVersion? version)
@@ -45,7 +45,7 @@ internal sealed class KingbaseProductVersion
         if (end < 0) end = text.Length;
         var length = end - Prefix.Length;
         // Fixed-width components plus at most twenty customer characters bound regex work.
-        if (length < 17 || length > 46) return false;
+        if (length < 12 || length > 46) return false;
         var token = text.Substring(Prefix.Length, length);
         var match = ProductToken.Match(token);
         if (!match.Success) return false;

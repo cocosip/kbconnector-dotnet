@@ -9,16 +9,16 @@ namespace KingbaseConnector.ProtocolTests;
 public sealed class PgSessionResetTests
 {
     const string Product = "KingbaseES V009R001C001B0001";
-    const string StateSql = "SELECT sys_catalog.current_database(),SESSION_USER,CURRENT_USER,sys_catalog.current_setting('database_mode')," +
-        "sys_catalog.current_setting('client_encoding'),sys_catalog.current_setting('standard_conforming_strings')," +
-        "sys_catalog.current_setting('application_name'),sys_catalog.current_setting('search_path'),sys_catalog.current_setting('TimeZone')," +
-        "sys_catalog.current_setting('default_transaction_isolation'),sys_catalog.current_setting('default_transaction_read_only')," +
-        "sys_catalog.current_setting('default_transaction_deferrable'),sys_catalog.current_setting('DateStyle'),sys_catalog.current_setting('IntervalStyle')," +
-        "sys_catalog.current_setting('transaction_isolation'),sys_catalog.current_setting('transaction_read_only')";
-    const string RestoreSql = "SELECT sys_catalog.set_config('client_encoding',$1,false),sys_catalog.set_config('standard_conforming_strings',$2,false)," +
-        "sys_catalog.set_config('application_name',$3,false),sys_catalog.set_config('search_path',$4,false),sys_catalog.set_config('TimeZone',$5,false)," +
-        "sys_catalog.set_config('default_transaction_isolation',$6,false),sys_catalog.set_config('default_transaction_read_only',$7,false)," +
-        "sys_catalog.set_config('default_transaction_deferrable',$8,false),sys_catalog.set_config('DateStyle',$9,false),sys_catalog.set_config('IntervalStyle',$10,false)";
+    const string StateSql = "SELECT pg_catalog.current_database(),SESSION_USER,CURRENT_USER,pg_catalog.current_setting('database_mode')," +
+        "pg_catalog.current_setting('client_encoding'),pg_catalog.current_setting('standard_conforming_strings')," +
+        "pg_catalog.current_setting('application_name'),pg_catalog.current_setting('search_path'),pg_catalog.current_setting('TimeZone')," +
+        "pg_catalog.current_setting('default_transaction_isolation'),pg_catalog.current_setting('default_transaction_read_only')," +
+        "pg_catalog.current_setting('default_transaction_deferrable'),pg_catalog.current_setting('DateStyle'),pg_catalog.current_setting('IntervalStyle')," +
+        "pg_catalog.current_setting('transaction_isolation'),pg_catalog.current_setting('transaction_read_only')";
+    const string RestoreSql = "SELECT pg_catalog.set_config('client_encoding',$1,false),pg_catalog.set_config('standard_conforming_strings',$2,false)," +
+        "pg_catalog.set_config('application_name',$3,false),pg_catalog.set_config('search_path',$4,false),pg_catalog.set_config('TimeZone',$5,false)," +
+        "pg_catalog.set_config('default_transaction_isolation',$6,false),pg_catalog.set_config('default_transaction_read_only',$7,false)," +
+        "pg_catalog.set_config('default_transaction_deferrable',$8,false),pg_catalog.set_config('DateStyle',$9,false),pg_catalog.set_config('IntervalStyle',$10,false)";
     internal static string[] Baseline() => ["db", "user", "user", "pg", "UTF8", "on", "app';--\\中文", "\"Odd Schema\", public", "Asia/Shanghai",
         "read committed", "off", "off", "ISO, MDY", "postgres", "read committed", "off"];
     internal static byte[] State(string[]? values = null, char status = 'I') => Join(Description(16), Row(values ?? Baseline()), Complete(), Frame('Z', [(byte)status]));
@@ -56,7 +56,7 @@ public sealed class PgSessionResetTests
     }
     internal static async Task Identity(Stream stream, CancellationToken token, string product = Product)
     {
-        Assert.Equal("SELECT sys_catalog.version();", await ReadQueryAsync(stream, token));
+        Assert.Equal("SELECT pg_catalog.version();", await ReadQueryAsync(stream, token));
         await stream.WriteAsync(Scalar(product), token);
     }
 
@@ -103,7 +103,7 @@ public sealed class PgSessionResetTests
             if (sync) session.Reset(); else await session.ResetAsync();
             Assert.True(session.IsUsable); Assert.Equal(PgTransactionStatus.Idle, session.Queries.TransactionStatus);
             Assert.NotSame(oldCatalog, session.Catalog);
-            Assert.Equal((uint)(12004 + borrower * 100), session.Catalog.ByName["sys_catalog.text"].Oid);
+            Assert.Equal((uint)(12004 + borrower * 100), session.Catalog.ByName["pg_catalog.text"].Oid);
             Assert.Equal("on", session.Queries.Parameters["standard_conforming_strings"]);
             Assert.Equal(Baseline()[6], session.Queries.Parameters["application_name"]);
             Assert.Equal("clean", (await session.Queries.ExecuteAsync("SELECT next-borrower", guard.Token))[0].Rows[0][0]);
@@ -159,7 +159,7 @@ public sealed class PgSessionResetTests
                     if (stage == "discard") Assert.Equal("DISCARD ALL", sql);
                     if (stage == "catalog") Assert.Contains("FROM sys_catalog.sys_type", sql);
                     if (stage == "state") Assert.Equal(StateSql, sql);
-                    if (stage == "identity") Assert.Equal("SELECT sys_catalog.version();", sql);
+                    if (stage == "identity") Assert.Equal("SELECT pg_catalog.version();", sql);
                     await stream.WriteAsync(stage == phase ? Error() : stage switch
                     {
                         "rollback" => Control("ROLLBACK"), "discard" => Control("DISCARD ALL"), "catalog" => FreshCatalog(),
@@ -190,7 +190,7 @@ public sealed class PgSessionResetTests
                 if (stage == "discard") Assert.Equal("DISCARD ALL", sql);
                 if (stage == "catalog") Assert.Contains("FROM sys_catalog.sys_type", sql);
                 if (stage == "state") Assert.Equal(StateSql, sql);
-                if (stage == "identity") Assert.Equal("SELECT sys_catalog.version();", sql);
+                if (stage == "identity") Assert.Equal("SELECT pg_catalog.version();", sql);
             }
             if (stage == phase) return;
             await stream.WriteAsync(stage switch
@@ -451,7 +451,7 @@ public sealed class PgSessionResetTests
             await Capture(stream, guard.Token, State(baseline));
             var query = await ReadQueryAsync(stream, guard.Token);
             if (query == "SELECT version();") shadowedVersionExecuted = true; // Tenant function returns the real version but recreates dirty state.
-            else Assert.Equal("SELECT sys_catalog.version();", query);
+            else Assert.Equal("SELECT pg_catalog.version();", query);
             await stream.WriteAsync(Scalar(Product), guard.Token);
             Assert.Equal(0, await stream.ReadAsync(new byte[1], guard.Token));
         }, guard.Token);

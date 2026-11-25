@@ -102,7 +102,7 @@ public sealed class PgParameterBindingsTests
     [Fact]
     public async Task TypedNullAndConsistentSelectorsResolveBeforeClrInference()
     {
-        var p = new KingbaseParameter("p", DBNull.Value) { KingbaseDbType = KingbaseDbType.Integer, DataTypeName = "sys_catalog.int4", DbType = DbType.Int32 };
+        var p = new KingbaseParameter("p", DBNull.Value) { KingbaseDbType = KingbaseDbType.Integer, DataTypeName = "pg_catalog.int4", DbType = DbType.Int32 };
         Assert.Equal(Oid("int4"), Assert.Single((await Bind(p)).Parameters).TypeOid);
         Assert.Same(DBNull.Value, p.Value);
         Assert.Null(Assert.Single((await Bind(new KingbaseParameter("p", null) { KingbaseDbType = KingbaseDbType.Jsonb })).Parameters).Value);

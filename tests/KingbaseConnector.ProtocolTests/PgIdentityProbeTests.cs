@@ -24,7 +24,7 @@ public class PgIdentityProbeTests
         Assert.Equal(expected, identity.EffectiveMode);
         Assert.Equal(expected, identity.ReportedMode);
         Assert.Equal(PgModeSource.ParameterStatus, identity.ReportedModeSource);
-        Assert.Equal(Query("SELECT sys_catalog.version();"), Assert.Single(stream.Writes));
+        Assert.Equal(Query("SELECT pg_catalog.version();"), Assert.Single(stream.Writes));
         Assert.Equal(0, stream.DisposeCount);
     }
 
@@ -38,7 +38,7 @@ public class PgIdentityProbeTests
         Assert.Equal(KingbaseCompatibilityMode.Oracle, identity.ReportedMode);
         Assert.Equal(PgModeSource.Show, identity.ReportedModeSource);
         Assert.Equal(2, stream.Writes.Count);
-        Assert.Equal(Query("SELECT sys_catalog.version();"), stream.Writes[0]);
+        Assert.Equal(Query("SELECT pg_catalog.version();"), stream.Writes[0]);
         Assert.Equal(Query("SHOW database_mode"), stream.Writes[1]);
     }
 

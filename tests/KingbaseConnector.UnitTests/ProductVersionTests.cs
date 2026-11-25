@@ -3,6 +3,27 @@ namespace KingbaseConnector.UnitTests;
 public class ProductVersionTests
 {
     [Theory]
+    [InlineData("KingbaseES V009R002C003")]
+    [InlineData("KingbaseES V009R002C003 on synthetic-platform")]
+    public void ReleaseOnlyIdentityPreservesUnknownBuildInsteadOfInventingIt(string raw)
+    {
+        Assert.True(KingbaseProductVersion.TryParse(raw, out var parsed));
+        var version = Assert.IsType<KingbaseProductVersion>(parsed);
+        Assert.Equal(raw, version.RawText);
+        Assert.Equal("V009R002C003", version.Token);
+        Assert.Equal(9, version.Major);
+        Assert.Equal(2, version.Release);
+        Assert.Equal(3, version.GeneralRelease);
+        object? build = version.Build;
+        object? revision = version.BuildRevision;
+        Assert.Null(build);
+        Assert.Null(revision);
+        Assert.Null(version.Customization);
+        Assert.Null(version.CustomerCode);
+        Assert.Null(version.PatchSet);
+    }
+
+    [Theory]
     [InlineData("V009R001C001B0024", null, null, null)]
     [InlineData("V009R002C003M004B0056", 4, null, null)]
     [InlineData("V009R002C003M004Customer_123B0056PS007", 4, "Customer_123", 7)]
@@ -43,6 +64,9 @@ public class ProductVersionTests
     [InlineData("KingbaseES V009R001C001B0024PS0001")]
     [InlineData("KingbaseES V009R001C001B0024-unknown")]
     [InlineData("KingbaseES V009R001C001M01B0024")]
+    [InlineData("KingbaseES V009R002C003M004")]
+    [InlineData("KingbaseES V009R002C003PS005")]
+    [InlineData("KingbaseES V009R002C003B")]
     [InlineData("KingbaseES V009R001C001M001客户B0024")]
     [InlineData("KingbaseES V009R001C001M001customer-nameB0024")]
     [InlineData("KingbaseES V009R001C001M001123456789012345678901B0024")]

@@ -52,7 +52,7 @@ internal sealed class PgParameterBindings
         PgTypeDescription? selected = null;
         if (p.DataTypeName is { } explicitName)
         {
-            var key = explicitName.IndexOf('.') < 0 ? "sys_catalog." + explicitName : explicitName;
+            var key = explicitName.IndexOf('.') < 0 ? "pg_catalog." + explicitName : explicitName;
             if (!catalog.ByName.TryGetValue(key, out selected)) throw KingbaseParameterTypes.Unsupported();
         }
         if (p.ExplicitProviderType is { } provider)
@@ -78,7 +78,7 @@ internal sealed class PgParameterBindings
     }
 
     static PgTypeDescription Lookup(string name, PgTypeCatalog catalog) =>
-        catalog.ByName.TryGetValue("sys_catalog." + name, out var type) ? type : throw KingbaseParameterTypes.Unsupported();
+        catalog.ByName.TryGetValue("pg_catalog." + name, out var type) ? type : throw KingbaseParameterTypes.Unsupported();
     static KingbaseDbType Provider(string name)
     {
         foreach (KingbaseDbType type in Enum.GetValues(typeof(KingbaseDbType)))

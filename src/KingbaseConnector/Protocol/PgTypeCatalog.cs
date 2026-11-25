@@ -8,7 +8,7 @@ internal sealed class PgTypeDescription(uint oid, uint namespaceOid, string name
 {
     internal uint Oid { get; } = oid;
     internal uint NamespaceOid { get; } = namespaceOid;
-    internal string Namespace => "sys_catalog";
+    internal string Namespace => "pg_catalog";
     internal string Name { get; } = name;
     internal short Size { get; } = size;
     internal char Kind { get; } = kind;
@@ -27,7 +27,7 @@ internal sealed class PgTypeCatalog
     const string Sql = "SELECT t.oid, t.typnamespace, n.nspname, t.typname, t.typlen, t.typtype, " +
         "t.typcategory, t.typisdefined, t.typbasetype, t.typelem, t.typarray, t.typtypmod " +
         "FROM sys_catalog.sys_type AS t JOIN sys_catalog.sys_namespace AS n ON n.oid = t.typnamespace " +
-        "WHERE n.nspname = 'sys_catalog' AND t.typisdefined AND t.typname IN " +
+        "WHERE n.nspname = 'pg_catalog' AND t.typisdefined AND t.typname IN " +
         "('bool','int2','int4','int8','oid','float4','float8','numeric','text','varchar','bpchar'," +
         "'bytea','uuid','date','time','timetz','timestamp','timestamptz','interval','json','jsonb')";
 
@@ -65,7 +65,7 @@ internal sealed class PgTypeCatalog
             uint? namespaceOid = null;
             foreach (var row in results[0].Rows)
             {
-                if (row.Count != 12 || row.Any(value => value is null) || row[2] != "sys_catalog" ||
+                if (row.Count != 12 || row.Any(value => value is null) || row[2] != "pg_catalog" ||
                     !Names.Contains(row[3], StringComparer.Ordinal) ||
                     !(row[7]!.Equals("t", StringComparison.OrdinalIgnoreCase) || row[7]!.Equals("true", StringComparison.OrdinalIgnoreCase)))
                     throw InvalidCatalog();
@@ -83,7 +83,7 @@ internal sealed class PgTypeCatalog
                 byName.Add(name, type);
             }
             foreach (var name in Required)
-                if (!byName.TryGetValue("sys_catalog." + name, out var type) || type.Kind != 'b' || type.BaseTypeOid != 0)
+                if (!byName.TryGetValue("pg_catalog." + name, out var type) || type.Kind != 'b' || type.BaseTypeOid != 0)
                     throw InvalidCatalog();
             cancellationToken.ThrowIfCancellationRequested();
             return new PgTypeCatalog(byOid, byName);

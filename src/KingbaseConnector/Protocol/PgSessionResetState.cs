@@ -5,11 +5,11 @@ internal sealed class PgSessionResetState
 {
     static readonly string[] Settings = ["client_encoding", "standard_conforming_strings", "application_name", "search_path", "TimeZone",
         "default_transaction_isolation", "default_transaction_read_only", "default_transaction_deferrable", "DateStyle", "IntervalStyle"];
-    static readonly string StateSql = "SELECT sys_catalog.current_database(),SESSION_USER,CURRENT_USER,sys_catalog.current_setting('database_mode')," +
-        string.Join(",", Settings.Select(name => "sys_catalog.current_setting('" + name + "')")) +
-        ",sys_catalog.current_setting('transaction_isolation'),sys_catalog.current_setting('transaction_read_only')";
+    static readonly string StateSql = "SELECT pg_catalog.current_database(),SESSION_USER,CURRENT_USER,pg_catalog.current_setting('database_mode')," +
+        string.Join(",", Settings.Select(name => "pg_catalog.current_setting('" + name + "')")) +
+        ",pg_catalog.current_setting('transaction_isolation'),pg_catalog.current_setting('transaction_read_only')";
     static readonly string RestoreSql = "SELECT " + string.Join(",", Settings.Select((name, i) =>
-        "sys_catalog.set_config('" + name + "',$" + (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + ",false)"));
+        "pg_catalog.set_config('" + name + "',$" + (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + ",false)"));
     readonly string[] _values;
     readonly Dictionary<string, string> _reported;
 
@@ -39,7 +39,7 @@ internal sealed class PgSessionResetState
         ValidateControl(await session.ExecuteAsync("DISCARD ALL", token).ConfigureAwait(false), session, "DISCARD ALL");
         session.InvalidatePreparedStatements();
         var catalog = await PgTypeCatalog.LoadAsync(session, identity, token).ConfigureAwait(false);
-        var textOid = catalog.ByName["sys_catalog.text"].Oid;
+        var textOid = catalog.ByName["pg_catalog.text"].Oid;
         var parameters = _values.Skip(4).Take(Settings.Length).Select(value => new PgQueryParameter(textOid, value)).ToArray();
         var restored = await session.ExecuteExtendedAsync(RestoreSql, catalog, parameters, token).ConfigureAwait(false);
         if (!ReadVector(restored, session, Settings.Length).SequenceEqual(_values.Skip(4).Take(Settings.Length), StringComparer.Ordinal))
