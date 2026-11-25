@@ -11,7 +11,7 @@ namespace KingbaseConnector.Tests;
 // The consumer compiles this against each exact archive asset, including both Standard DLLs.
 internal static class PreparedAssetProbe
 {
-    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false)
+    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false)
     {
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
@@ -35,6 +35,30 @@ internal static class PreparedAssetProbe
             var rows = names.Select((name, i) => Row((12000 + i).ToString(CultureInfo.InvariantCulture), "90", "pg_catalog", name,
                 sizes[i], "b", "U", "t", "0", "0", "0", "-1")).ToArray();
             await stream.WriteAsync(Join(Description(12), Join(rows), Complete(), Ready()), token);
+            if (batch)
+            {
+                var batchPrepare = await ReadFrames(stream, "PS", token);
+                Require(Encoding.UTF8.GetString(batchPrepare[0]).Contains("SELECT $1", StringComparison.Ordinal));
+                await stream.WriteAsync(Join(Frame('1'), Ready()), token);
+                foreach (var value in new[] { "41", "42" })
+                {
+                    var execute = await ReadFrames(stream, "BDES", token);
+                    Require(Encoding.UTF8.GetString(execute[0]).Contains(value, StringComparison.Ordinal));
+                    await stream.WriteAsync(Join(Frame('2'), Description(1, 12002, 4), Row(value), Complete(), Ready()), token);
+                }
+                await ReadFrames(stream, "PBDES", token);
+                await stream.WriteAsync(Join(Frame('1'), Frame('2'), Frame('n'), Frame('C', Encoding.UTF8.GetBytes("UPDATE 1\0")), Ready()), token);
+                await ReadFrames(stream, "PBDES", token);
+                await stream.WriteAsync(Join(Frame('1'), Frame('2'), Frame('E', Encoding.UTF8.GetBytes("SERROR\0C22012\0Msynthetic-failure\0\0")), Ready()), token);
+                await ReadFrames(stream, "PBDES", token);
+                await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, 123456, -1), Row("{1}"), Frame('C', Encoding.UTF8.GetBytes("UPDATE 1\0")), Ready()), token);
+                await ReadFrames(stream, "PBDES", token);
+                await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, 12006, 4), Row("infinity"), Complete(), Ready()), token);
+                var recovery = await ReadFrames(stream, "PBDES", token);
+                Require(Encoding.UTF8.GetString(recovery[0]).Contains("SELECT 42", StringComparison.Ordinal));
+                await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, 12002, 4), Row("42"), Complete(), Ready()), token);
+                Require(await stream.ReadAsync(new byte[1], token) == 0); return;
+            }
             if (interval)
             {
                 foreach (var (style, value) in IntervalValues)
@@ -119,6 +143,53 @@ internal static class PreparedAssetProbe
         }.ConnectionString);
         await connection.OpenAsync(token);
         using var command = new KingbaseCommand("SELECT :p", connection);
+        if (batch)
+        {
+            using var valueBatch = connection.CreateBatch();
+            foreach (var value in new[] { 41, 42 })
+            {
+                var item = valueBatch.CreateBatchCommand(); item.CommandText = "SELECT @p";
+                item.Parameters.AddWithValue("p", value); valueBatch.BatchCommands.Add(item);
+            }
+            await valueBatch.PrepareAsync(token);
+            using (var reader = await valueBatch.ExecuteReaderAsync(token))
+            {
+                Require(reader.Read() && reader.GetInt32(0) == 41);
+                Require(reader.NextResult() && reader.Read() && reader.GetInt32(0) == 42);
+                Require(!reader.NextResult());
+            }
+            foreach (var item in valueBatch.BatchCommands) Require(item.ExecutionStatus == KingbaseBatchCommandStatus.Succeeded);
+            using var failureBatch = KingbaseFactory.Instance.CreateBatch(); failureBatch.Connection = connection;
+            foreach (var sql in new[] { "UPDATE t SET n=1", "SELECT 1/0", "SELECT 99" }) failureBatch.BatchCommands.Add(new(sql));
+            try { await failureBatch.ExecuteNonQueryAsync(token); throw new InvalidOperationException("Batch ignored an error."); }
+            catch (KingbaseException error)
+            {
+                Require(error.SqlState == "22012" && ReferenceEquals(error.BatchCommand, failureBatch.BatchCommands[1]));
+                Require(failureBatch.FailedCommandIndex == 1 && failureBatch.BatchCommands[0].RecordsAffected == 1);
+                Require(failureBatch.BatchCommands[0].ExecutionStatus == KingbaseBatchCommandStatus.Succeeded);
+                Require(failureBatch.BatchCommands[1].ExecutionStatus == KingbaseBatchCommandStatus.Failed);
+                Require(failureBatch.BatchCommands[2].ExecutionStatus == KingbaseBatchCommandStatus.NotExecuted);
+            }
+            using var canceled = new CancellationTokenSource(); canceled.Cancel();
+            try { await failureBatch.ExecuteNonQueryAsync(canceled.Token); throw new InvalidOperationException("Batch ignored cancellation."); }
+            catch (OperationCanceledException) { }
+            Require(failureBatch.FailedCommandIndex is null);
+            foreach (var item in failureBatch.BatchCommands) Require(item.ExecutionStatus == KingbaseBatchCommandStatus.NotExecuted && item.RecordsAffected == -1);
+            using var validationBatch = connection.CreateBatch();
+            var returning = KingbaseFactory.Instance.CreateBatchCommand(); returning.CommandText = "UPDATE t SET n=1 RETURNING ARRAY[n]";
+            validationBatch.BatchCommands.Add(returning); validationBatch.BatchCommands.Add(new("UPDATE t SET n=2"));
+            try { await validationBatch.ExecuteNonQueryAsync(token); throw new InvalidOperationException("Batch accepted unsupported output."); }
+            catch (NotSupportedException) { }
+            Require(returning.ExecutionStatus == KingbaseBatchCommandStatus.Succeeded && returning.RecordsAffected == 1);
+            Require(validationBatch.FailedCommandIndex == 0 && validationBatch.BatchCommands[1].ExecutionStatus == KingbaseBatchCommandStatus.NotExecuted);
+            returning.CommandText = "SELECT 'infinity'::date";
+            try { await validationBatch.ExecuteScalarAsync(token); throw new InvalidOperationException("Batch accepted an unrepresentable scalar."); }
+            catch (OverflowException) { }
+            Require(validationBatch.FailedCommandIndex == 0 && returning.ExecutionStatus == KingbaseBatchCommandStatus.Succeeded);
+            Require(validationBatch.BatchCommands[1].ExecutionStatus == KingbaseBatchCommandStatus.NotExecuted);
+            command.CommandText = "SELECT 42"; Require((int)(await command.ExecuteScalarAsync(token))! == 42);
+            connection.Close(); await peer.WaitAsync(token); return;
+        }
         if (interval)
         {
             command.Parameters.AddWithValue("p", new KingbaseInterval(14, -3, -1));

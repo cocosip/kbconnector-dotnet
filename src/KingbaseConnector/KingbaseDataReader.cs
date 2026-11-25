@@ -255,7 +255,7 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
             throw new InvalidOperationException("The Kingbase reader is not positioned on a row.");
     }
     void EnsureOpen() { if (IsClosed) throw new InvalidOperationException("The Kingbase reader is closed."); }
-    static int? AffectedCount(string? tag)
+    internal static int? AffectedCount(string? tag)
     {
         if (tag is null) return null;
         var parts = tag.Split(' ');

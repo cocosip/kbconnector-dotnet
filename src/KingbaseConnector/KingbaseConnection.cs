@@ -267,6 +267,14 @@ public sealed class KingbaseConnection : DbConnection
         throw new NotSupportedException("System transaction enlistment is not yet implemented.");
     protected override DbCommand CreateDbCommand() { lock (_sync) { ThrowIfDisposed(); return new KingbaseCommand("", this); } }
     public new KingbaseCommand CreateCommand() => (KingbaseCommand)CreateDbCommand();
+#if NET6_0_OR_GREATER
+    public override bool CanCreateBatch => true;
+    protected override DbBatch CreateDbBatch() { lock (_sync) { ThrowIfDisposed(); return new KingbaseBatch(this); } }
+    public new KingbaseBatch CreateBatch() => (KingbaseBatch)CreateDbBatch();
+#else
+    public bool CanCreateBatch => true;
+    public KingbaseBatch CreateBatch() { lock (_sync) { ThrowIfDisposed(); return new KingbaseBatch(this); } }
+#endif
 
     internal bool OwnsPreparedStatement(PgQuerySession owner, long generation)
     {

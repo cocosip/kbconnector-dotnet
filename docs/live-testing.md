@@ -110,3 +110,25 @@ minimum-day value and the connection remains usable. These cases do not establis
 binary/full-range interval, server arithmetic beyond the exercised clock envelope,
 Oracle YM/DS, other builds/platforms or LIVE TLS acceptance. All changes are scoped
 to session settings; configuration, credentials and raw results stay external.
+
+Sequential PG batch cases use a session-owned temporary table under the writes
+opt-in. With both ordinary and explicitly prepared execution, confirm the first
+INSERT is acknowledged, a division-by-zero statement fails with 22012 and the
+third INSERT is not executed. Outside a transaction the first write persists;
+inside an explicit transaction it is removed only by caller-initiated rollback.
+The same session remains usable after synchronized failure and rollback.
+
+Three further temporary-table cases confirm that an explicitly assigned
+transaction cannot silently enter autocommit after raw ROLLBACK, that an
+acknowledged UPDATE RETURNING an unsupported array retains its affected count,
+and that an unrepresentable first scalar stops before a later INSERT. Independent
+same-session queries verify no later write occurred and the acknowledged write
+persists. These do not accept arbitrary array decoding or uncertain LIVE outcomes.
+
+Separate read-only batch cases exercise explicit and automatic preparation,
+fresh per-statement parameters, typed text NULL, lossless interval results and
+ordered NextResult access across repeated execution. These establish bounded PG
+sequential behavior, without accepting non-PG batching, pipelining, streaming,
+concurrent isolation, uncertain transport outcomes or real TLS. Offline peers
+cover cancellation, total timeout, preparation-only failures, acknowledgment
+retention and aggregate buffer/count limits; exact-archive probes remain offline.

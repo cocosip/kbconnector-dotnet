@@ -597,6 +597,106 @@ public sealed class LiveProfileTests
         Assert.Equal(42, await Scalar(connection, "SELECT 42", token));
     });
 
+    [LiveTheory(writes: true)]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public Task PgSequentialBatchPartialPersistenceAndExplicitRollback(bool transactional, bool prepare) => LiveProfile.RunPg(async (settings, token) =>
+    {
+        using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
+        await Scalar(connection, "CREATE TEMP TABLE kb_live_batch (id int)", token);
+        using var transaction = transactional ? await connection.BeginTransactionAsync(token) : null;
+        using var batch = new KingbaseBatch(connection, transaction);
+        batch.BatchCommands.Add(new("INSERT INTO kb_live_batch VALUES (1)"));
+        batch.BatchCommands.Add(new("SELECT 1/0"));
+        batch.BatchCommands.Add(new("INSERT INTO kb_live_batch VALUES (3)"));
+        if (prepare) await batch.PrepareAsync(token);
+        var error = await Assert.ThrowsAsync<KingbaseException>(() => batch.ExecuteNonQueryAsync(token));
+        Assert.Equal("22012", error.SqlState); Assert.Same(batch.BatchCommands[1], error.BatchCommand);
+        Assert.Equal(1, batch.FailedCommandIndex); Assert.Equal(1, batch.BatchCommands[0].RecordsAffected);
+        Assert.Equal(KingbaseBatchCommandStatus.Succeeded, batch.BatchCommands[0].ExecutionStatus);
+        Assert.Equal(KingbaseBatchCommandStatus.Failed, batch.BatchCommands[1].ExecutionStatus);
+        Assert.Equal(KingbaseBatchCommandStatus.NotExecuted, batch.BatchCommands[2].ExecutionStatus);
+        if (transaction is not null)
+        {
+            Assert.Same(connection, transaction.Connection);
+            await transaction.RollbackAsync(token);
+        }
+        Assert.Equal(transactional ? 0 : 1, await Scalar(connection, "SELECT coalesce(sum(id),0)::int FROM kb_live_batch", token));
+        Assert.Equal(42, await Scalar(connection, "SELECT 42", token));
+    });
+
+    [LiveTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task PgSequentialBatchTypedNullFreshValuesAndPreparedResults(bool automatic) => LiveProfile.RunPg(async (settings, token) =>
+    {
+        settings.MaxAutoPrepare = automatic ? 3 : 0; settings.AutoPrepareMinUsages = 1;
+        using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
+        using var batch = connection.CreateBatch();
+        var integer = new KingbaseBatchCommand("SELECT @p"); integer.Parameters.AddWithValue("p", 41); batch.BatchCommands.Add(integer);
+        var nullable = new KingbaseBatchCommand("SELECT @p::text"); nullable.Parameters.Add(new KingbaseParameter("p", DBNull.Value) { KingbaseDbType = KingbaseDbType.Text }); batch.BatchCommands.Add(nullable);
+        var interval = new KingbaseBatchCommand("SELECT @p"); interval.Parameters.AddWithValue("p", new KingbaseInterval(14, -3, -1)); batch.BatchCommands.Add(interval);
+        if (!automatic) await batch.PrepareAsync(token);
+        foreach (var value in new[] { 41, 42 })
+        {
+            integer.Parameters[0].Value = value;
+            using var reader = await batch.ExecuteReaderAsync(token);
+            Assert.True(reader.Read()); Assert.Equal(value, reader.GetInt32(0));
+            Assert.True(reader.NextResult()); Assert.True(reader.Read()); Assert.True(reader.IsDBNull(0)); Assert.Equal(typeof(string), reader.GetFieldType(0));
+            Assert.True(reader.NextResult()); Assert.True(reader.Read()); Assert.Equal(new KingbaseInterval(14, -3, -1), reader.GetFieldValue<KingbaseInterval>(0));
+            Assert.False(reader.NextResult()); Assert.Null(batch.FailedCommandIndex);
+            Assert.All(batch.BatchCommands.Cast<KingbaseBatchCommand>(), item => Assert.Equal(KingbaseBatchCommandStatus.Succeeded, item.ExecutionStatus));
+        }
+    });
+
+    [LiveFact(writes: true)]
+    public Task PgBatchAssignedTransactionCompletionRejectsLaterAutocommit() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
+        await Scalar(connection, "CREATE TEMP TABLE kb_live_batch_tx (id int)", token);
+        using var tx = await connection.BeginTransactionAsync(token);
+        using var batch = new KingbaseBatch(connection, tx);
+        batch.BatchCommands.Add(new("ROLLBACK")); batch.BatchCommands.Add(new("INSERT INTO kb_live_batch_tx VALUES (1)"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => batch.ExecuteNonQueryAsync(token));
+        Assert.Equal(1, batch.FailedCommandIndex); Assert.Null(tx.Connection);
+        Assert.Equal(KingbaseBatchCommandStatus.Succeeded, batch.BatchCommands[0].ExecutionStatus);
+        Assert.Equal(KingbaseBatchCommandStatus.Failed, batch.BatchCommands[1].ExecutionStatus);
+        Assert.Equal(0, await Scalar(connection, "SELECT count(*)::int FROM kb_live_batch_tx", token));
+    });
+
+    [LiveFact(writes: true)]
+    public Task PgBatchUnsupportedReturningRetainsAcknowledgedCount() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
+        await Scalar(connection, "CREATE TEMP TABLE kb_live_batch_count (id int)", token);
+        await Scalar(connection, "INSERT INTO kb_live_batch_count VALUES (0)", token);
+        using var batch = connection.CreateBatch();
+        batch.BatchCommands.Add(new("UPDATE kb_live_batch_count SET id=id+1 RETURNING ARRAY[id]"));
+        batch.BatchCommands.Add(new("UPDATE kb_live_batch_count SET id=id+100"));
+        await Assert.ThrowsAsync<NotSupportedException>(() => batch.ExecuteNonQueryAsync(token));
+        Assert.Equal(0, batch.FailedCommandIndex); Assert.Equal(1, batch.BatchCommands[0].RecordsAffected);
+        Assert.Equal(KingbaseBatchCommandStatus.Succeeded, batch.BatchCommands[0].ExecutionStatus);
+        Assert.Equal(KingbaseBatchCommandStatus.NotExecuted, batch.BatchCommands[1].ExecutionStatus);
+        Assert.Equal(1, await Scalar(connection, "SELECT id FROM kb_live_batch_count", token));
+    });
+
+    [LiveFact(writes: true)]
+    public Task PgBatchScalarConversionStopsBeforeLaterWrite() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
+        await Scalar(connection, "SET DateStyle TO 'ISO, MDY'", token);
+        await Scalar(connection, "CREATE TEMP TABLE kb_live_batch_scalar (id int)", token);
+        using var batch = connection.CreateBatch();
+        batch.BatchCommands.Add(new("SELECT 'infinity'::date")); batch.BatchCommands.Add(new("INSERT INTO kb_live_batch_scalar VALUES (1)"));
+        await Assert.ThrowsAsync<OverflowException>(() => batch.ExecuteScalarAsync(token));
+        Assert.Equal(0, batch.FailedCommandIndex);
+        Assert.Equal(KingbaseBatchCommandStatus.Succeeded, batch.BatchCommands[0].ExecutionStatus);
+        Assert.Equal(KingbaseBatchCommandStatus.NotExecuted, batch.BatchCommands[1].ExecutionStatus);
+        Assert.Equal(0, await Scalar(connection, "SELECT count(*)::int FROM kb_live_batch_scalar", token));
+    });
+
     static async Task<object?> Scalar(KingbaseConnection connection, string sql, CancellationToken token)
     {
         using var command = new KingbaseCommand(sql, connection);

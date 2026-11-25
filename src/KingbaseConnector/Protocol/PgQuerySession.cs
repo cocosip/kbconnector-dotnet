@@ -65,6 +65,7 @@ internal sealed partial class PgQuerySession : IDisposable
     internal IReadOnlyDictionary<string, string> Parameters { get; }
     internal bool IsDisposed => Volatile.Read(ref _disposed) != 0;
     internal long WriteAttempts => _wire.WriteAttempts;
+    internal long ExecutionWriteAttempts { get; private set; }
     internal PgServerError? CommandRejection { get; private set; }
     internal PgServerError? UncertainError { get; private set; }
     internal PgTransactionStatus TransactionStatus { get; private set; } = PgTransactionStatus.Idle;
@@ -115,8 +116,14 @@ internal sealed partial class PgQuerySession : IDisposable
             started = true;
             foreach (var message in outgoing)
             {
+                var writes = _wire.WriteAttempts;
                 try { await _wire.WriteMessageAsync(message, cancellationToken).ConfigureAwait(false); }
-                finally { Array.Clear(message, 0, message.Length); }
+                finally
+                {
+                    if (message[0] is (byte)'Q' or (byte)'E')
+                        ExecutionWriteAttempts += _wire.WriteAttempts - writes;
+                    Array.Clear(message, 0, message.Length);
+                }
             }
 
             var results = new List<PgTextResult>();

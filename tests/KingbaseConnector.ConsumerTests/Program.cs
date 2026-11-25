@@ -73,6 +73,11 @@ if (!typeof(DbDataReader).IsAssignableFrom(typeof(KingbaseDataReader)) ||
     throw new InvalidOperationException("The selected asset failed its buffered reader API shape contract.");
 
 DbProviderFactory factory = KingbaseFactory.Instance;
+var modernBatchAsset = actual.StartsWith(".NETCoreApp", StringComparison.Ordinal);
+if (typeof(DbBatch).IsAssignableFrom(typeof(KingbaseBatch)) != modernBatchAsset ||
+    typeof(DbBatchCommand).IsAssignableFrom(typeof(KingbaseBatchCommand)) != modernBatchAsset ||
+    typeof(DbBatchCommandCollection).IsAssignableFrom(typeof(KingbaseBatchCommandCollection)) != modernBatchAsset)
+    throw new InvalidOperationException("The selected asset failed its batch framework API shape contract.");
 var passwordProviderCalls = 0;
 var passwordBuilder = new KingbaseDataSourceBuilder("Host=localhost;Database=app;Username=user")
 {
@@ -219,6 +224,8 @@ await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(date: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(time: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(timestamp: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(interval: true);
+await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(batch: true);
+Console.WriteLine($"PASS: {actual} sequential batch preparation, parameter/result ordering and partial-success reporting on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} INTERVAL calendar/clock fields, four styles, typed NULL and exact TimeSpan access on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} TIMESTAMP/TIMESTAMPTZ microseconds, Kind, UTC, BC and infinity on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} TIME/TIMETZ binding, microseconds, end-of-day and second offsets on .NET {Environment.Version}");

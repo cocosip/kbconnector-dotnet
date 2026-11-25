@@ -391,3 +391,7 @@ Desktop.ini
 
 # Local official binaries and research inputs
 /.source-code/
+
+# superpowers
+.superpowers
+docs/superpowers/

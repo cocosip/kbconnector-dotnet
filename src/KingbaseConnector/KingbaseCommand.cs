@@ -7,10 +7,13 @@ using System.Diagnostics.CodeAnalysis;
 #endif
 namespace KingbaseConnector;
 /// <summary>Executes bounded, catalog-bound single-statement PG text commands.</summary>
-public sealed class KingbaseCommand : DbCommand
+public sealed partial class KingbaseCommand : DbCommand
 {
     readonly object _sync = new();
     readonly KingbaseParameterCollection _parameters = new();
+    readonly KingbaseBatch? _batch;
+    internal object SyncRoot => _sync;
+    internal KingbaseCommand(KingbaseBatch batch) => _batch = batch;
     KingbaseConnection? _connection;
     KingbaseTransaction? _transaction;
     readonly KingbaseTransactionOperation _transactionOperation;
@@ -58,7 +61,11 @@ public sealed class KingbaseCommand : DbCommand
             {
                 EnsureEditable();
                 if (value is not null and not KingbaseConnection) throw new ArgumentException("A Kingbase command requires a Kingbase connection.");
-                if (!ReferenceEquals(_connection, value)) _prepared = null;
+                if (!ReferenceEquals(_connection, value))
+                {
+                    _prepared = null;
+                    if (_batch is not null) foreach (var item in _batch.BatchCommands.Snapshot()) item.Prepared = null;
+                }
                 _connection = (KingbaseConnection?)value;
             }
         }
@@ -84,7 +91,7 @@ public sealed class KingbaseCommand : DbCommand
     /// <summary>Closes this command's attached shared physical statement, if any.</summary>
     public Task UnprepareAsync(CancellationToken cancellationToken = default) => OperationCoreAsync(Operation.Unprepare, CommandBehavior.Default, cancellationToken);
     public override int ExecuteNonQuery() { using var reader = ExecuteReader(); return reader.RecordsAffected; }
-    public override object? ExecuteScalar() { using var reader = ExecuteReader(); return Scalar(reader); }
+    public override object? ExecuteScalar() => ExecuteScalarAsync(CancellationToken.None).GetAwaiter().GetResult();
     public override async Task<int> ExecuteNonQueryAsync(CancellationToken cancellationToken)
     {
         using var reader = await ExecuteCoreAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false);
@@ -92,7 +99,7 @@ public sealed class KingbaseCommand : DbCommand
     }
     public override async Task<object?> ExecuteScalarAsync(CancellationToken cancellationToken)
     {
-        using var reader = await ExecuteCoreAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false);
+        using var reader = (await OperationCoreAsync(Operation.Execute, CommandBehavior.Default, cancellationToken, scalar: true).ConfigureAwait(false))!;
         return Scalar(reader);
     }
     static object? Scalar(KingbaseDataReader reader)
@@ -115,9 +122,9 @@ public sealed class KingbaseCommand : DbCommand
     async Task<KingbaseDataReader> ExecuteCoreAsync(CommandBehavior behavior, CancellationToken caller) =>
         (await OperationCoreAsync(Operation.Execute, behavior, caller).ConfigureAwait(false))!;
 
-    async Task<KingbaseDataReader?> OperationCoreAsync(Operation operation, CommandBehavior behavior, CancellationToken caller)
+    async Task<KingbaseDataReader?> OperationCoreAsync(Operation operation, CommandBehavior behavior, CancellationToken caller, bool scalar = false)
     {
-        caller.ThrowIfCancellationRequested();
+        if (_batch is null) caller.ThrowIfCancellationRequested();
         KingbaseConnection connection;
         KingbaseTransaction? transaction;
         string text;
@@ -125,9 +132,18 @@ public sealed class KingbaseCommand : DbCommand
         CancellationTokenSource cancel;
         PgPreparedStatement? prepared;
         long preparedGeneration;
+        KingbaseBatchCommand[]? batchCommands;
         lock (_sync)
         {
             EnsureEditable();
+            batchCommands = _batch?.BatchCommands.Snapshot();
+            if (batchCommands is not null)
+            {
+                _batch!.FailedCommandIndex = null;
+                if (operation == Operation.Execute)
+                    foreach (var item in batchCommands) { item.ExecutionStatus = KingbaseBatchCommandStatus.NotExecuted; item.Affected = -1; }
+            }
+            caller.ThrowIfCancellationRequested();
             if (operation == Operation.Unprepare && (_prepared is null || _connection is null ||
                 !_connection.OwnsPreparedStatement(_prepared.Owner, _preparedGeneration)))
             {
@@ -139,7 +155,7 @@ public sealed class KingbaseCommand : DbCommand
             if ((behavior & ~known) != 0) throw new ArgumentOutOfRangeException(nameof(behavior));
             if ((behavior & (CommandBehavior.SchemaOnly | CommandBehavior.KeyInfo | CommandBehavior.SequentialAccess)) != 0)
                 throw new NotSupportedException("This CommandBehavior requires an unimplemented execution contract.");
-            if (operation != Operation.Unprepare)
+            if (operation != Operation.Unprepare && _batch is null)
             {
                 if (_type != CommandType.Text) throw new NotSupportedException("Only Text commands are implemented.");
                 if (string.IsNullOrWhiteSpace(_text)) throw new InvalidOperationException("Kingbase CommandText is empty.");
@@ -150,6 +166,10 @@ public sealed class KingbaseCommand : DbCommand
             timeout = _timeout ?? connection.DefaultCommandTimeout;
             prepared = _prepared;
             preparedGeneration = _preparedGeneration;
+            if (batchCommands is not null)
+            {
+                if (batchCommands.Length == 0) throw new InvalidOperationException("The Kingbase batch has no commands.");
+            }
             cancel = new CancellationTokenSource();
             _cancel = cancel;
             _executing = true;
@@ -171,6 +191,13 @@ public sealed class KingbaseCommand : DbCommand
             queries = session.Queries;
             writeAttempts = queries.WriteAttempts;
             CheckMode();
+            if (batchCommands is not null)
+            {
+                reader = await ExecuteBatchOwnedAsync(batchCommands, operation, behavior, connection, session, generation,
+                    transaction, scalar, linked.Token, CheckMode, CheckCancellation).ConfigureAwait(false);
+                acknowledged = true;
+                return reader;
+            }
             if (operation == Operation.Unprepare)
             {
                 lock (_sync) _prepared = null;
@@ -280,7 +307,8 @@ public sealed class KingbaseCommand : DbCommand
             }
             if (_transactionOperation != KingbaseTransactionOperation.None && acknowledged) throw;
             CheckCancellation();
-            if (error is PgQueryException query) throw new KingbaseException(query.ServerError);
+            if (error is PgQueryException query) throw new KingbaseException(query.ServerError,
+                _batch?.FailedCommandIndex is { } index ? batchCommands![index] : null);
             throw;
         }
         finally
@@ -311,7 +339,7 @@ public sealed class KingbaseCommand : DbCommand
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
     }
-    void EnsureEditable()
+    internal void EnsureEditable()
     {
         if (_disposed) throw new ObjectDisposedException(nameof(KingbaseCommand));
         if (_executing) throw new InvalidOperationException("The Kingbase command is executing.");

@@ -174,6 +174,20 @@ public sealed class PgExtendedQueryTests
         Assert.All(stream.BorrowedWriteBuffers, bytes => Assert.All(bytes, b => Assert.Equal(0, b)));
     }
 
+    [Theory]
+    [InlineData(1, 0)]
+    [InlineData(2, 0)]
+    [InlineData(3, 0)]
+    [InlineData(4, 1)]
+    [InlineData(5, 1)]
+    public async Task OnlyExecutionCapableWriteAttemptsImplyUncertainSqlOutcome(int failure, long attempts)
+    {
+        var stream = new QueryStream([]) { FailWriteNumber = failure };
+        using var session = Session(stream);
+        await Assert.ThrowsAsync<IOException>(() => session.ExecuteExtendedAsync("SELECT $1", Types.Result, [new(IntOid, 42)]));
+        Assert.Equal(attempts, session.ExecutionWriteAttempts);
+    }
+
     [Fact]
     public async Task FailedBindWriteClearsParameterBufferAndDoesNotSendLaterFrames()
     {

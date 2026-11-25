@@ -4,7 +4,13 @@ namespace KingbaseConnector;
 public sealed class KingbaseException : DbException
 {
     readonly PgServerError _error;
-    internal KingbaseException(PgServerError error) : base($"Kingbase server error (SQLSTATE {error.SqlState}).") => _error = error;
+    internal KingbaseException(PgServerError error, KingbaseBatchCommand? batchCommand = null) : base($"Kingbase server error (SQLSTATE {error.SqlState}).") { _error = error; BatchCommand = batchCommand; }
+#if NET6_0_OR_GREATER
+    protected override DbBatchCommand? DbBatchCommand => BatchCommand;
+    public new KingbaseBatchCommand? BatchCommand { get; }
+#else
+    public KingbaseBatchCommand? BatchCommand { get; }
+#endif
 #if NET8_0_OR_GREATER
     public override string SqlState => _error.SqlState;
 #else
