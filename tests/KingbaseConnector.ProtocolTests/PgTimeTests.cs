@@ -113,7 +113,7 @@ public sealed class PgTimeTests
             Assert.Throws<NotSupportedException>(() => Bind(new KingbaseParameter("p", DBNull.Value) { KingbaseDbType = type, Scale = 0 }, catalog));
             Assert.Throws<NotSupportedException>(() => Bind(new KingbaseParameter("p", DBNull.Value) { KingbaseDbType = type, Size = 1 }, catalog));
         }
-        Assert.Throws<NotSupportedException>(() => Bind(new KingbaseParameter("p", TimeSpan.Zero), catalog));
+        Assert.Equal(7020u, Bind(new KingbaseParameter("p", TimeSpan.Zero), catalog).TypeOid);
         foreach (var value in new object[] { "00:00:00", DateTime.MinValue, DateTimeOffset.MinValue, default(KingbaseTimeTz) })
             Assert.Throws<InvalidCastException>(() => codecs.Encode(TimeOid, value));
         foreach (var value in new object[] { "00:00:00+00", TimeSpan.Zero, TimeOnly.MinValue, DateTimeOffset.MinValue })

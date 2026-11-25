@@ -13,10 +13,10 @@ internal sealed class PgTextCodecs
     internal Type GetProviderSpecificFieldType(uint oid) => Resolve(oid).Name switch
     { "numeric" => typeof(KingbaseNumeric), "date" => typeof(KingbaseDate), "timestamp" => typeof(KingbaseTimestamp),
         "timestamptz" => typeof(KingbaseTimestampTz), _ => GetFieldType(oid) };
-    internal object DecodeProviderSpecific(uint oid, string? text, string? dateStyle = null)
+    internal object DecodeProviderSpecific(uint oid, string? text, string? dateStyle = null, string? intervalStyle = null)
     {
         var name = Resolve(oid).Name;
-        if (name is not ("numeric" or "date" or "timestamp" or "timestamptz")) return Decode(oid, text, dateStyle);
+        if (name is not ("numeric" or "date" or "timestamp" or "timestamptz")) return Decode(oid, text, dateStyle, intervalStyle);
         if (text is null) return DBNull.Value;
         ValidateText(text);
         if (name == "date") { RequireIsoDateStyle(dateStyle); return KingbaseDate.Parse(text); }
@@ -25,7 +25,7 @@ internal sealed class PgTextCodecs
         return KingbaseNumeric.Parse(text);
     }
 
-    internal object Decode(uint oid, string? text, string? dateStyle = null)
+    internal object Decode(uint oid, string? text, string? dateStyle = null, string? intervalStyle = null)
     {
         var (name, _) = Resolve(oid);
         if (text is null) return DBNull.Value;
@@ -58,6 +58,7 @@ internal sealed class PgTextCodecs
             case "timetz": return KingbaseTimeTz.Parse(text);
             case "timestamp": RequireIsoDateStyle(dateStyle); return KingbaseTimestamp.Parse(text).ToDateTime();
             case "timestamptz": RequireIsoDateStyle(dateStyle); return KingbaseTimestampTz.Parse(text).ToDateTime();
+            case "interval": return PgIntervalText.Parse(text, intervalStyle);
             case "uuid":
                 if (text.Length == 36 && Guid.TryParseExact(text, "D", out var uuid)) return uuid;
                 throw InvalidText();
@@ -71,6 +72,12 @@ internal sealed class PgTextCodecs
         var (name, clrType) = Resolve(oid);
         if (value is null || value is DBNull) return null;
         if (name == "numeric" && value is KingbaseNumeric numeric) return numeric.ToString();
+        if (name == "interval") return value switch
+        {
+            KingbaseInterval interval => interval.ToString(),
+            TimeSpan interval => KingbaseInterval.FromTimeSpan(interval).ToString(),
+            _ => throw new InvalidCastException("PG INTERVAL input requires KingbaseInterval or exact TimeSpan.")
+        };
         if (name == "timestamp") return value switch
         {
             KingbaseTimestamp timestamp => timestamp.ToString(),
@@ -136,6 +143,7 @@ internal sealed class PgTextCodecs
             "time" => (typeof(TimeSpan), 8),
             "timetz" => (typeof(KingbaseTimeTz), 12),
             "timestamp" or "timestamptz" => (typeof(DateTime), 8),
+            "interval" => (typeof(KingbaseInterval), 16),
             "uuid" => (typeof(Guid), 16),
             "bytea" => (typeof(byte[]), -1),
             "text" or "varchar" or "bpchar" or "json" or "jsonb" => (typeof(string), -1),

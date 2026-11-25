@@ -13,6 +13,7 @@ internal static class KingbaseParameterTypes
         KingbaseDate => KingbaseDbType.Date,
         KingbaseTimeTz => KingbaseDbType.TimeTz,
         KingbaseTimestamp => KingbaseDbType.Timestamp,
+        KingbaseInterval or TimeSpan => KingbaseDbType.Interval,
         KingbaseTimestampTz or DateTimeOffset => KingbaseDbType.TimestampTz,
         DateTime date when date.Kind == DateTimeKind.Unspecified => KingbaseDbType.Timestamp,
         DateTime date when date.Kind == DateTimeKind.Utc => KingbaseDbType.TimestampTz,
@@ -31,7 +32,8 @@ internal static class KingbaseParameterTypes
         KingbaseDbType.Varchar => "varchar", KingbaseDbType.Char => "bpchar", KingbaseDbType.Bytea => "bytea",
         KingbaseDbType.Uuid => "uuid", KingbaseDbType.Json => "json", KingbaseDbType.Jsonb => "jsonb",
         KingbaseDbType.Date => "date", KingbaseDbType.Time => "time", KingbaseDbType.TimeTz => "timetz",
-        KingbaseDbType.Timestamp => "timestamp", KingbaseDbType.TimestampTz => "timestamptz", _ => throw Unsupported()
+        KingbaseDbType.Timestamp => "timestamp", KingbaseDbType.TimestampTz => "timestamptz",
+        KingbaseDbType.Interval => "interval", _ => throw Unsupported()
     };
 
     internal static DbType ToDbType(KingbaseDbType type) => type switch
@@ -42,6 +44,7 @@ internal static class KingbaseParameterTypes
         KingbaseDbType.Uuid => DbType.Guid, KingbaseDbType.Char => DbType.StringFixedLength, KingbaseDbType.Date => DbType.Date,
         KingbaseDbType.Time or KingbaseDbType.TimeTz => DbType.Time,
         KingbaseDbType.Timestamp => DbType.DateTime, KingbaseDbType.TimestampTz => DbType.DateTimeOffset,
+        KingbaseDbType.Interval => DbType.Object,
         KingbaseDbType.Text or KingbaseDbType.Varchar or KingbaseDbType.Json or KingbaseDbType.Jsonb => DbType.String, _ => throw Unsupported()
     };
 

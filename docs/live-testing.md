@@ -73,7 +73,7 @@ session zones. The private profile rejects the Postgres display-style setting
 with SQLSTATE 22023; it is excluded from these format scenarios. Separate server
 casts reject +/-16-hour offsets and confirm synchronized error recovery. Invalid
 client submicrosecond input rejects and subsequent execution succeeds. These cases
-change only session settings. INTERVAL, other modes' temporal
+change only session settings. Other modes' temporal
 types, other builds/platforms and LIVE TLS remain pending.
 
 PG TIMESTAMP/TIMESTAMPTZ cases compare literal expected server text with prepared
@@ -91,3 +91,22 @@ historical zone is used to validate actual second-offset output. SQL/German styl
 reject timestamp conversion; ISO recovery and same-backend DateStyle/TimeZone
 pool reset succeed. Only session settings change; these cases establish no
 binary temporal, other-mode timestamp or additional-platform acceptance.
+
+PG INTERVAL cases cover all four output grammars through explicit and automatic
+preparation, typed NULL and exact independent EXTRACT expectations for calendar
+months/days and clock hours/minutes/microseconds. The observed default/verbose
+status labels are kingbase/kingbase_verbose; postgres/postgres_verbose SET aliases
+select those labels. Cover mixed signs, ago inversion, SQL's uniform day/time
+sign, one day versus 24 clock hours, signed month extremes, the positive day
+extreme, near-minimum negative days and large signed clock hours with microseconds.
+TimeSpan inference, explicit TIME selection, invalid extra ticks and continued
+execution are checked. Pool reuse confirms the same backend and restored
+IntervalStyle after changing display style, DateStyle and TimeZone.
+
+Boundary failures are separate acceptance facts: the tested server rejects full
+Int64 clock values in text input with 22015 and emits noncanonical negative-first
+minimum-day verbose text. Conversion rejects safely; ISO output recovers the
+minimum-day value and the connection remains usable. These cases do not establish
+binary/full-range interval, server arithmetic beyond the exercised clock envelope,
+Oracle YM/DS, other builds/platforms or LIVE TLS acceptance. All changes are scoped
+to session settings; configuration, credentials and raw results stay external.

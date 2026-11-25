@@ -218,6 +218,8 @@ await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(automatic: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(date: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(time: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(timestamp: true);
+await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(interval: true);
+Console.WriteLine($"PASS: {actual} INTERVAL calendar/clock fields, four styles, typed NULL and exact TimeSpan access on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} TIMESTAMP/TIMESTAMPTZ microseconds, Kind, UTC, BC and infinity on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} TIME/TIMETZ binding, microseconds, end-of-day and second offsets on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} DATE binding, lossless BC/infinity Reader values and CLR conversion on .NET {Environment.Version}");

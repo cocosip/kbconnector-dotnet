@@ -93,15 +93,19 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     public override string GetDataTypeName(int ordinal) => _catalog.ByOid[Column(ordinal).TypeOid].Name;
     public override Type GetFieldType(int ordinal) => _codecs.GetFieldType(Column(ordinal).TypeOid);
     public override Type GetProviderSpecificFieldType(int ordinal) => _codecs.GetProviderSpecificFieldType(Column(ordinal).TypeOid);
-    public override object GetValue(int ordinal) => _codecs.Decode(Column(ordinal).TypeOid, RawValue(ordinal), Current!.DateStyle);
-    public override object GetProviderSpecificValue(int ordinal) => _codecs.DecodeProviderSpecific(Column(ordinal).TypeOid, RawValue(ordinal), Current!.DateStyle);
+    public override object GetValue(int ordinal) => _codecs.Decode(Column(ordinal).TypeOid, RawValue(ordinal), Current!.DateStyle, Current.IntervalStyle);
+    public override object GetProviderSpecificValue(int ordinal) => _codecs.DecodeProviderSpecific(Column(ordinal).TypeOid, RawValue(ordinal), Current!.DateStyle, Current.IntervalStyle);
     public override T GetFieldValue<T>(int ordinal)
     {
         if (typeof(T) == typeof(DateTimeOffset)) return (T)(object)GetFieldValue<KingbaseTimestampTz>(ordinal).ToDateTimeOffset();
+        if (typeof(T) == typeof(TimeSpan) && _catalog.ByOid[Column(ordinal).TypeOid].Name == "interval")
+            return (T)(object)GetFieldValue<KingbaseInterval>(ordinal).ToTimeSpan();
 #if NET6_0_OR_GREATER
         if (typeof(T) == typeof(DateOnly)) return (T)(object)GetFieldValue<KingbaseDate>(ordinal).ToDateOnly();
         if (typeof(T) == typeof(TimeOnly))
         {
+            if (_catalog.ByOid[Column(ordinal).TypeOid].Name != "time")
+                throw new InvalidCastException("TimeOnly access requires a TIME column.");
             var time = GetFieldValue<TimeSpan>(ordinal);
             if (time.Ticks == TimeSpan.TicksPerDay) throw new OverflowException("End-of-day TIME cannot be represented by TimeOnly.");
             return (T)(object)TimeOnly.FromTimeSpan(time);

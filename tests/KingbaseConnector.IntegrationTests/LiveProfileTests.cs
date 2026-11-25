@@ -503,6 +503,100 @@ public sealed class LiveProfileTests
         // The unpooled physical connection owns the temporary table and removes it on disposal.
     });
 
+    [LiveTheory]
+    [InlineData("postgres", false)] [InlineData("postgres", true)]
+    [InlineData("postgres_verbose", false)] [InlineData("postgres_verbose", true)]
+    [InlineData("sql_standard", false)] [InlineData("sql_standard", true)]
+    [InlineData("iso_8601", false)] [InlineData("iso_8601", true)]
+    public Task PgIntervalAllStylesPreserveCalendarAndClockThroughPreparation(string style, bool automatic) => LiveProfile.RunPg(async (settings, token) =>
+    {
+        settings.MaxAutoPrepare = automatic ? 1 : 0; settings.AutoPrepareMinUsages = 2;
+        using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
+        await Scalar(connection, "SET IntervalStyle TO '" + style + "'", token);
+        using var command = new KingbaseCommand("SELECT @p,@n,CAST(EXTRACT(year FROM @p) AS int4),CAST(EXTRACT(month FROM @p) AS int4)," +
+            "CAST(EXTRACT(day FROM @p) AS int4),CAST(EXTRACT(hour FROM @p) AS int8),CAST(EXTRACT(minute FROM @p) AS int4)," +
+            "CAST(EXTRACT(second FROM @p)*1000000 AS int8)", connection);
+        command.Parameters.AddWithValue("p", default(KingbaseInterval));
+        command.Parameters.Add(new KingbaseParameter("n", DBNull.Value) { KingbaseDbType = KingbaseDbType.Interval });
+        if (!automatic) await command.PrepareAsync(token);
+        foreach (var value in new[]
+        {
+            default(KingbaseInterval), new(14, 3, 14706123456), new(-14, -3, -14706123456),
+            new(14, -3, -1), new(-14, 3, 1), new(0, 0, 86400000000), new(0, 1, 0),
+            new(0, -3, -14706123456), new(0, 0, -1),
+            new(int.MaxValue, int.MaxValue, 0), new(int.MinValue, 0, 0), new(0, int.MinValue + 1, 0),
+            new(0, 0, 7730941129200000001), new(0, 0, -7730941129200000001)
+        })
+        {
+            command.Parameters[0].Value = value;
+            for (var repeat = 0; repeat < 2; repeat++)
+            {
+                using var reader = await command.ExecuteReaderAsync(token); Assert.True(await reader.ReadAsync(token));
+                Assert.Equal(typeof(KingbaseInterval), reader.GetFieldType(0)); Assert.Equal(typeof(KingbaseInterval), reader.GetProviderSpecificFieldType(0));
+                Assert.Equal(value, reader.GetValue(0)); Assert.Equal(value, reader.GetFieldValue<KingbaseInterval>(0));
+                Assert.Equal(value, reader.GetProviderSpecificValue(0)); Assert.True(reader.IsDBNull(1)); Assert.Same(DBNull.Value, reader.GetValue(1));
+                Assert.Equal(value.Months / 12, reader.GetInt32(2)); Assert.Equal(value.Months % 12, reader.GetInt32(3));
+                Assert.Equal(value.Days, reader.GetInt32(4)); Assert.Equal(value.Microseconds / 3600000000L, reader.GetInt64(5));
+                Assert.Equal((int)(value.Microseconds / 60000000L % 60), reader.GetInt32(6)); Assert.Equal(value.Microseconds % 60000000L, reader.GetInt64(7));
+                if (value.Months != 0) Assert.Throws<InvalidCastException>(() => reader.GetFieldValue<TimeSpan>(0));
+                else if (Math.Abs(value.Days) > 10675199 || Math.Abs(value.Microseconds) > long.MaxValue / 10)
+                    Assert.Throws<OverflowException>(() => reader.GetFieldValue<TimeSpan>(0));
+                else Assert.Equal(value.ToTimeSpan(), reader.GetFieldValue<TimeSpan>(0));
+            }
+        }
+        await command.UnprepareAsync(token);
+        using var inferred = new KingbaseCommand("SELECT @p", connection); inferred.Parameters.AddWithValue("p", TimeSpan.FromTicks(-10));
+        await inferred.PrepareAsync(token); Assert.Equal(new KingbaseInterval(0, 0, -1), await inferred.ExecuteScalarAsync(token));
+        inferred.Parameters[0].Value = TimeSpan.FromTicks(1);
+        await Assert.ThrowsAsync<ArgumentException>(() => inferred.ExecuteScalarAsync(token));
+        inferred.Parameters[0].Value = TimeSpan.FromTicks(10); inferred.Parameters[0].DbType = DbType.Time;
+        Assert.Equal(TimeSpan.FromTicks(10), await inferred.ExecuteScalarAsync(token));
+        Assert.Equal(42, await Scalar(connection, "SELECT 42", token));
+    });
+
+    [LiveFact]
+    public Task PgIntervalPoolResetRestoresStyleAndDoesNotCollapseCalendarDays() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        settings.Pooling = true; settings.MaxPoolSize = 1;
+        using var source = new KingbaseDataSourceBuilder(settings.ConnectionString).Build();
+        using var connection = source.CreateConnection(); await connection.OpenAsync(token);
+        var pid = await Scalar(connection, "SELECT pg_catalog.pg_backend_pid()", token);
+        var style = await Scalar(connection, "SHOW IntervalStyle", token);
+        await Scalar(connection, "SET IntervalStyle TO 'postgres_verbose'", token);
+        await Scalar(connection, "SET DateStyle TO 'SQL, DMY'", token);
+        await Scalar(connection, "SET TimeZone TO 'America/New_York'", token);
+        using (var command = new KingbaseCommand("SELECT '1 day'::interval,'24 hours'::interval,'-3 days -4 hours -5 minutes -6.123456 seconds'::interval", connection))
+        using (var reader = await command.ExecuteReaderAsync(token))
+        {
+            Assert.True(reader.Read()); Assert.Equal(new KingbaseInterval(0, 1, 0), reader.GetValue(0));
+            Assert.Equal(new KingbaseInterval(0, 0, 86400000000), reader.GetValue(1));
+            Assert.Equal(new KingbaseInterval(0, -3, -14706123456), reader.GetValue(2));
+        }
+        connection.Close(); await connection.OpenAsync(token);
+        Assert.Equal(pid, await Scalar(connection, "SELECT pg_catalog.pg_backend_pid()", token));
+        Assert.Equal(style, await Scalar(connection, "SHOW IntervalStyle", token));
+        using var check = new KingbaseCommand("SELECT '1 mon -2 days -0.000001 seconds'::interval", connection);
+        Assert.Equal(new KingbaseInterval(1, -2, -1), await check.ExecuteScalarAsync(token));
+    });
+
+    [LiveFact]
+    public Task PgIntervalServerTextBoundaryFailuresRetainSessionAndProviderRecovery() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
+        using var command = new KingbaseCommand("SELECT @p", connection);
+        command.Parameters.AddWithValue("p", new KingbaseInterval(0, 0, long.MaxValue));
+        // This server's text input rejects clock hours beyond its integer field bound.
+        Assert.Equal("22015", (await Assert.ThrowsAsync<KingbaseException>(() => command.ExecuteScalarAsync(token))).SqlState);
+        command.Parameters[0].Value = new KingbaseInterval(0, 0, long.MinValue);
+        Assert.Equal("22015", (await Assert.ThrowsAsync<KingbaseException>(() => command.ExecuteScalarAsync(token))).SqlState);
+        command.Parameters[0].Value = new KingbaseInterval(0, int.MinValue, 0);
+        await Scalar(connection, "SET IntervalStyle TO 'postgres_verbose'", token);
+        Assert.Throws<FormatException>(() => command.ExecuteScalar());
+        await Scalar(connection, "SET IntervalStyle TO 'iso_8601'", token);
+        Assert.Equal(new KingbaseInterval(0, int.MinValue, 0), await command.ExecuteScalarAsync(token));
+        Assert.Equal(42, await Scalar(connection, "SELECT 42", token));
+    });
+
     static async Task<object?> Scalar(KingbaseConnection connection, string sql, CancellationToken token)
     {
         using var command = new KingbaseCommand(sql, connection);

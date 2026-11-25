@@ -15,12 +15,13 @@ internal sealed class PgColumnDescription(string name, uint tableOid, short attr
 }
 
 internal sealed class PgTextResult(IReadOnlyList<PgColumnDescription> columns,
-    IReadOnlyList<IReadOnlyList<string?>> rows, string? commandTag, string? dateStyle = null)
+    IReadOnlyList<IReadOnlyList<string?>> rows, string? commandTag, string? dateStyle = null, string? intervalStyle = null)
 {
     internal IReadOnlyList<PgColumnDescription> Columns { get; } = columns;
     internal IReadOnlyList<IReadOnlyList<string?>> Rows { get; } = rows;
     internal string? CommandTag { get; } = commandTag;
     internal string? DateStyle { get; } = dateStyle;
+    internal string? IntervalStyle { get; } = intervalStyle;
 }
 
 internal sealed class PgQueryException(PgServerError error)
@@ -122,6 +123,7 @@ internal sealed partial class PgQuerySession : IDisposable
             IReadOnlyList<PgColumnDescription>? columns = null;
             List<IReadOnlyList<string?>>? rows = null;
             string? dateStyle = null;
+            string? intervalStyle = null;
             PgServerError? serverError = null;
             var payloadBytes = 0;
             var totalRows = 0;
@@ -159,6 +161,7 @@ internal sealed partial class PgQuerySession : IDisposable
                         columns = ParseDescription(message.Payload);
                         rows = new List<IReadOnlyList<string?>>();
                         _parameters.TryGetValue("DateStyle", out dateStyle);
+                        _parameters.TryGetValue("IntervalStyle", out intervalStyle);
                         extendedPhase = 3;
                         break;
                     case (byte)'D':
@@ -166,6 +169,9 @@ internal sealed partial class PgQuerySession : IDisposable
                         _parameters.TryGetValue("DateStyle", out var rowStyle);
                         if (rows!.Count == 0) dateStyle = rowStyle;
                         else if (rowStyle != dateStyle) dateStyle = null;
+                        _parameters.TryGetValue("IntervalStyle", out var rowIntervalStyle);
+                        if (rows.Count == 0) intervalStyle = rowIntervalStyle;
+                        else if (rowIntervalStyle != intervalStyle) intervalStyle = null;
                         rows!.Add(ParseRow(message.Payload, columns.Count));
                         totalRows++;
                         break;
@@ -178,7 +184,7 @@ internal sealed partial class PgQuerySession : IDisposable
                         if (tag is "DISCARD ALL" or "DEALLOCATE ALL") InvalidatePreparedStatements();
                         else if (tag == "DEALLOCATE") InvalidatePreparedStatements(forget: false);
                         results.Add(new PgTextResult(columns ?? Array.Empty<PgColumnDescription>(),
-                            (rows ?? new List<IReadOnlyList<string?>>()).AsReadOnly(), tag, dateStyle));
+                            (rows ?? new List<IReadOnlyList<string?>>()).AsReadOnly(), tag, dateStyle, intervalStyle));
                         columns = null;
                         rows = null;
                         extendedPhase = 4;

@@ -11,7 +11,7 @@ namespace KingbaseConnector.Tests;
 // The consumer compiles this against each exact archive asset, including both Standard DLLs.
 internal static class PreparedAssetProbe
 {
-    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false)
+    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false)
     {
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
@@ -30,11 +30,25 @@ internal static class PreparedAssetProbe
             await stream.WriteAsync(Join(Description(1), Row("KingbaseES V009R001C001B0001"), Complete(), Ready()), token);
             var catalogQuery = await ReadFrames(stream, "Q", token);
             Require(Encoding.UTF8.GetString(catalogQuery[0]).Contains("FROM sys_catalog.sys_type", StringComparison.Ordinal));
-            var names = new[] { "bool", "int2", "int4", "int8", "text", "bytea", "date", "time", "timetz", "timestamp", "timestamptz" };
-            var sizes = new[] { "1", "2", "4", "8", "-1", "-1", "4", "8", "12", "8", "8" };
+            var names = new[] { "bool", "int2", "int4", "int8", "text", "bytea", "date", "time", "timetz", "timestamp", "timestamptz", "interval" };
+            var sizes = new[] { "1", "2", "4", "8", "-1", "-1", "4", "8", "12", "8", "8", "16" };
             var rows = names.Select((name, i) => Row((12000 + i).ToString(CultureInfo.InvariantCulture), "90", "pg_catalog", name,
                 sizes[i], "b", "U", "t", "0", "0", "0", "-1")).ToArray();
             await stream.WriteAsync(Join(Description(12), Join(rows), Complete(), Ready()), token);
+            if (interval)
+            {
+                foreach (var (style, value) in IntervalValues)
+                {
+                    var execute = await ReadFrames(stream, "PBDES", token);
+                    Require(execute[0].AsSpan(execute[0].Length - 4).SequenceEqual(Int32(12011)));
+                    Require(Encoding.UTF8.GetString(execute[1]).Contains(value.StartsWith("PT", StringComparison.Ordinal) ? "PT-0.000001S" : "P14M-3DT-0.000001S", StringComparison.Ordinal));
+                    await stream.WriteAsync(Join(Frame('1'), Frame('2'), Status("IntervalStyle", style), Description(1, 12011, 16),
+                        Row(value), Complete(), Status("IntervalStyle", "unsupported"), Ready()), token);
+                }
+                await ReadFrames(stream, "PBDES", token);
+                await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, 12011, 16), Row((string?)null), Complete(), Ready()), token);
+                Require(await stream.ReadAsync(new byte[1], token) == 0); return;
+            }
             if (timestamp)
             {
                 foreach (var zoned in new[] { false, true })
@@ -105,6 +119,33 @@ internal static class PreparedAssetProbe
         }.ConnectionString);
         await connection.OpenAsync(token);
         using var command = new KingbaseCommand("SELECT :p", connection);
+        if (interval)
+        {
+            command.Parameters.AddWithValue("p", new KingbaseInterval(14, -3, -1));
+            foreach (var (_, value) in IntervalValues)
+            {
+                var duration = value.StartsWith("PT", StringComparison.Ordinal);
+                command.Parameters[0].Value = duration ? TimeSpan.FromTicks(-10) : new KingbaseInterval(14, -3, -1);
+                using var reader = await command.ExecuteReaderAsync(token); Require(reader.Read());
+                var expected = duration ? new KingbaseInterval(0, 0, -1) : new KingbaseInterval(14, -3, -1);
+                Require(reader.GetFieldType(0) == typeof(KingbaseInterval)); Require(reader.GetProviderSpecificFieldType(0) == typeof(KingbaseInterval));
+                Require(reader.GetFieldValue<KingbaseInterval>(0) == expected); Require(Equals(reader.GetValue(0), reader.GetProviderSpecificValue(0)));
+                if (duration)
+                {
+                    Require(reader.GetFieldValue<TimeSpan>(0).Ticks == -10);
+                    try { reader.GetFieldValue<TimeOnly>(0); throw new InvalidOperationException("INTERVAL was silently treated as a clock."); }
+                    catch (InvalidCastException) { }
+                }
+                else
+                {
+                    try { reader.GetFieldValue<TimeSpan>(0); throw new InvalidOperationException("Calendar months were silently converted."); }
+                    catch (InvalidCastException) { }
+                }
+            }
+            command.Parameters[0].KingbaseDbType = KingbaseDbType.Interval; command.Parameters[0].Value = DBNull.Value;
+            using (var reader = await command.ExecuteReaderAsync(token)) { Require(reader.Read()); Require(reader.IsDBNull(0)); Require(reader.GetValue(0) is DBNull); }
+            connection.Close(); await peer.WaitAsync(token); return;
+        }
         if (timestamp)
         {
             foreach (var zoned in new[] { false, true })
@@ -192,6 +233,14 @@ internal static class PreparedAssetProbe
     }
 
     static readonly string[] DateValues = ["2000-02-29", "0001-01-01 BC", "infinity", "-infinity"];
+    static readonly (string Style, string Text)[] IntervalValues =
+    [
+        ("kingbase", "1 year 2 mons -3 days -00:00:00.000001"),
+        ("kingbase_verbose", "@ 1 year 2 mons -3 days -0.000001 secs"),
+        ("sql_standard", "+1-2 -3 -0:00:00.000001"),
+        ("iso_8601", "P1Y2M-3DT-0.000001S"),
+        ("iso_8601", "PT-0.000001S")
+    ];
     static string[] TimeValues(bool zoned) => zoned ? ["00:00:00.000001-00:00:01", "24:00:00+15:59:59"] : ["00:00:00.000001", "24:00:00"];
     static string[] TimestampValues(bool zoned) => ["2024-02-29 12:34:56.123456" + (zoned ? "+00" : ""),
         "0001-02-29 12:34:56.123456" + (zoned ? "+00" : "") + " BC", "infinity", "-infinity"];
@@ -215,8 +264,8 @@ internal static class PreparedAssetProbe
     static byte[] Ready() => Frame('Z', [(byte)'I']);
     static byte[] Complete() => Frame('C', Encoding.ASCII.GetBytes("SELECT 1\0"));
     static byte[] Status(string key, string value) => Frame('S', Encoding.UTF8.GetBytes(key + "\0" + value + "\0"));
-    static byte[] Row(params string[] values) => Frame('D', Join(Count(values.Length), Join(values.Select(value =>
-        Join(Int32(Encoding.UTF8.GetByteCount(value)), Encoding.UTF8.GetBytes(value))).ToArray())));
+    static byte[] Row(params string?[] values) => Frame('D', Join(Count(values.Length), Join(values.Select(value =>
+        value is null ? Int32(-1) : Join(Int32(Encoding.UTF8.GetByteCount(value)), Encoding.UTF8.GetBytes(value))).ToArray())));
     static byte[] Description(int count, int oid = 25, int size = -1) => Frame('T', Join(Count(count), Join(Enumerable.Range(0, count)
         .Select(i => Join(Encoding.UTF8.GetBytes("c" + i + "\0"), new byte[6], Int32(oid), Count(size), Int32(-1), Count(0))).ToArray())));
 }
