@@ -51,6 +51,8 @@ internal sealed class PgTextCodecs
             case "float8": return DecodeFloating(text, single: false);
             case "numeric": return KingbaseNumeric.Parse(text).ToDecimal();
             case "date": RequireIsoDateStyle(dateStyle); return KingbaseDate.Parse(text).ToDateTime();
+            case "time": return PgTimeText.Parse(text);
+            case "timetz": return KingbaseTimeTz.Parse(text);
             case "uuid":
                 if (text.Length == 36 && Guid.TryParseExact(text, "D", out var uuid)) return uuid;
                 throw InvalidText();
@@ -64,6 +66,14 @@ internal sealed class PgTextCodecs
         var (name, clrType) = Resolve(oid);
         if (value is null || value is DBNull) return null;
         if (name == "numeric" && value is KingbaseNumeric numeric) return numeric.ToString();
+        if (name == "time") return value switch
+        {
+            TimeSpan time => PgTimeText.Format(time),
+#if NET6_0_OR_GREATER
+            TimeOnly time => PgTimeText.Format(time.ToTimeSpan()),
+#endif
+            _ => throw new InvalidCastException("PG TIME input requires TimeSpan or a supported TimeOnly value.")
+        };
         if (name == "date") return value switch
         {
             KingbaseDate date => date.ToString(),
@@ -82,6 +92,7 @@ internal sealed class PgTextCodecs
             "numeric" => KingbaseNumeric.FromDecimal((decimal)value).ToString(),
             "uuid" => ((Guid)value).ToString("D"),
             "bytea" => EncodeBytes((byte[])value),
+            "timetz" => ((KingbaseTimeTz)value).ToString(),
             "int2" or "int4" or "int8" or "oid" => ((IFormattable)value).ToString(null, CultureInfo.InvariantCulture),
             _ => (string)value
         };
@@ -104,6 +115,8 @@ internal sealed class PgTextCodecs
             "float8" => (typeof(double), 8),
             "numeric" => (typeof(decimal), -1),
             "date" => (typeof(DateTime), 4),
+            "time" => (typeof(TimeSpan), 8),
+            "timetz" => (typeof(KingbaseTimeTz), 12),
             "uuid" => (typeof(Guid), 16),
             "bytea" => (typeof(byte[]), -1),
             "text" or "varchar" or "bpchar" or "json" or "jsonb" => (typeof(string), -1),

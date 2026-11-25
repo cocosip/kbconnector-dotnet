@@ -7,7 +7,7 @@ public sealed class PgTextCodecsTests
 {
     static readonly (string Name, short Size)[] Types = [("bool", 1), ("int2", 2), ("int4", 4), ("int8", 8),
         ("oid", 4), ("float4", 4), ("float8", 8), ("text", -1), ("varchar", -1), ("bpchar", -1),
-        ("bytea", -1), ("uuid", 16), ("json", -1), ("jsonb", -1), ("numeric", -1), ("date", 4)];
+        ("bytea", -1), ("uuid", 16), ("json", -1), ("jsonb", -1), ("numeric", -1), ("date", 4), ("time", 8), ("timetz", 12)];
     static readonly Task<PgTypeCatalog> Catalog = LoadCatalog();
     static uint Oid(string name, uint first = 7000) => first + (uint)Array.FindIndex(Types, item => item.Name == name);
 
@@ -234,10 +234,11 @@ public sealed class PgTextCodecsTests
     public async Task ActualOidsAreSessionLocalAndCanIncludeUintMaxValue()
     {
         var first = new PgTextCodecs(await Catalog);
-        var second = new PgTextCodecs(await LoadCatalog(uint.MaxValue - 15));
+        var secondFirst = uint.MaxValue - (uint)(Types.Length - 1);
+        var second = new PgTextCodecs(await LoadCatalog(secondFirst));
         Assert.Throws<NotSupportedException>(() => second.GetFieldType(Oid("bool")));
-        Assert.Equal(typeof(bool), second.GetFieldType(uint.MaxValue - 15));
-        Assert.True((bool)second.Decode(uint.MaxValue - 15, "t"));
+        Assert.Equal(typeof(bool), second.GetFieldType(secondFirst));
+        Assert.True((bool)second.Decode(secondFirst, "t"));
         Assert.Equal(typeof(bool), first.GetFieldType(Oid("bool")));
         var largestOid = new PgTextCodecs(await LoadCatalog(change: type => type.Name != "oid" ? type :
             new PgTypeDescription(uint.MaxValue, type.NamespaceOid, type.Name, type.Size, type.Kind, type.Category, 0, 0, 0, -1)));

@@ -11,7 +11,7 @@ namespace KingbaseConnector.ProtocolTests;
 public sealed class PublicExecutionTests
 {
     const string Product = "KingbaseES V009R001C001B0001";
-    static readonly (string Name, short Size)[] Types = [("bool", 1), ("int2", 2), ("int4", 4), ("int8", 8), ("text", -1), ("bytea", -1), ("numeric", -1), ("date", 4)];
+    static readonly (string Name, short Size)[] Types = [("bool", 1), ("int2", 2), ("int4", 4), ("int8", 8), ("text", -1), ("bytea", -1), ("numeric", -1), ("date", 4), ("time", 8), ("timetz", 12)];
     static uint Oid(string name) => name == "int4" ? uint.MaxValue : 9000 + (uint)Array.FindIndex(Types, t => t.Name == name);
 
     [Fact]

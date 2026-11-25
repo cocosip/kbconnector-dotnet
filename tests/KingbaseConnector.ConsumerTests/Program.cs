@@ -216,6 +216,8 @@ Console.WriteLine($"PASS: {actual} custom CA/name/expiry/EKU/intermediate/IP TLS
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync();
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(automatic: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(date: true);
+await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(time: true);
+Console.WriteLine($"PASS: {actual} TIME/TIMETZ binding, microseconds, end-of-day and second offsets on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} DATE binding, lossless BC/infinity Reader values and CLR conversion on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} explicit/automatic preparation, Unprepare and named execution on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} on .NET {Environment.Version}; {assembly.Location}");

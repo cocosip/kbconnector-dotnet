@@ -11,7 +11,7 @@ namespace KingbaseConnector.Tests;
 // The consumer compiles this against each exact archive asset, including both Standard DLLs.
 internal static class PreparedAssetProbe
 {
-    internal static async Task RunAsync(bool automatic = false, bool date = false)
+    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false)
     {
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
@@ -30,11 +30,26 @@ internal static class PreparedAssetProbe
             await stream.WriteAsync(Join(Description(1), Row("KingbaseES V009R001C001B0001"), Complete(), Ready()), token);
             var catalogQuery = await ReadFrames(stream, "Q", token);
             Require(Encoding.UTF8.GetString(catalogQuery[0]).Contains("FROM sys_catalog.sys_type", StringComparison.Ordinal));
-            var names = new[] { "bool", "int2", "int4", "int8", "text", "bytea", "date" };
-            var sizes = new[] { "1", "2", "4", "8", "-1", "-1", "4" };
+            var names = new[] { "bool", "int2", "int4", "int8", "text", "bytea", "date", "time", "timetz" };
+            var sizes = new[] { "1", "2", "4", "8", "-1", "-1", "4", "8", "12" };
             var rows = names.Select((name, i) => Row((12000 + i).ToString(CultureInfo.InvariantCulture), "90", "pg_catalog", name,
                 sizes[i], "b", "U", "t", "0", "0", "0", "-1")).ToArray();
             await stream.WriteAsync(Join(Description(12), Join(rows), Complete(), Ready()), token);
+            if (time)
+            {
+                foreach (var zoned in new[] { false, true })
+                {
+                    var oid = zoned ? 12008 : 12007;
+                    foreach (var value in TimeValues(zoned))
+                    {
+                        var execute = await ReadFrames(stream, "PBDES", token);
+                        Require(execute[0].AsSpan(execute[0].Length - 4).SequenceEqual(Int32(oid)));
+                        Require(Encoding.UTF8.GetString(execute[1]).Contains(value, StringComparison.Ordinal));
+                        await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, oid, zoned ? 12 : 8), Row(value), Complete(), Ready()), token);
+                    }
+                }
+                Require(await stream.ReadAsync(new byte[1], token) == 0); return;
+            }
             if (date)
             {
                 foreach (var value in DateValues)
@@ -77,6 +92,25 @@ internal static class PreparedAssetProbe
         }.ConnectionString);
         await connection.OpenAsync(token);
         using var command = new KingbaseCommand("SELECT :p", connection);
+        if (time)
+        {
+            foreach (var zoned in new[] { false, true })
+            {
+                command.Parameters.Clear();
+                command.Parameters.Add(new KingbaseParameter("p", DBNull.Value) { KingbaseDbType = zoned ? KingbaseDbType.TimeTz : KingbaseDbType.Time });
+                foreach (var value in TimeValues(zoned))
+                {
+                    var expectedTime = value.StartsWith("24", StringComparison.Ordinal) ? TimeSpan.FromDays(1) : TimeSpan.FromTicks(10);
+                    command.Parameters[0].Value = zoned ? KingbaseTimeTz.Parse(value) : expectedTime;
+                    using var reader = await command.ExecuteReaderAsync(token); Require(reader.Read());
+                    Require(reader.GetFieldType(0) == (zoned ? typeof(KingbaseTimeTz) : typeof(TimeSpan)));
+                    if (zoned) Require(reader.GetFieldValue<KingbaseTimeTz>(0).ToString() == value);
+                    else Require(reader.GetFieldValue<TimeSpan>(0) == expectedTime);
+                    Require(Equals(reader.GetValue(0), reader.GetProviderSpecificValue(0)));
+                }
+            }
+            connection.Close(); await peer.WaitAsync(token); return;
+        }
         if (date)
         {
             command.Parameters.AddWithValue("p", default(KingbaseDate));
@@ -117,6 +151,7 @@ internal static class PreparedAssetProbe
     }
 
     static readonly string[] DateValues = ["2000-02-29", "0001-01-01 BC", "infinity", "-infinity"];
+    static string[] TimeValues(bool zoned) => zoned ? ["00:00:00.000001-00:00:01", "24:00:00+15:59:59"] : ["00:00:00.000001", "24:00:00"];
 
     static async Task<byte[][]> ReadFrames(Stream stream, string codes, CancellationToken token)
     {

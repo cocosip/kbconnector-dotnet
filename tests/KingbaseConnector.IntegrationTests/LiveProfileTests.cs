@@ -266,6 +266,71 @@ public sealed class LiveProfileTests
         Assert.Equal(new DateTime(2024, 2, 29), await Scalar(connection, "SELECT DATE '2024-02-29'", token));
     });
 
+    [LiveTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task PgTimeAndTimeTzExactBindingAcrossSessionFormatsAndPreparation(bool automatic) => LiveProfile.RunPg(async (settings, token) =>
+    {
+        settings.MaxAutoPrepare = automatic ? 2 : 0; settings.AutoPrepareMinUsages = 2;
+        using var connection = new KingbaseConnection(settings.ConnectionString);
+        await connection.OpenAsync(token);
+        using var command = new KingbaseCommand("SELECT @t, CAST(@t AS text), @z, CAST(@z AS text)", connection);
+        command.Parameters.Add(new KingbaseParameter("t", DBNull.Value) { DbType = DbType.Time });
+        command.Parameters.Add(new KingbaseParameter("z", DBNull.Value) { KingbaseDbType = KingbaseDbType.TimeTz });
+        if (!automatic) await command.PrepareAsync(token);
+        using (var reader = await command.ExecuteReaderAsync(token))
+        {
+            Assert.True(reader.Read()); Assert.True(reader.IsDBNull(0)); Assert.True(reader.IsDBNull(2));
+            Assert.Equal(typeof(TimeSpan), reader.GetFieldType(0)); Assert.Equal(typeof(KingbaseTimeTz), reader.GetFieldType(2));
+            Assert.Equal(typeof(KingbaseTimeTz), reader.GetProviderSpecificFieldType(2));
+        }
+        foreach (var scenario in new[] { ("ISO, MDY", "UTC"), ("SQL, DMY", "Asia/Shanghai"),
+            ("ISO, YMD", "America/New_York"), ("German, DMY", "UTC") })
+        {
+            await Scalar(connection, "SELECT pg_catalog.set_config('DateStyle','" + scenario.Item1 + "',false)", token);
+            await Scalar(connection, "SELECT pg_catalog.set_config('TimeZone','" + scenario.Item2 + "',false)", token);
+            foreach (var row in new[] { (0L, "00:00:00", "00:00:00+00"),
+                (10L, "00:00:00.000001", "00:00:00.000001-00:00:01"),
+                (452961234560L, "12:34:56.123456", "12:34:56.123456+05:30:01"),
+                (863999999990L, "23:59:59.999999", "23:59:59.999999-15:59:59"),
+                (864000000000L, "24:00:00", "24:00:00+15:59:59") })
+            {
+                command.Parameters[0].Value = TimeSpan.FromTicks(row.Item1);
+                command.Parameters[1].Value = KingbaseTimeTz.Parse(row.Item3);
+                using var reader = await command.ExecuteReaderAsync(token);
+                Assert.True(reader.Read()); Assert.Equal(row.Item2, reader.GetString(1)); Assert.Equal(row.Item3, reader.GetString(3));
+                Assert.Equal(TimeSpan.FromTicks(row.Item1), reader.GetFieldValue<TimeSpan>(0));
+                Assert.Equal(row.Item3, reader.GetFieldValue<KingbaseTimeTz>(2).ToString());
+                Assert.Equal(command.Parameters[1].Value, reader.GetProviderSpecificValue(2));
+                if (row.Item1 < TimeSpan.TicksPerDay) Assert.Equal(new TimeOnly(row.Item1), reader.GetFieldValue<TimeOnly>(0));
+                else Assert.Throws<OverflowException>(() => reader.GetFieldValue<TimeOnly>(0));
+                Assert.Throws<InvalidCastException>(() => reader.GetFieldValue<TimeOnly>(2));
+            }
+        }
+        command.Parameters[0].Value = new TimeOnly(10L); command.Parameters[1].Value = default(KingbaseTimeTz);
+        Assert.Equal(TimeSpan.FromTicks(10), await command.ExecuteScalarAsync(token));
+        command.Parameters[0].Value = new TimeOnly(1L);
+        await Assert.ThrowsAsync<ArgumentException>(() => command.ExecuteScalarAsync(token));
+        command.Parameters[0].Value = TimeSpan.Zero;
+        Assert.Equal(TimeSpan.Zero, await command.ExecuteScalarAsync(token));
+        await command.UnprepareAsync(token);
+    });
+
+    [LiveFact]
+    public Task PgTimeTzServerRejectsOffsetsOutsideTheSupportedWholeSecondBound() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        using var connection = new KingbaseConnection(settings.ConnectionString);
+        await connection.OpenAsync(token);
+        foreach (var text in new[] { "12:00:00+16", "12:00:00-16" })
+        {
+            using var command = new KingbaseCommand("SELECT CAST(@p AS timetz)", connection);
+            command.Parameters.AddWithValue("p", text);
+            var error = await Assert.ThrowsAsync<KingbaseException>(() => command.ExecuteScalarAsync(token));
+            Assert.StartsWith("22", error.SqlState);
+        }
+        Assert.Equal(42, await Scalar(connection, "SELECT 42", token));
+    });
+
     [LiveFact]
     public Task PgPoolReusesPhysicalSessionAndRestoresSettings() => LiveProfile.RunPg(async (settings, token) =>
     {

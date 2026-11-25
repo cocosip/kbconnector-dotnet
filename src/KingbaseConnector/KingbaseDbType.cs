@@ -4,5 +4,5 @@ namespace KingbaseConnector;
 public enum KingbaseDbType
 {
     Boolean = 1, Smallint, Integer, Bigint, Oid, Real, Double, Numeric,
-    Text, Varchar, Char, Bytea, Uuid, Json, Jsonb, Date
+    Text, Varchar, Char, Bytea, Uuid, Json, Jsonb, Date, Time, TimeTz
 }

@@ -62,4 +62,16 @@ binding, finite CLR and larger years, BC leap days, calendar boundaries and both
 infinities through KingbaseDate. They compare server-cast text with literal expected
 values, exercise explicit preparation and DateOnly, reject unsupported display styles,
 restore ISO and verify same-backend pool DateStyle reset. These cases alter only
-session settings; TIME/TIMESTAMP/TZ/INTERVAL and other mode date types remain pending.
+session settings.
+
+PG TIME/TIMETZ cases cover exact microseconds, typed NULL, 24:00:00, signed offsets
+including seconds and +/-15:59:59, TimeSpan and modern TimeOnly input/access,
+stable default/provider metadata and end-of-day TimeOnly overflow. Explicit and
+automatic prepared execution compare server-cast text with independent literals
+across accepted ISO/SQL/German DateStyles and UTC, Asia/Shanghai and America/New_York
+session zones. The private profile rejects the Postgres display-style setting
+with SQLSTATE 22023; it is excluded from these format scenarios. Separate server
+casts reject +/-16-hour offsets and confirm synchronized error recovery. Invalid
+client submicrosecond input rejects and subsequent execution succeeds. These cases
+change only session settings. TIMESTAMP/TIMESTAMPTZ/INTERVAL, other modes' temporal
+types, other builds/platforms and LIVE TLS remain pending.

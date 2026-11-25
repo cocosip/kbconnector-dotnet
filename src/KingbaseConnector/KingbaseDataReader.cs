@@ -99,6 +99,12 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     {
 #if NET6_0_OR_GREATER
         if (typeof(T) == typeof(DateOnly)) return (T)(object)GetFieldValue<KingbaseDate>(ordinal).ToDateOnly();
+        if (typeof(T) == typeof(TimeOnly))
+        {
+            var time = GetFieldValue<TimeSpan>(ordinal);
+            if (time.Ticks == TimeSpan.TicksPerDay) throw new OverflowException("End-of-day TIME cannot be represented by TimeOnly.");
+            return (T)(object)TimeOnly.FromTimeSpan(time);
+        }
 #endif
         return (T)(typeof(T) == typeof(KingbaseNumeric) || typeof(T) == typeof(KingbaseDate) ? GetProviderSpecificValue(ordinal) : GetValue(ordinal));
     }

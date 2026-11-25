@@ -11,8 +11,10 @@ internal static class KingbaseParameterTypes
         double => KingbaseDbType.Double, decimal or KingbaseNumeric => KingbaseDbType.Numeric,
         string => KingbaseDbType.Text, byte[] => KingbaseDbType.Bytea, Guid => KingbaseDbType.Uuid,
         KingbaseDate => KingbaseDbType.Date,
+        KingbaseTimeTz => KingbaseDbType.TimeTz,
 #if NET6_0_OR_GREATER
         DateOnly => KingbaseDbType.Date,
+        TimeOnly => KingbaseDbType.Time,
 #endif
         _ => null
     };
@@ -24,7 +26,7 @@ internal static class KingbaseParameterTypes
         KingbaseDbType.Double => "float8", KingbaseDbType.Numeric => "numeric", KingbaseDbType.Text => "text",
         KingbaseDbType.Varchar => "varchar", KingbaseDbType.Char => "bpchar", KingbaseDbType.Bytea => "bytea",
         KingbaseDbType.Uuid => "uuid", KingbaseDbType.Json => "json", KingbaseDbType.Jsonb => "jsonb",
-        KingbaseDbType.Date => "date", _ => throw Unsupported()
+        KingbaseDbType.Date => "date", KingbaseDbType.Time => "time", KingbaseDbType.TimeTz => "timetz", _ => throw Unsupported()
     };
 
     internal static DbType ToDbType(KingbaseDbType type) => type switch
@@ -33,6 +35,7 @@ internal static class KingbaseParameterTypes
         KingbaseDbType.Bigint => DbType.Int64, KingbaseDbType.Oid => DbType.UInt32, KingbaseDbType.Real => DbType.Single,
         KingbaseDbType.Double => DbType.Double, KingbaseDbType.Numeric => DbType.Decimal, KingbaseDbType.Bytea => DbType.Binary,
         KingbaseDbType.Uuid => DbType.Guid, KingbaseDbType.Char => DbType.StringFixedLength, KingbaseDbType.Date => DbType.Date,
+        KingbaseDbType.Time or KingbaseDbType.TimeTz => DbType.Time,
         KingbaseDbType.Text or KingbaseDbType.Varchar or KingbaseDbType.Json or KingbaseDbType.Jsonb => DbType.String, _ => throw Unsupported()
     };
 
@@ -42,13 +45,15 @@ internal static class KingbaseParameterTypes
         DbType.Int64 => KingbaseDbType.Bigint, DbType.UInt32 => KingbaseDbType.Oid, DbType.Single => KingbaseDbType.Real,
         DbType.Double => KingbaseDbType.Double, DbType.Decimal or DbType.VarNumeric => KingbaseDbType.Numeric,
         DbType.String => KingbaseDbType.Text, DbType.StringFixedLength => KingbaseDbType.Char,
-        DbType.Binary => KingbaseDbType.Bytea, DbType.Guid => KingbaseDbType.Uuid, DbType.Date => KingbaseDbType.Date, _ => throw Unsupported()
+        DbType.Binary => KingbaseDbType.Bytea, DbType.Guid => KingbaseDbType.Uuid, DbType.Date => KingbaseDbType.Date,
+        DbType.Time => KingbaseDbType.Time, _ => throw Unsupported()
     };
 
     internal static bool Compatible(DbType constraint, KingbaseDbType selected) => constraint switch
     {
         DbType.String => selected is KingbaseDbType.Text or KingbaseDbType.Varchar or KingbaseDbType.Char or KingbaseDbType.Json or KingbaseDbType.Jsonb,
         DbType.VarNumeric => selected == KingbaseDbType.Numeric,
+        DbType.Time => selected is KingbaseDbType.Time or KingbaseDbType.TimeTz,
         _ => FromDbType(constraint) == selected
     };
     internal static NotSupportedException Unsupported() => new("Unsupported Kingbase parameter type.");
