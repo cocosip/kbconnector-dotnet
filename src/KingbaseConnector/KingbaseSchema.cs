@@ -8,12 +8,14 @@ namespace KingbaseConnector;
 internal static class KingbaseSchema
 {
     internal const string KeywordsSql = "SELECT word::text FROM pg_catalog.pg_get_keywords() WHERE catcode = 'R' ORDER BY word";
-    static readonly string[] Names = ["MetaDataCollections", "Restrictions", "DataSourceInformation", "DataTypes", "ReservedWords", .. KingbaseObjectSchema.All.Select(item => item.Name)];
+    static readonly (string Name, string Canonical)[] Aliases = [("Schemata", "Schemas"), ("PrimaryKey", "PrimaryKeys")];
+    static readonly string[] Names = ["MetaDataCollections", "Restrictions", "DataSourceInformation", "DataTypes", "ReservedWords",
+        .. KingbaseObjectSchema.All.Select(item => item.Name), .. Aliases.Select(item => item.Name)];
 
     internal static string Resolve(string? name, string?[]? restrictions)
     {
-        if (string.Equals(name, "Schemata", StringComparison.OrdinalIgnoreCase)) name = "Schemas";
-        else if (string.Equals(name, "PrimaryKey", StringComparison.OrdinalIgnoreCase)) name = "PrimaryKeys";
+        foreach (var alias in Aliases)
+            if (string.Equals(name, alias.Name, StringComparison.OrdinalIgnoreCase)) { name = alias.Canonical; break; }
         var resolved = name is null ? Names[0] : Names.FirstOrDefault(value => value.Equals(name, StringComparison.OrdinalIgnoreCase)) ??
             throw new ArgumentException("Unknown or unimplemented Kingbase schema collection.", nameof(name));
         if (restrictions is not null && restrictions.Length > (KingbaseObjectSchema.Find(resolved)?.Restrictions.Length ?? 0))
@@ -29,15 +31,16 @@ internal static class KingbaseSchema
                 var collections = Table(name, ("CollectionName", typeof(string)), ("NumberOfRestrictions", typeof(int)), ("NumberOfIdentifierParts", typeof(int)));
                 foreach (var item in Names)
                 {
-                    var definition = KingbaseObjectSchema.Find(item);
+                    var definition = KingbaseObjectSchema.Find(Resolve(item, null));
                     collections.Rows.Add(item, definition?.Restrictions.Length ?? 0, definition?.IdentifierParts ?? 0);
                 }
                 return collections;
             case "Restrictions":
                 var restrictions = Table(name, ("CollectionName", typeof(string)), ("RestrictionName", typeof(string)), ("RestrictionDefault", typeof(string)), ("RestrictionNumber", typeof(int)));
-                foreach (var definition in KingbaseObjectSchema.All)
-                    for (var i = 0; i < definition.Restrictions.Length; i++)
-                        restrictions.Rows.Add(definition.Name, definition.Restrictions[i], DBNull.Value, i + 1);
+                foreach (var item in Names)
+                    if (KingbaseObjectSchema.Find(Resolve(item, null)) is { } definition)
+                        for (var i = 0; i < definition.Restrictions.Length; i++)
+                            restrictions.Rows.Add(item, definition.Restrictions[i], DBNull.Value, i + 1);
                 return restrictions;
             case "DataSourceInformation": return Source(version);
             case "DataTypes": return Types(catalog);

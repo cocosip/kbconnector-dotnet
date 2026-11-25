@@ -100,6 +100,19 @@ internal static class PreparedAssetProbe
                             Count(field.Integer ? 4 : -1), Int32(-1), Count(0))).ToArray())));
                     await stream.WriteAsync(Join(Frame('1'), Frame('2'), relationalHeader, Row(RelationalValues(name)), Complete(), Ready()), token);
                 }
+                foreach (var name in new[] { "Databases", "Users" })
+                {
+                    var query = await ReadFrames(stream, "PBDES", token); var sql = Encoding.UTF8.GetString(query[0]);
+                    Require(sql.Contains(name == "Databases" ? "pg_catalog.pg_database" : "pg_catalog.pg_roles", StringComparison.Ordinal));
+                    Require(sql.Contains("COLLATE pg_catalog.\"C\" OPERATOR(pg_catalog.=) $1", StringComparison.Ordinal));
+                    Require(!sql.Contains("MiXeD汉%_'", StringComparison.Ordinal));
+                    Require(Encoding.UTF8.GetString(query[1]).Contains("MiXeD汉%_'", StringComparison.Ordinal));
+                    var fields = DirectoryFields(name);
+                    var directoryHeader = Frame('T', Join(Count(fields.Length), Join(fields.Select(field =>
+                        Join(Encoding.UTF8.GetBytes(field.Name + '\0'), new byte[6], Int32(field.Type == typeof(int) ? 12002 : 12004),
+                            Count(field.Type == typeof(int) ? 4 : -1), Int32(-1), Count(0))).ToArray())));
+                    await stream.WriteAsync(Join(Frame('1'), Frame('2'), directoryHeader, Row(DirectoryValues(name)), Complete(), Ready()), token);
+                }
                 Require(await stream.ReadAsync(new byte[1], token) == 0); return;
             }
             if (xml)
@@ -229,11 +242,19 @@ internal static class PreparedAssetProbe
         using var command = new KingbaseCommand("SELECT :p", connection);
         if (schema)
         {
-            using var collections = await connection.GetSchemaAsync(token); Require(collections.Rows.Count == 18);
+            using var collections = await connection.GetSchemaAsync(token); Require(collections.Rows.Count == 22);
             using var source = connection.GetSchema("DataSourceInformation");
             Require((string)source.Rows[0]["DataSourceProductVersion"] == connection.ServerVersion);
             using var restrictions = await connection.GetSchemaAsync("Restrictions", null, token);
-            Require(restrictions.Columns.Count == 4 && restrictions.Rows.Count == 51);
+            Require(restrictions.Columns.Count == 4 && restrictions.Rows.Count == 59);
+            foreach (var alias in new[] { "Schemata", "PrimaryKey" })
+            {
+                var count = alias == "Schemata" ? 2 : 4;
+                var entry = collections.Rows.Cast<System.Data.DataRow>().Single(row => (string)row[0] == alias);
+                Require((int)entry[1] == count && (int)entry[2] == (count == 2 ? 2 : 5));
+                var descriptors = restrictions.Rows.Cast<System.Data.DataRow>().Where(row => (string)row[0] == alias).ToArray();
+                Require(descriptors.Select(row => (int)row[3]).SequenceEqual(Enumerable.Range(1, count)));
+            }
             using var types = await ((DbConnection)connection).GetSchemaAsync("DataTypes", token);
             var integer = types.Rows.Cast<System.Data.DataRow>().Single(row => (string)row["TypeName"] == "int4");
             Require((uint)integer["TypeOid"] == 12002 && (int)integer["ProviderDbType"] == (int)KingbaseDbType.Integer);
@@ -282,6 +303,20 @@ internal static class PreparedAssetProbe
                     Require(objects.Columns[i].DataType == (fields[i].Integer ? typeof(int) : fields[i].Flag ? typeof(bool) : typeof(string)));
                     Require(values[i] is null ? objects.Rows[0][i] is DBNull : fields[i].Integer ? (int)objects.Rows[0][i] == int.Parse(values[i]!, CultureInfo.InvariantCulture) :
                         fields[i].Flag ? (bool)objects.Rows[0][i] == (values[i] == "YES") : (string)objects.Rows[0][i] == values[i]);
+                }
+            }
+            foreach (var name in new[] { "Databases", "Users" })
+            {
+                using var objects = name == "Databases" ? connection.GetSchema(name, ["MiXeD汉%_'"]) :
+                    await connection.GetSchemaAsync(name, ["MiXeD汉%_'"], token);
+                var fields = DirectoryFields(name); var values = DirectoryValues(name);
+                Require(objects.TableName == name && objects.Rows.Count == 1 && objects.Columns.Count == fields.Length);
+                for (var i = 0; i < fields.Length; i++)
+                {
+                    var field = fields[i]; var value = objects.Rows[0][i];
+                    Require(objects.Columns[i].ColumnName == field.Name && objects.Columns[i].DataType == field.Type);
+                    Require(field.Type == typeof(int) ? (int)value == int.Parse(values[i]!, CultureInfo.InvariantCulture) :
+                        field.Type == typeof(bool) ? (bool)value == (values[i] == "YES") : (string)value == values[i]);
                 }
             }
             try { connection.GetSchema("DataTypes", ["private-payload"]); throw new InvalidOperationException("Schema restrictions were ignored."); }
@@ -474,6 +509,14 @@ internal static class PreparedAssetProbe
         Require(Equals(await command.ExecuteScalarAsync(token), 43));
         connection.Close(); await peer.WaitAsync(token);
     }
+
+    static (string Name, Type Type)[] DirectoryFields(string name) => name == "Databases" ?
+        [("DATABASE_NAME", typeof(string)), ("OWNER", typeof(string)), ("ENCODING", typeof(string)), ("COLLATION", typeof(string)), ("CTYPE", typeof(string)),
+            ("IS_TEMPLATE", typeof(bool)), ("ALLOWS_CONNECTIONS", typeof(bool)), ("CONNECTION_LIMIT", typeof(int)), ("HAS_CONNECT_PRIVILEGE", typeof(bool))] :
+        [("USER_NAME", typeof(string)), ("IS_SUPERUSER", typeof(bool)), ("INHERITS_PRIVILEGES", typeof(bool)), ("CAN_CREATE_ROLE", typeof(bool)),
+            ("CAN_CREATE_DATABASE", typeof(bool)), ("CAN_REPLICATE", typeof(bool)), ("BYPASSES_ROW_SECURITY", typeof(bool)), ("CONNECTION_LIMIT", typeof(int))];
+    static string?[] DirectoryValues(string name) => name == "Databases" ?
+        ["MiXeD汉%_'", "owner", "UTF8", "C", "C", "YES", "NO", "-2", "YES"] : ["MiXeD汉%_'", "NO", "YES", "NO", "YES", "NO", "NO", "-1"];
 
     static readonly string[] RelationalNames = ["PrimaryKeys", "UniqueKeys", "ForeignKeys", "ForeignKeyColumns", "Indexes", "IndexColumns", "Constraints", "ConstraintColumns", "PrimaryKey"];
     static readonly (string Name, Type Type)[] SequenceFields =

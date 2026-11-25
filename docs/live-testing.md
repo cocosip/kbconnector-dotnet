@@ -204,3 +204,13 @@ positions. Schemata/PrimaryKey aliases return canonical table shapes and rows.
 Restricted-role, rollback-safe column-only grants and two-session temporary
 visibility cases exercise the owning-table visibility contract. Definitions
 are never executed, and no persistent grants or objects remain.
+
+Database/user directory cases compare all returned fields with independent
+public-catalog queries, including signed connection limits and separate
+database availability/CONNECT flags. Exact current names, omitted/null/empty
+and literal missing filters, fresh tables and discoverable canonical aliases
+are checked through sync/async APIs. A transaction-local restricted role can
+read the public directory while authentication-catalog access is denied;
+rollback restores the original role and usable connection. No databases,
+roles, grants or settings are created or changed persistently. Credentials,
+deployment identities and raw catalog/assertion output remain external.

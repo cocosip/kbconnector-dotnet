@@ -38,7 +38,8 @@ internal static class KingbaseObjectSchema
                 LongNumber("IDENTITY_MAXIMUM"), LongNumber("IDENTITY_MINIMUM"), Flag("IDENTITY_CYCLE", false),
                 Text("IS_GENERATED", true), Text("GENERATION_EXPRESSION")]),
         KingbaseGenerationSchema.Sequences,
-        .. KingbaseRelationalSchema.All
+        .. KingbaseRelationalSchema.All,
+        .. KingbaseDirectorySchema.All
     ];
 
     internal static Definition? Find(string name) => All.FirstOrDefault(item => item.Name == name);
@@ -46,7 +47,7 @@ internal static class KingbaseObjectSchema
     internal static KingbaseCommand Command(Definition definition, string?[]? restrictions, KingbaseConnection connection, KingbaseTransaction? transaction)
     {
         var projection = string.Join(", ", definition.Fields.Select(field => (definition.Name == "Columns" && field.Name == "IDENTITY_CYCLE" ?
-            "(CASE WHEN is_identity::pg_catalog.text OPERATOR(pg_catalog.=) 'YES' THEN identity_cycle END)" : field.Name.ToLowerInvariant()) + "::pg_catalog." +
+            "(CASE WHEN is_identity::pg_catalog.text OPERATOR(pg_catalog.=) 'YES' THEN identity_cycle END)" : "\"" + field.Name.ToLowerInvariant() + "\"") + "::pg_catalog." +
             WireType(field.Type) + " AS \"" + field.Name + "\""));
         var command = new KingbaseCommand { Connection = connection, Transaction = transaction,
             ValidateResultSchema = (results, catalog) => ValidateHeader(definition, results, catalog) };
@@ -109,7 +110,8 @@ internal static class KingbaseObjectSchema
                     else if (value is long length &&
                         ((field.Name is "CHARACTER_MAXIMUM_LENGTH" or "CHARACTER_OCTET_LENGTH") && length < 0 ||
                             field.Name == "CACHE_SIZE" && length <= 0 || (field.Name is "INCREMENT" or "IDENTITY_INCREMENT") && length == 0) || value is int number &&
-                        (field.Name == "ORDINAL_POSITION" ? number <= 0 : field.Name != "NUMERIC_SCALE" && number < 0))
+                        (field.Name == "ORDINAL_POSITION" ? number <= 0 : field.Name == "CONNECTION_LIMIT" ?
+                            number < (definition.Name == "Databases" ? -2 : -1) : field.Name != "NUMERIC_SCALE" && number < 0))
                         throw InvalidMetadata();
                     values[i] = value;
                 }
