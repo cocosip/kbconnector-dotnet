@@ -28,7 +28,7 @@ public sealed partial class PoolExecutionTests
             Assert.Equal("ROLLBACK", await ReadQueryAsync(stream, token)); await stream.WriteAsync(Control("ROLLBACK"), token);
         }
         Assert.Equal("DISCARD ALL", await ReadQueryAsync(stream, token)); await stream.WriteAsync(Control("DISCARD ALL"), token);
-        await RefreshCatalog(stream, token); await Restore(stream, 12004, token); await Capture(stream, token, State(baseline)); await Identity(stream, token);
+        await RefreshCatalog(stream, token, mode: baseline?[3] ?? "pg"); await Restore(stream, 12004, token); await Capture(stream, token, State(baseline)); await Identity(stream, token);
     }
     internal static async Task Ping(Stream stream, CancellationToken token)
     { Assert.Equal("SELECT 1", await ReadQueryAsync(stream, token)); await stream.WriteAsync(Scalar("1"), token); }

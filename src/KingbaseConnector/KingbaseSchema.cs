@@ -107,7 +107,7 @@ internal static class KingbaseSchema
             row["IsLong"] = clr == typeof(string) || clr == typeof(byte[]);
             row["IsNullable"] = true;
             if (name == "oid") row["IsUnsigned"] = true;
-            else if (name is "int2" or "int4" or "int8" or "float4" or "float8" or "numeric") row["IsUnsigned"] = false;
+            else if (name is "int2" or "int4" or "int8" or "int16" or "float4" or "float8" or "numeric") row["IsUnsigned"] = false;
             table.Rows.Add(row);
         }
         // Select only from supported rows that survived catalog/layout filtering.

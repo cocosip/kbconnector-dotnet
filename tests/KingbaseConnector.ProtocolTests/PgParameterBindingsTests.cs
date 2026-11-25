@@ -134,7 +134,7 @@ public sealed class PgParameterBindingsTests
         await Assert.ThrowsAsync<ArgumentException>(() => Bind(new KingbaseParameter("p", DBNull.Value)));
         await Assert.ThrowsAsync<NotSupportedException>(() => Bind(new KingbaseParameter("p", new object())));
         await Assert.ThrowsAsync<NotSupportedException>(() => Bind(new KingbaseParameter("p", DateTime.UtcNow)));
-        await Assert.ThrowsAsync<NotSupportedException>(() => Bind(new KingbaseParameter("p", 1) { DbType = DbType.Byte }));
+        await Assert.ThrowsAsync<InvalidCastException>(() => Bind(new KingbaseParameter("p", 1) { DbType = DbType.Byte }));
         await Assert.ThrowsAsync<InvalidCastException>(() => Bind(new KingbaseParameter("p", 42) { KingbaseDbType = KingbaseDbType.Bigint }));
         await Assert.ThrowsAsync<ArgumentException>(() => Bind(new KingbaseParameter("p", 42) { KingbaseDbType = KingbaseDbType.Integer, DbType = DbType.Int64 }));
     }

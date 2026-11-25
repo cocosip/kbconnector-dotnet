@@ -235,6 +235,9 @@ Console.WriteLine("PASS: Oracle/MySQL/SQL Server mode PG-wire unpooled explicit/
 foreach (var mode in new[] { KingbaseCompatibilityMode.PostgreSql, KingbaseCompatibilityMode.Oracle, KingbaseCompatibilityMode.MySql, KingbaseCompatibilityMode.SqlServer })
     await KingbaseConnector.Tests.PoolAssetProbe.RunAsync(mode);
 Console.WriteLine("PASS: four-mode private pool reset, bound baseline, fresh catalog and stale preparation invalidation");
+foreach (var mode in new[] { KingbaseCompatibilityMode.PostgreSql, KingbaseCompatibilityMode.Oracle, KingbaseCompatibilityMode.MySql, KingbaseCompatibilityMode.SqlServer })
+    await KingbaseConnector.Tests.NativeScalarAssetProbe.RunAsync(mode);
+Console.WriteLine("PASS: native scalar selectors, full unsigned/signed128 values, strings/BIT, preflight failures and fresh pooled native OIDs");
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(automatic: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(date: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(time: true);

@@ -4,11 +4,13 @@ using System.Globalization;
 namespace KingbaseConnector.Protocol;
 
 internal sealed class PgTypeDescription(uint oid, uint namespaceOid, string name, short size, char kind,
-    char category, uint baseTypeOid, uint elementTypeOid, uint arrayTypeOid, int typeModifier)
+    char category, uint baseTypeOid, uint elementTypeOid, uint arrayTypeOid, int typeModifier,
+    string namespaceName = "pg_catalog", string? codecName = null)
 {
     internal uint Oid { get; } = oid;
     internal uint NamespaceOid { get; } = namespaceOid;
-    internal string Namespace => "pg_catalog";
+    internal string Namespace { get; } = namespaceName;
+    internal string CodecName { get; } = codecName ?? name;
     internal string Name { get; } = name;
     internal short Size { get; } = size;
     internal char Kind { get; } = kind;
@@ -22,14 +24,13 @@ internal sealed class PgTypeDescription(uint oid, uint namespaceOid, string name
 internal sealed class PgTypeCatalog
 {
     static readonly string[] Names = ["bool", "int2", "int4", "int8", "oid", "float4", "float8", "numeric", "text",
-        "varchar", "bpchar", "bytea", "uuid", "date", "time", "timetz", "timestamp", "timestamptz", "interval", "json", "jsonb", "xml"];
+        "varchar", "bpchar", "bytea", "uuid", "date", "time", "timetz", "timestamp", "timestamptz", "interval", "json", "jsonb", "xml", "int16", "tinyint"];
     static readonly string[] Required = ["bool", "int2", "int4", "int8", "text", "bytea"];
-    const string Sql = "SELECT t.oid, t.typnamespace, n.nspname, t.typname, t.typlen, t.typtype, " +
+    static readonly string Sql = "SELECT t.oid, t.typnamespace, n.nspname, t.typname, t.typlen, t.typtype, " +
         "t.typcategory, t.typisdefined, t.typbasetype, t.typelem, t.typarray, t.typtypmod " +
-        "FROM sys_catalog.sys_type AS t JOIN sys_catalog.sys_namespace AS n ON n.oid = t.typnamespace " +
-        "WHERE n.nspname = 'pg_catalog' AND t.typisdefined AND t.typname IN " +
-        "('bool','int2','int4','int8','oid','float4','float8','numeric','text','varchar','bpchar'," +
-        "'bytea','uuid','date','time','timetz','timestamp','timestamptz','interval','json','jsonb','xml')";
+        "FROM sys_catalog.sys_type AS t JOIN sys_catalog.sys_namespace AS n ON n.oid OPERATOR(pg_catalog.=) t.typnamespace " +
+        "WHERE n.nspname OPERATOR(pg_catalog.=) 'pg_catalog'::pg_catalog.name AND t.typisdefined AND (" +
+        string.Join(" OR ", Names.Select(name => "pg_catalog.nameeq(t.typname,'" + name + "'::pg_catalog.name)")) + ")";
 
     PgTypeCatalog(Dictionary<uint, PgTypeDescription> byOid, Dictionary<string, PgTypeDescription> byName)
     {
@@ -63,28 +64,30 @@ internal sealed class PgTypeCatalog
             var byOid = new Dictionary<uint, PgTypeDescription>();
             var byName = new Dictionary<string, PgTypeDescription>(StringComparer.Ordinal);
             uint? namespaceOid = null;
+            var seenOids = new HashSet<uint>(); var seenNames = new HashSet<string>(StringComparer.Ordinal);
             foreach (var row in results[0].Rows)
             {
-                if (row.Count != 12 || row.Any(value => value is null) || row[2] != "pg_catalog" ||
-                    !Names.Contains(row[3], StringComparer.Ordinal) ||
-                    !(row[7]!.Equals("t", StringComparison.OrdinalIgnoreCase) || row[7]!.Equals("true", StringComparison.OrdinalIgnoreCase)))
+                if (row.Count != 12 || !Names.Contains(row[3], StringComparer.Ordinal))
                     throw InvalidCatalog();
-                var oid = ParseOid(row[0]!, false);
-                var ns = ParseOid(row[1]!, false);
-                if (namespaceOid.HasValue && namespaceOid.Value != ns) throw InvalidCatalog();
-                namespaceOid = ns;
-                var size = ParseInt(row[4]!);
-                if (size < -2 || size == 0 || size > short.MaxValue) throw InvalidCatalog();
-                var type = new PgTypeDescription(oid, ns, row[3]!, (short)size, ParseChar(row[5]!), ParseChar(row[6]!),
-                    ParseOid(row[8]!, true), ParseOid(row[9]!, true), ParseOid(row[10]!, true), ParseInt(row[11]!));
+                var type = ReadType(row, "pg_catalog");
+                if (namespaceOid.HasValue && namespaceOid.Value != type.NamespaceOid) throw InvalidCatalog();
+                namespaceOid = type.NamespaceOid;
                 var name = type.Namespace + "." + type.Name;
-                if (byOid.ContainsKey(oid) || byName.ContainsKey(name)) throw InvalidCatalog();
-                byOid.Add(oid, type);
+                if (!seenOids.Add(type.Oid) || !seenNames.Add(name)) throw InvalidCatalog();
+                if (type.Name is "int16" or "tinyint")
+                {
+                    if (type.Kind != 'b' || type.Category != 'N' || type.BaseTypeOid != 0 || type.ElementTypeOid != 0 ||
+                        (type.Name == "int16" ? type.Size != 16 : type.Size != 1 || identity.EffectiveMode != KingbaseCompatibilityMode.Oracle)) continue;
+                    if (type.Name == "tinyint") type = ReadType(row, "pg_catalog", "sbyte");
+                }
+                byOid.Add(type.Oid, type);
                 byName.Add(name, type);
             }
             foreach (var name in Required)
                 if (!byName.TryGetValue("pg_catalog." + name, out var type) || type.Kind != 'b' || type.BaseTypeOid != 0)
                     throw InvalidCatalog();
+            if (identity.EffectiveMode != KingbaseCompatibilityMode.PostgreSql)
+                await PgNativeTypeCatalog.AddAsync(session, identity, byOid, byName, seenOids, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             return new PgTypeCatalog(byOid, byName);
         }
@@ -95,10 +98,21 @@ internal sealed class PgTypeCatalog
         }
     }
 
-    static void CheckMode(PgQuerySession session, PgIdentityResult identity)
+    internal static void CheckMode(PgQuerySession session, PgIdentityResult identity)
     {
         if (session.Parameters.TryGetValue("database_mode", out var mode) && PgIdentityProbe.ParseMode(mode) != identity.EffectiveMode)
             throw new NotSupportedException("The reported database mode changed during PG catalog initialization.");
+    }
+
+    internal static PgTypeDescription ReadType(IReadOnlyList<string?> row, string namespaceName, string? codecName = null)
+    {
+        if (row.Count < 12 || row.Take(12).Any(value => value is null) || row[2] != namespaceName ||
+            !(row[7]!.Equals("t", StringComparison.OrdinalIgnoreCase) || row[7]!.Equals("true", StringComparison.OrdinalIgnoreCase))) throw InvalidCatalog();
+        var size = ParseInt(row[4]!);
+        if (size < -2 || size == 0 || size > short.MaxValue) throw InvalidCatalog();
+        return new PgTypeDescription(ParseOid(row[0]!, false), ParseOid(row[1]!, false), row[3]!, (short)size,
+            ParseChar(row[5]!), ParseChar(row[6]!), ParseOid(row[8]!, true), ParseOid(row[9]!, true), ParseOid(row[10]!, true),
+            ParseInt(row[11]!), namespaceName, codecName);
     }
 
     static uint ParseOid(string value, bool allowZero)
@@ -119,5 +133,5 @@ internal sealed class PgTypeCatalog
         if (value.Length != 1 || value[0] < '!' || value[0] > '~') throw InvalidCatalog();
         return value[0];
     }
-    static IOException InvalidCatalog() => new("Invalid or inadequate PG built-in type catalog.");
+    internal static IOException InvalidCatalog() => new("Invalid or inadequate PG built-in type catalog.");
 }

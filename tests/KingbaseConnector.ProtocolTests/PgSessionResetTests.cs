@@ -49,10 +49,11 @@ public sealed class PgSessionResetTests
         var values = (baseline ?? Baseline())[4..14];
         Assert.Equal(Frame('B', Join([0, 0, 0, 0, 0, 10], Join(values.Select(v => Join(Int32(Encoding.UTF8.GetByteCount(v)), Encoding.UTF8.GetBytes(v))).ToArray()), [0, 0])), frames[1]);
     }
-    internal static async Task RefreshCatalog(Stream stream, CancellationToken token, uint start = 12000)
+    internal static async Task RefreshCatalog(Stream stream, CancellationToken token, uint start = 12000, string mode = "pg")
     {
         Assert.Contains("FROM sys_catalog.sys_type", await ReadQueryAsync(stream, token));
         await stream.WriteAsync(FreshCatalog(start), token);
+        await NativeCatalogAsync(stream, mode, token);
     }
     internal static async Task Identity(Stream stream, CancellationToken token, string product = Product)
     {

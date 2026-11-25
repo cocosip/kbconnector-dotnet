@@ -1,4 +1,5 @@
 using System.Data;
+using System.Numerics;
 
 namespace KingbaseConnector;
 
@@ -7,6 +8,8 @@ internal static class KingbaseParameterTypes
     internal static KingbaseDbType? Infer(object? value) => value switch
     {
         bool => KingbaseDbType.Boolean, short => KingbaseDbType.Smallint, int => KingbaseDbType.Integer,
+        sbyte => KingbaseDbType.SignedTinyint, byte => KingbaseDbType.UnsignedTinyint,
+        ulong => KingbaseDbType.UnsignedBigint, BigInteger => KingbaseDbType.Int128,
         long => KingbaseDbType.Bigint, uint => KingbaseDbType.Oid, float => KingbaseDbType.Real,
         double => KingbaseDbType.Double, decimal or KingbaseNumeric => KingbaseDbType.Numeric,
         string => KingbaseDbType.Text, byte[] => KingbaseDbType.Bytea, Guid => KingbaseDbType.Uuid,
@@ -33,7 +36,11 @@ internal static class KingbaseParameterTypes
         KingbaseDbType.Uuid => "uuid", KingbaseDbType.Json => "json", KingbaseDbType.Jsonb => "jsonb",
         KingbaseDbType.Date => "date", KingbaseDbType.Time => "time", KingbaseDbType.TimeTz => "timetz",
         KingbaseDbType.Timestamp => "timestamp", KingbaseDbType.TimestampTz => "timestamptz",
-        KingbaseDbType.Interval => "interval", KingbaseDbType.Xml => "xml", _ => throw Unsupported()
+        KingbaseDbType.Interval => "interval", KingbaseDbType.Xml => "xml",
+        KingbaseDbType.SignedTinyint => "tinyint", KingbaseDbType.UnsignedTinyint => "tinyint_unsigned",
+        KingbaseDbType.UnsignedInteger => "uint4", KingbaseDbType.UnsignedBigint => "uint8", KingbaseDbType.Int128 => "int16",
+        KingbaseDbType.VarcharByte => "varcharbyte", KingbaseDbType.CharByte => "bpcharbyte", KingbaseDbType.NChar => "nchar",
+        KingbaseDbType.NVarchar => "nvarchar", KingbaseDbType.SqlServerBit => "sqlserver_bit", _ => throw Unsupported()
     };
 
     internal static DbType ToDbType(KingbaseDbType type) => type switch
@@ -46,12 +53,19 @@ internal static class KingbaseParameterTypes
         KingbaseDbType.Timestamp => DbType.DateTime, KingbaseDbType.TimestampTz => DbType.DateTimeOffset,
         KingbaseDbType.Interval => DbType.Object,
         KingbaseDbType.Xml => DbType.Xml,
+        KingbaseDbType.SignedTinyint => DbType.SByte, KingbaseDbType.UnsignedTinyint => DbType.Byte,
+        KingbaseDbType.UnsignedInteger => DbType.UInt32, KingbaseDbType.UnsignedBigint => DbType.UInt64,
+        KingbaseDbType.Int128 => DbType.Object, KingbaseDbType.SqlServerBit => DbType.Boolean,
+        KingbaseDbType.CharByte or KingbaseDbType.NChar => DbType.StringFixedLength,
+        KingbaseDbType.VarcharByte or KingbaseDbType.NVarchar => DbType.String,
         KingbaseDbType.Text or KingbaseDbType.Varchar or KingbaseDbType.Json or KingbaseDbType.Jsonb => DbType.String, _ => throw Unsupported()
     };
 
     internal static KingbaseDbType FromDbType(DbType type) => type switch
     {
         DbType.Boolean => KingbaseDbType.Boolean, DbType.Int16 => KingbaseDbType.Smallint, DbType.Int32 => KingbaseDbType.Integer,
+        DbType.SByte => KingbaseDbType.SignedTinyint, DbType.Byte => KingbaseDbType.UnsignedTinyint,
+        DbType.UInt64 => KingbaseDbType.UnsignedBigint,
         DbType.Int64 => KingbaseDbType.Bigint, DbType.UInt32 => KingbaseDbType.Oid, DbType.Single => KingbaseDbType.Real,
         DbType.Double => KingbaseDbType.Double, DbType.Decimal or DbType.VarNumeric => KingbaseDbType.Numeric,
         DbType.String => KingbaseDbType.Text, DbType.StringFixedLength => KingbaseDbType.Char,
@@ -62,7 +76,15 @@ internal static class KingbaseParameterTypes
 
     internal static bool Compatible(DbType constraint, KingbaseDbType selected) => constraint switch
     {
-        DbType.String => selected is KingbaseDbType.Text or KingbaseDbType.Varchar or KingbaseDbType.Char or KingbaseDbType.Json or KingbaseDbType.Jsonb or KingbaseDbType.Xml,
+        DbType.String => selected is KingbaseDbType.Text or KingbaseDbType.Varchar or KingbaseDbType.Char or KingbaseDbType.Json or KingbaseDbType.Jsonb or KingbaseDbType.Xml or
+            KingbaseDbType.VarcharByte or KingbaseDbType.CharByte or KingbaseDbType.NChar or KingbaseDbType.NVarchar,
+        DbType.StringFixedLength => selected is KingbaseDbType.Char or KingbaseDbType.CharByte or KingbaseDbType.NChar,
+        DbType.SByte => selected is KingbaseDbType.SignedTinyint or KingbaseDbType.Smallint,
+        DbType.Byte => selected is KingbaseDbType.UnsignedTinyint or KingbaseDbType.UnsignedInteger or KingbaseDbType.Smallint,
+        DbType.UInt32 => selected is KingbaseDbType.Oid or KingbaseDbType.UnsignedInteger or KingbaseDbType.Bigint,
+        DbType.UInt64 => selected is KingbaseDbType.UnsignedBigint or KingbaseDbType.Int128,
+        DbType.Boolean => selected is KingbaseDbType.Boolean or KingbaseDbType.SqlServerBit,
+        DbType.Object => selected is KingbaseDbType.Int128 or KingbaseDbType.Interval,
         DbType.VarNumeric => selected == KingbaseDbType.Numeric,
         DbType.Time => selected is KingbaseDbType.Time or KingbaseDbType.TimeTz,
         DbType.DateTime2 => selected == KingbaseDbType.Timestamp,

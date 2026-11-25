@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Numerics;
 using System.Text;
 
 namespace KingbaseConnector.Protocol;
@@ -33,6 +34,15 @@ internal sealed class PgTextCodecs
         switch (name)
         {
             case "bool": return text switch { "t" => true, "f" => false, _ => throw InvalidText() };
+            case "sqlserver_bit": return text switch { "1" => true, "0" => false, _ => throw InvalidText() };
+            case "sbyte":
+                ValidateNumber(text, integer: true);
+                if (sbyte.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var signedByte)) return signedByte;
+                throw OutOfRange();
+            case "byte":
+                ValidateNumber(text, integer: true);
+                if (text[0] != '-' && byte.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var unsignedByte)) return unsignedByte;
+                throw OutOfRange();
             case "int2":
                 ValidateNumber(text, integer: true);
                 if (short.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var int2)) return int2;
@@ -46,10 +56,19 @@ internal sealed class PgTextCodecs
                 if (long.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var int8)) return int8;
                 throw OutOfRange();
             case "oid":
+            case "uint4":
                 ValidateNumber(text, integer: true);
                 if (text[0] == '-') throw InvalidText();
                 if (uint.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var oidValue)) return oidValue;
                 throw OutOfRange();
+            case "uint8":
+                ValidateNumber(text, integer: true);
+                if (text[0] != '-' && ulong.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var unsignedLong)) return unsignedLong;
+                throw OutOfRange();
+            case "int16":
+                ValidateNumber(text, integer: true);
+                if (text.Length > 40 || !BigInteger.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var wide)) throw OutOfRange();
+                ValidateWide(wide); return wide;
             case "float4": return DecodeFloating(text, single: true);
             case "float8": return DecodeFloating(text, single: false);
             case "numeric": return KingbaseNumeric.Parse(text).ToDecimal();
@@ -71,6 +90,11 @@ internal sealed class PgTextCodecs
     {
         var (name, clrType) = Resolve(oid);
         if (value is null || value is DBNull) return null;
+        if (name == "int16" && value is BigInteger wide) { ValidateWide(wide); return wide.ToString(CultureInfo.InvariantCulture); }
+        if (name == "int16" && value is ulong unsignedWide) return ((BigInteger)unsignedWide).ToString(CultureInfo.InvariantCulture);
+        if (name == "int8" && value is uint unsignedInteger) return ((long)unsignedInteger).ToString(CultureInfo.InvariantCulture);
+        if (name == "int2" && value is byte or sbyte) return Convert.ToInt16(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);
+        if (name == "uint4" && value is byte smallUnsigned) return ((uint)smallUnsigned).ToString(CultureInfo.InvariantCulture);
         if (name == "numeric" && value is KingbaseNumeric numeric) return numeric.ToString();
         if (name == "interval") return value switch
         {
@@ -112,13 +136,14 @@ internal sealed class PgTextCodecs
         var text = name switch
         {
             "bool" => (bool)value ? "t" : "f",
+            "sqlserver_bit" => (bool)value ? "1" : "0",
             "float4" => EncodeFloating((float)value),
             "float8" => EncodeFloating((double)value),
             "numeric" => KingbaseNumeric.FromDecimal((decimal)value).ToString(),
             "uuid" => ((Guid)value).ToString("D"),
             "bytea" => EncodeBytes((byte[])value),
             "timetz" => ((KingbaseTimeTz)value).ToString(),
-            "int2" or "int4" or "int8" or "oid" => ((IFormattable)value).ToString(null, CultureInfo.InvariantCulture),
+            "sbyte" or "byte" or "int2" or "int4" or "int8" or "oid" or "uint4" or "uint8" => ((IFormattable)value).ToString(null, CultureInfo.InvariantCulture),
             _ => (string)value
         };
         ValidateText(text);
@@ -129,13 +154,20 @@ internal sealed class PgTextCodecs
     {
         if (!_catalog.ByOid.TryGetValue(oid, out var type) || type.Kind != 'b' || type.BaseTypeOid != 0 || type.ElementTypeOid != 0)
             throw Unsupported();
-        var (clrType, size) = type.Name switch
+        if (type.CodecName is "sbyte" or "byte" or "uint4" or "uint8" or "int16" && type.Category != 'N') throw Unsupported();
+        var (clrType, size) = type.CodecName switch
         {
             "bool" => (typeof(bool), 1),
+            "sqlserver_bit" => (typeof(bool), 1),
+            "sbyte" => (typeof(sbyte), 1),
+            "byte" => (typeof(byte), 1),
             "int2" => (typeof(short), 2),
             "int4" => (typeof(int), 4),
             "int8" => (typeof(long), 8),
             "oid" => (typeof(uint), 4),
+            "uint4" => (typeof(uint), 4),
+            "uint8" => (typeof(ulong), 8),
+            "int16" => (typeof(BigInteger), 16),
             "float4" => (typeof(float), 4),
             "float8" => (typeof(double), 8),
             "numeric" => (typeof(decimal), -1),
@@ -150,7 +182,12 @@ internal sealed class PgTextCodecs
             _ => throw Unsupported()
         };
         if (type.Size != size) throw Unsupported();
-        return (type.Name, clrType);
+        return (type.CodecName, clrType);
+    }
+
+    static void ValidateWide(BigInteger value)
+    {
+        if (value < -(BigInteger.One << 127) || value >= (BigInteger.One << 127)) throw OutOfRange();
     }
 
     static void RequireIsoDateStyle(string? style)

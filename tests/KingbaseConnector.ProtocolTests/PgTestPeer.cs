@@ -22,6 +22,12 @@ internal static class PgTestPeer
     internal static byte[] Catalog() => Join(Description(12), Join(new[] { "bool", "int2", "int4", "int8", "text", "bytea" }
         .Select((name, i) => Row([(6000 + i).ToString(System.Globalization.CultureInfo.InvariantCulture),
             "90", "pg_catalog", name, "4", "b", "N", "t", "0", "0", "0", "-1"])).ToArray()), Complete(), Ready());
+    internal static async Task NativeCatalogAsync(Stream stream, string mode, CancellationToken token, byte[]? response = null)
+    {
+        if (mode.Equals("pg", StringComparison.OrdinalIgnoreCase)) return;
+        var query = await ReadQueryAsync(stream, token); Assert.Contains("JOIN sys_catalog.sys_proc pi", query); Assert.Contains("pg_catalog.pg_roles", query);
+        await stream.WriteAsync(response ?? Join(Description(16), Frame('C', Encoding.ASCII.GetBytes("SELECT 0\0")), Ready()), token);
+    }
     internal static async Task<byte[]> ReadStartupAsync(Stream stream, CancellationToken token)
     {
         var header = new byte[4];

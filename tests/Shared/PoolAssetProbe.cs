@@ -11,13 +11,13 @@ namespace KingbaseConnector.Tests;
 // Compile unchanged against each exact package asset; do not reference provider internals.
 internal static class PoolAssetProbe
 {
-    const string StateSql = "SELECT pg_catalog.current_database(),SESSION_USER,CURRENT_USER,pg_catalog.current_setting('database_mode')," +
+    internal const string StateSql = "SELECT pg_catalog.current_database(),SESSION_USER,CURRENT_USER,pg_catalog.current_setting('database_mode')," +
         "pg_catalog.current_setting('client_encoding'),pg_catalog.current_setting('standard_conforming_strings')," +
         "pg_catalog.current_setting('application_name'),pg_catalog.current_setting('search_path'),pg_catalog.current_setting('TimeZone')," +
         "pg_catalog.current_setting('default_transaction_isolation'),pg_catalog.current_setting('default_transaction_read_only')," +
         "pg_catalog.current_setting('default_transaction_deferrable'),pg_catalog.current_setting('DateStyle'),pg_catalog.current_setting('IntervalStyle')," +
         "pg_catalog.current_setting('transaction_isolation'),pg_catalog.current_setting('transaction_read_only'),pg_catalog.current_setting('sql_mode',true)";
-    static readonly string RestoreSql = "SELECT " + string.Join(",", new[] { "client_encoding", "standard_conforming_strings", "application_name", "search_path", "TimeZone",
+    internal static readonly string RestoreSql = "SELECT " + string.Join(",", new[] { "client_encoding", "standard_conforming_strings", "application_name", "search_path", "TimeZone",
         "default_transaction_isolation", "default_transaction_read_only", "default_transaction_deferrable", "DateStyle", "IntervalStyle" }
         .Select((name, i) => "pg_catalog.set_config('" + name + "',$" + (i + 1).ToString(CultureInfo.InvariantCulture) + ",false)"));
 
@@ -103,6 +103,11 @@ internal static class PoolAssetProbe
             var names = new[] { "bool", "int2", "int4", "int8", "text", "bytea" }; var sizes = new[] { "1", "2", "4", "8", "-1", "-1" };
             var rows = names.Select((name, i) => Row((start + i).ToString(CultureInfo.InvariantCulture), "90", "pg_catalog", name, sizes[i], "b", "U", "t", "0", "0", "0", "-1")).ToArray();
             await stream.WriteAsync(Join(Description(12), Join(rows), Complete(), Ready()), token);
+            if (mode != KingbaseCompatibilityMode.PostgreSql)
+            {
+                var native = await ReadFrames(stream, "Q", token); Check(Encoding.UTF8.GetString(native[0]).Contains("JOIN sys_catalog.sys_proc pi", StringComparison.Ordinal));
+                await stream.WriteAsync(Join(Description(16), Frame('C', Encoding.ASCII.GetBytes("SELECT 0\0")), Ready()), token);
+            }
         }
         async Task State(Stream stream)
         {

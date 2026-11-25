@@ -23,7 +23,7 @@ public sealed class CompatibilityPoolTests
             using var client = await listener.AcceptTcpClientAsync(guard.Token); using var stream = client.GetStream();
             await Initialize(stream, guard.Token, mode: mode); await Capture(stream, guard.Token, State(baseline));
             Assert.Equal("DISCARD ALL", await ReadQueryAsync(stream, guard.Token)); await stream.WriteAsync(Control("DISCARD ALL"), guard.Token);
-            await RefreshCatalog(stream, guard.Token); await Restore(stream, 12004, guard.Token);
+            await RefreshCatalog(stream, guard.Token, mode: mode); await Restore(stream, 12004, guard.Token);
             var after = (string[])baseline.Clone(); after[16] = restored!;
             await Capture(stream, guard.Token, State(after));
             if (!mismatch) await Identity(stream, guard.Token);
@@ -138,7 +138,7 @@ public sealed class CompatibilityPoolTests
             if (status != 'I')
             { Assert.Equal("ROLLBACK", await ReadQueryAsync(stream, guard.Token)); await stream.WriteAsync(Control("ROLLBACK"), guard.Token); }
             Assert.Equal("DISCARD ALL", await ReadQueryAsync(stream, guard.Token)); await stream.WriteAsync(Control("DISCARD ALL"), guard.Token);
-            await RefreshCatalog(stream, guard.Token); await Restore(stream, 12004, guard.Token);
+            await RefreshCatalog(stream, guard.Token, mode: wireMode); await Restore(stream, 12004, guard.Token);
             var restored = (string[])baseline.Clone(); restored[3] = wireMode.ToUpperInvariant();
             await Capture(stream, guard.Token, State(restored)); await Identity(stream, guard.Token);
             Assert.Equal("SELECT next", await ReadQueryAsync(stream, guard.Token)); await stream.WriteAsync(Scalar("clean"), guard.Token);

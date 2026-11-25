@@ -340,9 +340,9 @@ the target fixture.
 Independent internal probes confirm all three non-PG string-escape settings and
 the tested quote syntax. MySQL-mode division by zero returns NULL on this profile;
 SQL Server count(*) reports Int32, and uncast string-literal output can have an
-unsupported type. Explicit pg_catalog.text avoids that unimplemented type family
-in the lexer case. Exact-asset loopback probes exercise explicit/automatic
-preparation in each non-PG mode. Pool reset, non-PG schema/key metadata, full type
+unsupported type in the E52 baseline. E54 now maps its proven native string type;
+the lexer case retains its explicit pg_catalog.text cast. Exact-asset loopback
+probes exercise explicit/automatic preparation in each non-PG mode. Non-PG schema/key metadata, full type
 families, routines, deployment/platform parity and native MySQL remain open.
 
 Ordinary PG-wire pooling now has a separate four-mode acceptance scope. Direct
@@ -362,3 +362,24 @@ These tests use temporary or session-scoped state. The probed MySQL variable
 assignment syntax rejects with 42601; no variable cleanup acceptance is inferred.
 The profiles normalize non-ASCII application-name bytes to question marks; the exact-value fixture uses ASCII application names and a Unicode search path. Non-PG metadata/types/routines, package state, full resource/load/platform and
 native MySQL acceptance remain open. Real TLS remains user-deferred.
+
+Native scalar acceptance adds 23 source-built LIVE cases. All four modes exercise
+signed128 high-bit/extreme BigInteger values and full-range unsigned logical
+bindings, explicit preparation, typed NULL, overflow rejection and subsequent
+reuse. Six native integer/BIT cases cover Oracle/MySQL signed tiny integers,
+SQL Server unsigned tiny integers and Boolean BIT, and MySQL uint4/uint8,
+including values above the signed range. Eight write-opt-in cases create only
+temporary sys.varcharbyte/bpcharbyte columns in non-PG modes and SQL Server
+nchar/nvarchar columns, comparing exact Unicode/quote/backslash content,
+fixed padding, NULL and buffered character access. Independent probes establish
+bpcharbyte byte padding and nchar Unicode-scalar padding. One SQL Server case
+reads an ordinary uncast string literal. All private probe output stays external.
+
+Exact-asset loopback probes separately cover the ten appended selectors, actual
+native OIDs changing across pooled leases, stable CLR metadata, checked unsigned
+reads from widened signed types and invalid selector/overflow rejection before
+application frames. They do not establish exact-package LIVE. Optional-catalog
+denial, untrusted aliases, mode drift, duplicate/contradictory OIDs, fatal errors
+and cancellation have separate simulated evidence. Binary formats, native
+MySQL wire, generic bit strings, complete type/profile/platform coverage and
+non-PG schema/key/routine parity remain open.

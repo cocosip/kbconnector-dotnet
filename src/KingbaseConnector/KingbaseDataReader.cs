@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.ObjectModel;
 using System.Data;
 using System.Data.Common;
+using System.Numerics;
 using System.Globalization;
 using KingbaseConnector.Protocol;
 
@@ -97,6 +98,10 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     public override object GetProviderSpecificValue(int ordinal) => _codecs.DecodeProviderSpecific(Column(ordinal).TypeOid, RawValue(ordinal), Current!.DateStyle, Current.IntervalStyle);
     public override T GetFieldValue<T>(int ordinal)
     {
+        if (typeof(T) == typeof(uint) && _catalog.ByOid[Column(ordinal).TypeOid].CodecName == "int8")
+            return (T)(object)checked((uint)GetFieldValue<long>(ordinal));
+        if (typeof(T) == typeof(ulong) && _catalog.ByOid[Column(ordinal).TypeOid].CodecName == "int16")
+            return (T)(object)(ulong)GetFieldValue<BigInteger>(ordinal);
         if (typeof(T) == typeof(DateTimeOffset)) return (T)(object)GetFieldValue<KingbaseTimestampTz>(ordinal).ToDateTimeOffset();
         if (typeof(T) == typeof(TimeSpan) && _catalog.ByOid[Column(ordinal).TypeOid].Name == "interval")
             return (T)(object)GetFieldValue<KingbaseInterval>(ordinal).ToTimeSpan();

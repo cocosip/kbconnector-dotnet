@@ -33,6 +33,7 @@ internal sealed class PgParameterBindings
                 throw new NotSupportedException("Parameter direction requires an implemented output contract.");
             var type = Resolve(p, catalog);
             var clrType = codecs.GetFieldType(type.Oid);
+            ValidateIntegerInput(p);
             ValidateSize(p, clrType);
             ValidateNumeric(p, type.Name);
             // This validates exact CLR/layout/text before a later exchange can write.
@@ -49,6 +50,9 @@ internal sealed class PgParameterBindings
 
     static PgTypeDescription Resolve(KingbaseParameter p, PgTypeCatalog catalog)
     {
+        if (p.ExplicitProviderType is { } logical && p.ExplicitDbType is { } constraint &&
+            (!KingbaseParameterTypes.Compatible(constraint, logical) || (constraint == DbType.Byte && logical == KingbaseDbType.UnsignedInteger)))
+            throw InvalidBinding();
         PgTypeDescription? selected = null;
         if (p.DataTypeName is { } explicitName)
         {
@@ -57,33 +61,70 @@ internal sealed class PgParameterBindings
         }
         if (p.ExplicitProviderType is { } provider)
         {
-            var name = KingbaseParameterTypes.Name(provider);
-            if (selected is not null && selected.Name != name) throw InvalidBinding();
-            selected ??= Lookup(name, catalog);
+            var resolved = Lookup(provider, catalog);
+            if (selected is not null && selected.Oid != resolved.Oid) throw InvalidBinding();
+            selected ??= resolved;
         }
         if (p.ExplicitDbType is { } dbType)
         {
-            var mapped = KingbaseParameterTypes.FromDbType(dbType);
             if (selected is not null)
             {
-                var selectedProvider = Provider(selected.Name);
-                if (!KingbaseParameterTypes.Compatible(dbType, selectedProvider)) throw InvalidBinding();
+                if (p.ExplicitProviderType is null && !KingbaseParameterTypes.Compatible(dbType, Provider(selected.CodecName))) throw InvalidBinding();
             }
-            else selected = Lookup(KingbaseParameterTypes.Name(mapped), catalog);
+            else selected = Lookup(KingbaseParameterTypes.FromDbType(dbType), catalog);
         }
         if (selected is not null) return selected;
         if (p.Value is null or DBNull) throw new ArgumentException("SQL NULL requires an explicit parameter type.");
         var inferred = KingbaseParameterTypes.Infer(p.Value) ?? throw KingbaseParameterTypes.Unsupported();
-        return Lookup(KingbaseParameterTypes.Name(inferred), catalog);
+        return Lookup(inferred, catalog);
     }
 
-    static PgTypeDescription Lookup(string name, PgTypeCatalog catalog) =>
-        catalog.ByName.TryGetValue("pg_catalog." + name, out var type) ? type : throw KingbaseParameterTypes.Unsupported();
+    static PgTypeDescription Lookup(KingbaseDbType provider, PgTypeCatalog catalog)
+    {
+        var name = KingbaseParameterTypes.Name(provider);
+        if (provider == KingbaseDbType.SignedTinyint)
+        {
+            if (catalog.ByName.TryGetValue("pg_catalog.tinyint", out var signed) && EligibleTiny(signed, "sbyte")) return signed;
+            if (catalog.ByName.TryGetValue("sys.tinyint", out signed) && EligibleTiny(signed, "sbyte")) return signed;
+            name = "int2";
+        }
+        else if (provider == KingbaseDbType.UnsignedTinyint)
+        {
+            if (catalog.ByName.TryGetValue("sys.tinyint", out var unsigned) && EligibleTiny(unsigned, "byte")) return unsigned;
+            if (catalog.ByName.TryGetValue("sys.uint4", out unsigned)) return unsigned;
+            name = "int2";
+        }
+        if (provider == KingbaseDbType.UnsignedInteger && !catalog.ByName.ContainsKey("sys.uint4"))
+            return catalog.ByName["pg_catalog.int8"];
+        if (provider == KingbaseDbType.UnsignedBigint && !catalog.ByName.ContainsKey("sys.uint8"))
+            return catalog.ByName.TryGetValue("pg_catalog.int16", out var wide) ? wide : throw KingbaseParameterTypes.Unsupported();
+        var native = provider is KingbaseDbType.UnsignedInteger or KingbaseDbType.UnsignedBigint or KingbaseDbType.VarcharByte or
+            KingbaseDbType.CharByte or KingbaseDbType.NChar or KingbaseDbType.NVarchar or KingbaseDbType.SqlServerBit;
+        if (provider == KingbaseDbType.SqlServerBit) name = "bit";
+        return catalog.ByName.TryGetValue((native ? "sys." : "pg_catalog.") + name, out var type) ? type : throw KingbaseParameterTypes.Unsupported();
+    }
+    static bool EligibleTiny(PgTypeDescription type, string codec) => type.CodecName == codec && type.Kind == 'b' && type.Category == 'N' &&
+        type.Size == 1 && type.BaseTypeOid == 0 && type.ElementTypeOid == 0;
     static KingbaseDbType Provider(string name)
     {
+        if (name == "sbyte") return KingbaseDbType.SignedTinyint;
+        if (name == "byte") return KingbaseDbType.UnsignedTinyint;
         foreach (KingbaseDbType type in Enum.GetValues(typeof(KingbaseDbType)))
             if (KingbaseParameterTypes.Name(type) == name) return type;
         throw KingbaseParameterTypes.Unsupported();
+    }
+
+    static void ValidateIntegerInput(KingbaseParameter parameter)
+    {
+        if (parameter.Value is null or DBNull) return;
+        if ((parameter.ExplicitDbType == DbType.Byte || parameter.ExplicitProviderType == KingbaseDbType.UnsignedTinyint) && parameter.Value is not byte)
+            throw new InvalidCastException("Unsigned tiny integer input requires Byte.");
+        if ((parameter.ExplicitDbType == DbType.SByte || parameter.ExplicitProviderType == KingbaseDbType.SignedTinyint) && parameter.Value is not sbyte)
+            throw new InvalidCastException("Signed tiny integer input requires SByte.");
+        if ((parameter.ExplicitDbType == DbType.UInt32 || parameter.ExplicitProviderType == KingbaseDbType.UnsignedInteger) && parameter.Value is not uint)
+            throw new InvalidCastException("Unsigned integer input requires UInt32.");
+        if ((parameter.ExplicitDbType == DbType.UInt64 || parameter.ExplicitProviderType == KingbaseDbType.UnsignedBigint) && parameter.Value is not ulong)
+            throw new InvalidCastException("Unsigned big integer input requires UInt64.");
     }
 
     static void ValidateSize(KingbaseParameter p, Type clrType)

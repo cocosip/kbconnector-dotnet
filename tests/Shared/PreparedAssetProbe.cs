@@ -36,6 +36,11 @@ internal static class PreparedAssetProbe
             var rows = names.Select((name, i) => Row((12000 + i).ToString(CultureInfo.InvariantCulture), "90", "pg_catalog", name,
                 sizes[i], "b", "U", "t", "0", "0", "0", "-1")).ToArray();
             await stream.WriteAsync(Join(Description(12), Join(rows), Complete(), Ready()), token);
+            if (mode != KingbaseCompatibilityMode.PostgreSql)
+            {
+                var native = await ReadFrames(stream, "Q", token); Require(Encoding.UTF8.GetString(native[0]).Contains("JOIN sys_catalog.sys_proc pi", StringComparison.Ordinal));
+                await stream.WriteAsync(Join(Description(16), Frame('C', Encoding.ASCII.GetBytes("SELECT 0\0")), Ready()), token);
+            }
             if (adapterBatch)
             {
                 foreach (var id in new[] { 1, 2, 4, 5 })
