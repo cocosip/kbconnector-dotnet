@@ -305,7 +305,7 @@ public sealed class NativeScalarTests
 
     static PgParameterBindings Bind(PgTypeCatalog catalog, KingbaseCompatibilityMode mode, KingbaseParameter parameter)
     { var values = new KingbaseParameterCollection { parameter }; return PgParameterBindings.Create("SELECT :p", values, catalog, mode, true); }
-    static async Task<PgTypeCatalog> Load(KingbaseCompatibilityMode mode, List<string?[]>? nativeRows = null, List<string?[]>? baseRows = null, byte[]? nativeResponse = null)
+    internal static async Task<PgTypeCatalog> Load(KingbaseCompatibilityMode mode, List<string?[]>? nativeRows = null, List<string?[]>? baseRows = null, byte[]? nativeResponse = null)
     {
         var (session, _, identity) = Create(mode, baseRows, nativeResponse ?? Response(nativeRows ?? NativeRows(mode), 16));
         using (session) return await PgTypeCatalog.LoadAsync(session, identity);
@@ -317,10 +317,10 @@ public sealed class NativeScalarTests
         Assert.True(KingbaseProductVersion.TryParse("KingbaseES V009R001C001B0001", out var version));
         return (session, stream, new PgIdentityResult(version!, "14", mode, mode, mode, PgModeSource.ParameterStatus));
     }
-    static List<string?[]> BaseRows() => new[] { ("bool", "1", "B"), ("int2", "2", "N"), ("int4", "4", "N"), ("int8", "8", "N"),
+    internal static List<string?[]> BaseRows() => new[] { ("bool", "1", "B"), ("int2", "2", "N"), ("int4", "4", "N"), ("int8", "8", "N"),
         ("text", "-1", "S"), ("bytea", "-1", "U"), ("int16", "16", "N"), ("tinyint", "1", "N") }
         .Select((type, i) => Fields(10000 + i, "90", "pg_catalog", type.Item1, type.Item2, type.Item3)).ToList();
-    static List<string?[]> NativeRows(KingbaseCompatibilityMode mode)
+    internal static List<string?[]> NativeRows(KingbaseCompatibilityMode mode)
     {
         var rows = new List<string?[]>();
         Add("varcharbyte", "-1", "S", "sys.varcharbytein", "sys.varcharbyteout"); Add("bpcharbyte", "-1", "S", "sys.bpcharbytein", "sys.bpcharbyteout");

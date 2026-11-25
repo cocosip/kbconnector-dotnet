@@ -14,10 +14,14 @@ internal sealed class PgTextCodecs
     internal Type GetFieldType(uint oid) => Resolve(oid).ClrType;
     internal Type GetProviderSpecificFieldType(uint oid) => Resolve(oid).Name switch
     { "numeric" => typeof(KingbaseNumeric), "date" => typeof(KingbaseDate), "timestamp" => typeof(KingbaseTimestamp),
-        "timestamptz" => typeof(KingbaseTimestampTz), _ => GetFieldType(oid) };
+        "timestamptz" => typeof(KingbaseTimestampTz), "oracle_date" => typeof(KingbaseTimestamp),
+        "sqlserver_date" => typeof(KingbaseDate), "mysql_date" => typeof(KingbaseMySqlDate),
+        "mysql_datetime" or "mysql_timestamp" => typeof(KingbaseMySqlDateTime), _ => GetFieldType(oid) };
     internal object DecodeProviderSpecific(uint oid, string? text, string? dateStyle = null, string? intervalStyle = null)
     {
         var name = Resolve(oid).Name;
+        if (PgNativeTemporalText.Supports(name))
+        { if (text is null) return DBNull.Value; ValidateText(text); return PgNativeTemporalText.Decode(name, text, dateStyle, provider: true); }
         if (name is not ("numeric" or "date" or "timestamp" or "timestamptz")) return Decode(oid, text, dateStyle, intervalStyle);
         if (text is null) return DBNull.Value;
         ValidateText(text);
@@ -32,6 +36,7 @@ internal sealed class PgTextCodecs
         var (name, _) = Resolve(oid);
         if (text is null) return DBNull.Value;
         ValidateText(text);
+        if (PgNativeTemporalText.Supports(name)) return PgNativeTemporalText.Decode(name, text, dateStyle, provider: false);
         switch (name)
         {
             case "bool": return text switch { "t" => true, "f" => false, _ => throw InvalidText() };
@@ -96,6 +101,7 @@ internal sealed class PgTextCodecs
     {
         var (name, clrType) = Resolve(oid);
         if (value is null || value is DBNull) return null;
+        if (PgNativeTemporalText.Supports(name)) return PgNativeTemporalText.Encode(name, value);
         if (name == "int16" && value is BigInteger wide) { ValidateWide(wide); return wide.ToString(CultureInfo.InvariantCulture); }
         if (name == "int16" && value is ulong unsignedWide) return ((BigInteger)unsignedWide).ToString(CultureInfo.InvariantCulture);
         if (name == "int8" && value is uint unsignedInteger) return ((long)unsignedInteger).ToString(CultureInfo.InvariantCulture);
@@ -159,10 +165,12 @@ internal sealed class PgTextCodecs
 
     (string Name, Type ClrType) Resolve(uint oid)
     {
-        if (!_catalog.ByOid.TryGetValue(oid, out var type) || type.Kind != 'b' || type.BaseTypeOid != 0 || type.ElementTypeOid != 0)
+        if (!_catalog.ByOid.TryGetValue(oid, out var type) || type.ElementTypeOid != 0 ||
+            (!SupportedNativeDomain(type) && (type.Kind != 'b' || type.BaseTypeOid != 0)))
             throw Unsupported();
         if (type.CodecName is "sbyte" or "byte" or "uint4" or "uint8" or "int16" && type.Category != 'N') throw Unsupported();
         if (type.CodecName is "bit" or "varbit" && type.Category != 'V') throw Unsupported();
+        if (PgNativeTemporalText.Supports(type.CodecName) && type.Category != (type.CodecName == "mysql_year" ? 'N' : 'D')) throw Unsupported();
         var (clrType, size) = type.CodecName switch
         {
             "bool" => (typeof(bool), 1),
@@ -181,6 +189,10 @@ internal sealed class PgTextCodecs
             "float8" => (typeof(double), 8),
             "numeric" => (typeof(decimal), -1),
             "date" => (typeof(DateTime), 4),
+            "sqlserver_date" or "mysql_date" => (typeof(DateTime), 4),
+            "oracle_date" or "sqlserver_datetime" or "sqlserver_datetime2" or "sqlserver_smalldatetime" or "mysql_datetime" or "mysql_timestamp" => (typeof(DateTime), 8),
+            "sqlserver_time" or "mysql_time" => (typeof(TimeSpan), 8),
+            "mysql_year" => (typeof(int), 4),
             "time" => (typeof(TimeSpan), 8),
             "timetz" => (typeof(KingbaseTimeTz), 12),
             "timestamp" or "timestamptz" => (typeof(DateTime), 8),
@@ -192,6 +204,13 @@ internal sealed class PgTextCodecs
         };
         if (type.Size != size) throw Unsupported();
         return (type.CodecName, clrType);
+    }
+
+    bool SupportedNativeDomain(PgTypeDescription type)
+    {
+        var key = type.CodecName switch { "oracle_date" when type.Name == "date" => "pg_catalog.timestamp", "mysql_year" when type.Name == "year" => "pg_catalog.int4", _ => null };
+        return key is not null && type.Namespace == "sys" && type.Kind == 'd' && _catalog.ByName.TryGetValue(key, out var baseType) &&
+            type.BaseTypeOid == baseType.Oid && baseType.Kind == 'b' && baseType.BaseTypeOid == 0 && baseType.ElementTypeOid == 0 && baseType.Size == type.Size && baseType.Category == type.Category;
     }
 
     static void ValidateWide(BigInteger value)
@@ -212,7 +231,7 @@ internal sealed class PgTextCodecs
         if (bits.Length > MaxTextBytes) throw TooLarge();
     }
 
-    static void RequireIsoDateStyle(string? style)
+    internal static void RequireIsoDateStyle(string? style)
     {
         if (style is not ("ISO, MDY" or "ISO, DMY" or "ISO, YMD"))
             throw new NotSupportedException("PG calendar results require a confirmed ISO DateStyle.");

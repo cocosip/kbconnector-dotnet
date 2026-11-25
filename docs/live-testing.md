@@ -398,3 +398,32 @@ remains unimplemented. SQL Server Boolean BIT stays separate. Exact-asset
 loopback probes cover both appended selectors, Varbit inference, NULL, fresh
 pooled OIDs and queued adapter BitArray mutation; they do not imply exact-package
 LIVE or native MySQL bit-string acceptance.
+
+Native temporal acceptance adds 22 source-built cases. Eleven prepared scalar
+cases bind actual qualified Oracle/SQL Server/MySQL temporal and YEAR types,
+compare exact default CLR values and typed NULL, including SQL Server seven-digit
+fractions and MySQL negative durations beyond 24 hours. Three write-opt-in cases
+create only temporary native columns with explicit precision, compare independent
+expected values, verify SQL Server SMALLDATETIME rounds 30 seconds upward, and
+preserve NULL. Four UTC/non-UTC/DST wall-clock cases confirm Unspecified values
+are not shifted by client machine timezone or a fixed eight-hour rule; UTC Kind
+input rejects before I/O and the next valid command succeeds.
+
+MySQL boundary tests exercise ±838:59:59, signed microseconds, client overflow
+rejection, and synchronized SQLSTATE 22008/23514 for server-rejected zero/invalid
+dates and YEAR zero. Three year 10000 cases prove default DateTime overflow leaves
+lossless provider reads available for DATE/DATETIME/TIMESTAMP. Zero-value provider
+parsing and simulated rows are separate evidence; real-server zero acceptance
+remains open. Independent read-only probes confirm native type layouts/I/O/trust,
+Oracle DATE truncation and BC/infinity, SQL Server precision/ranges and DateStyle
+output, and MySQL precision/zero/range behavior. Raw profiles and probe output stay
+outside the repository. SQL Server invalid-literal Simple Query was observed to
+emit Error/CommandComplete/Ready; the current strict parser retires that uncertain
+path rather than assuming complete error synchronization acceptance.
+
+Five exact-asset loopback consumers separately exercise native selectors,
+provider/default CLR agreement, new provider inference/typed getters, NULL and
+precision rejection, and fresh native plus domain-base OIDs across pool leases.
+They do not establish exact-package LIVE, generic domains, DATETIMEOFFSET, binary
+formats, routine outputs/COPY or full server/platform acceptance. Real TLS remains
+user-deferred; offline TLS tests are retained.

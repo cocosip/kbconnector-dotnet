@@ -12,6 +12,7 @@ internal static class KingbaseParameterTypes
         sbyte => KingbaseDbType.SignedTinyint, byte => KingbaseDbType.UnsignedTinyint,
         ulong => KingbaseDbType.UnsignedBigint, BigInteger => KingbaseDbType.Int128,
         BitArray => KingbaseDbType.Varbit,
+        KingbaseMySqlDate => KingbaseDbType.MySqlDate, KingbaseMySqlDateTime => KingbaseDbType.MySqlDateTime,
         long => KingbaseDbType.Bigint, uint => KingbaseDbType.Oid, float => KingbaseDbType.Real,
         double => KingbaseDbType.Double, decimal or KingbaseNumeric => KingbaseDbType.Numeric,
         string => KingbaseDbType.Text, byte[] => KingbaseDbType.Bytea, Guid => KingbaseDbType.Uuid,
@@ -43,7 +44,12 @@ internal static class KingbaseParameterTypes
         KingbaseDbType.UnsignedInteger => "uint4", KingbaseDbType.UnsignedBigint => "uint8", KingbaseDbType.Int128 => "int16",
         KingbaseDbType.VarcharByte => "varcharbyte", KingbaseDbType.CharByte => "bpcharbyte", KingbaseDbType.NChar => "nchar",
         KingbaseDbType.NVarchar => "nvarchar", KingbaseDbType.SqlServerBit => "sqlserver_bit",
-        KingbaseDbType.Bit => "bit", KingbaseDbType.Varbit => "varbit", _ => throw Unsupported()
+        KingbaseDbType.Bit => "bit", KingbaseDbType.Varbit => "varbit",
+        KingbaseDbType.OracleDate => "oracle_date", KingbaseDbType.SqlServerDate => "sqlserver_date",
+        KingbaseDbType.SqlServerDateTime => "sqlserver_datetime", KingbaseDbType.SqlServerDateTime2 => "sqlserver_datetime2",
+        KingbaseDbType.SqlServerSmallDateTime => "sqlserver_smalldatetime", KingbaseDbType.SqlServerTime => "sqlserver_time",
+        KingbaseDbType.MySqlDate => "mysql_date", KingbaseDbType.MySqlDateTime => "mysql_datetime",
+        KingbaseDbType.MySqlTimestamp => "mysql_timestamp", KingbaseDbType.MySqlTime => "mysql_time", KingbaseDbType.MySqlYear => "mysql_year", _ => throw Unsupported()
     };
 
     internal static DbType ToDbType(KingbaseDbType type) => type switch
@@ -59,6 +65,11 @@ internal static class KingbaseParameterTypes
         KingbaseDbType.SignedTinyint => DbType.SByte, KingbaseDbType.UnsignedTinyint => DbType.Byte,
         KingbaseDbType.UnsignedInteger => DbType.UInt32, KingbaseDbType.UnsignedBigint => DbType.UInt64,
         KingbaseDbType.Int128 or KingbaseDbType.Bit or KingbaseDbType.Varbit => DbType.Object, KingbaseDbType.SqlServerBit => DbType.Boolean,
+        KingbaseDbType.OracleDate or KingbaseDbType.SqlServerDateTime or KingbaseDbType.SqlServerSmallDateTime or KingbaseDbType.MySqlDateTime or KingbaseDbType.MySqlTimestamp => DbType.DateTime,
+        KingbaseDbType.SqlServerDateTime2 => DbType.DateTime2,
+        KingbaseDbType.SqlServerDate or KingbaseDbType.MySqlDate => DbType.Date,
+        KingbaseDbType.SqlServerTime or KingbaseDbType.MySqlTime => DbType.Time,
+        KingbaseDbType.MySqlYear => DbType.Int32,
         KingbaseDbType.CharByte or KingbaseDbType.NChar => DbType.StringFixedLength,
         KingbaseDbType.VarcharByte or KingbaseDbType.NVarchar => DbType.String,
         KingbaseDbType.Text or KingbaseDbType.Varchar or KingbaseDbType.Json or KingbaseDbType.Jsonb => DbType.String, _ => throw Unsupported()
@@ -89,8 +100,11 @@ internal static class KingbaseParameterTypes
         DbType.Boolean => selected is KingbaseDbType.Boolean or KingbaseDbType.SqlServerBit,
         DbType.Object => selected is KingbaseDbType.Int128 or KingbaseDbType.Interval or KingbaseDbType.Bit or KingbaseDbType.Varbit,
         DbType.VarNumeric => selected == KingbaseDbType.Numeric,
-        DbType.Time => selected is KingbaseDbType.Time or KingbaseDbType.TimeTz,
-        DbType.DateTime2 => selected == KingbaseDbType.Timestamp,
+        DbType.Int32 => selected is KingbaseDbType.Integer or KingbaseDbType.MySqlYear,
+        DbType.Date => selected is KingbaseDbType.Date or KingbaseDbType.SqlServerDate or KingbaseDbType.MySqlDate,
+        DbType.Time => selected is KingbaseDbType.Time or KingbaseDbType.TimeTz or KingbaseDbType.SqlServerTime or KingbaseDbType.MySqlTime,
+        DbType.DateTime => selected is KingbaseDbType.Timestamp or KingbaseDbType.OracleDate or KingbaseDbType.SqlServerDateTime or KingbaseDbType.SqlServerDateTime2 or KingbaseDbType.SqlServerSmallDateTime or KingbaseDbType.MySqlDateTime or KingbaseDbType.MySqlTimestamp,
+        DbType.DateTime2 => selected is KingbaseDbType.Timestamp or KingbaseDbType.SqlServerDateTime2 or KingbaseDbType.MySqlDateTime or KingbaseDbType.MySqlTimestamp,
         _ => FromDbType(constraint) == selected
     };
     internal static NotSupportedException Unsupported() => new("Unsupported Kingbase parameter type.");

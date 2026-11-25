@@ -106,17 +106,18 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
         if (typeof(T) == typeof(TimeSpan) && _catalog.ByOid[Column(ordinal).TypeOid].Name == "interval")
             return (T)(object)GetFieldValue<KingbaseInterval>(ordinal).ToTimeSpan();
 #if NET6_0_OR_GREATER
-        if (typeof(T) == typeof(DateOnly)) return (T)(object)GetFieldValue<KingbaseDate>(ordinal).ToDateOnly();
+        if (typeof(T) == typeof(DateOnly)) return (T)(object)(_catalog.ByOid[Column(ordinal).TypeOid].CodecName == "mysql_date"
+            ? DateOnly.FromDateTime(GetFieldValue<KingbaseMySqlDate>(ordinal).ToDateTime()) : GetFieldValue<KingbaseDate>(ordinal).ToDateOnly());
         if (typeof(T) == typeof(TimeOnly))
         {
             if (_catalog.ByOid[Column(ordinal).TypeOid].Name != "time")
                 throw new InvalidCastException("TimeOnly access requires a TIME column.");
             var time = GetFieldValue<TimeSpan>(ordinal);
-            if (time.Ticks == TimeSpan.TicksPerDay) throw new OverflowException("End-of-day TIME cannot be represented by TimeOnly.");
+            if (time.Ticks < 0 || time.Ticks >= TimeSpan.TicksPerDay) throw new OverflowException("This TIME duration cannot be represented by TimeOnly.");
             return (T)(object)TimeOnly.FromTimeSpan(time);
         }
 #endif
-        return (T)(typeof(T) == typeof(KingbaseNumeric) || typeof(T) == typeof(KingbaseDate) ||
+        return (T)(typeof(T) == typeof(KingbaseNumeric) || typeof(T) == typeof(KingbaseDate) || typeof(T) == typeof(KingbaseMySqlDate) || typeof(T) == typeof(KingbaseMySqlDateTime) ||
             typeof(T) == typeof(KingbaseTimestamp) || typeof(T) == typeof(KingbaseTimestampTz) ? GetProviderSpecificValue(ordinal) : GetValue(ordinal));
     }
     public override int GetValues(object[] values) => CopyValues(values, provider: false);

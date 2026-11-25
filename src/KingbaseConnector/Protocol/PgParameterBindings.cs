@@ -86,6 +86,11 @@ internal sealed class PgParameterBindings
     static PgTypeDescription Lookup(KingbaseDbType provider, PgTypeCatalog catalog)
     {
         var name = KingbaseParameterTypes.Name(provider);
+        if (name == "oracle_date" || name.StartsWith("sqlserver_", StringComparison.Ordinal) || name.StartsWith("mysql_", StringComparison.Ordinal))
+        {
+            var key = "sys." + (name == "oracle_date" ? "date" : name.Substring(name.IndexOf('_') + 1));
+            return catalog.ByName.TryGetValue(key, out var nativeType) && nativeType.CodecName == name ? nativeType : throw KingbaseParameterTypes.Unsupported();
+        }
         if (provider == KingbaseDbType.SignedTinyint)
         {
             if (catalog.ByName.TryGetValue("pg_catalog.tinyint", out var signed) && EligibleTiny(signed, "sbyte")) return signed;
