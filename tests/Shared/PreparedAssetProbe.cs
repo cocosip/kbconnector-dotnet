@@ -73,6 +73,20 @@ internal static class PreparedAssetProbe
                             "db", "pg_catalog", "text", null, null, null, null, null, null];
                     await stream.WriteAsync(Join(Frame('1'), Frame('2'), objectHeader, Row(values), Complete(), Ready()), token);
                 }
+                foreach (var name in RelationalNames)
+                {
+                    var query = await ReadFrames(stream, "PBDES", token);
+                    var sql = Encoding.UTF8.GetString(query[0]);
+                    Require(sql.Contains("pg_catalog.pg_class", StringComparison.Ordinal));
+                    Require(sql.Contains("COLLATE pg_catalog.\"C\" OPERATOR(pg_catalog.=) $1", StringComparison.Ordinal));
+                    Require(!sql.Contains("MiXeD汉%_'", StringComparison.Ordinal));
+                    Require(Encoding.UTF8.GetString(query[1]).Contains("MiXeD汉%_'", StringComparison.Ordinal));
+                    var fields = RelationalFields(name);
+                    var relationalHeader = Frame('T', Join(Count(fields.Length), Join(fields.Select(field =>
+                        Join(Encoding.UTF8.GetBytes(field.Name + '\0'), new byte[6], Int32(field.Integer ? 12002 : 12004),
+                            Count(field.Integer ? 4 : -1), Int32(-1), Count(0))).ToArray())));
+                    await stream.WriteAsync(Join(Frame('1'), Frame('2'), relationalHeader, Row(RelationalValues(name)), Complete(), Ready()), token);
+                }
                 Require(await stream.ReadAsync(new byte[1], token) == 0); return;
             }
             if (xml)
@@ -202,11 +216,11 @@ internal static class PreparedAssetProbe
         using var command = new KingbaseCommand("SELECT :p", connection);
         if (schema)
         {
-            using var collections = await connection.GetSchemaAsync(token); Require(collections.Rows.Count == 9);
+            using var collections = await connection.GetSchemaAsync(token); Require(collections.Rows.Count == 15);
             using var source = connection.GetSchema("DataSourceInformation");
             Require((string)source.Rows[0]["DataSourceProductVersion"] == connection.ServerVersion);
             using var restrictions = await connection.GetSchemaAsync("Restrictions", null, token);
-            Require(restrictions.Columns.Count == 4 && restrictions.Rows.Count == 13);
+            Require(restrictions.Columns.Count == 4 && restrictions.Rows.Count == 39);
             using var types = await ((DbConnection)connection).GetSchemaAsync("DataTypes", token);
             var integer = types.Rows.Cast<System.Data.DataRow>().Single(row => (string)row["TypeName"] == "int4");
             Require((uint)integer["TypeOid"] == 12002 && (int)integer["ProviderDbType"] == (int)KingbaseDbType.Integer);
@@ -221,6 +235,20 @@ internal static class PreparedAssetProbe
                 Require(objects.Rows.Count == 1 && (string)objects.Rows[0][1] == "MiXeD汉%_'");
                 if (name == "Columns") Require((int)objects.Rows[0]["ORDINAL_POSITION"] == 1 && (bool)objects.Rows[0]["IS_NULLABLE"] && objects.Rows[0]["COLUMN_DEFAULT"] is DBNull);
                 if (name == "Views") Require(objects.Rows[0]["VIEW_DEFINITION"] is DBNull && !(bool)objects.Rows[0]["IS_UPDATABLE"]);
+            }
+            foreach (var name in RelationalNames)
+            {
+                using var objects = name is "PrimaryKeys" or "ForeignKeys" or "Indexes" ? connection.GetSchema(name, [null, "MiXeD汉%_'"]) :
+                    await connection.GetSchemaAsync(name, [null, "MiXeD汉%_'"], token);
+                var fields = RelationalFields(name); var values = RelationalValues(name);
+                Require(objects.Rows.Count == 1 && objects.Columns.Count == fields.Length);
+                for (var i = 0; i < fields.Length; i++)
+                {
+                    Require(objects.Columns[i].ColumnName == fields[i].Name);
+                    Require(objects.Columns[i].DataType == (fields[i].Integer ? typeof(int) : fields[i].Flag ? typeof(bool) : typeof(string)));
+                    Require(values[i] is null ? objects.Rows[0][i] is DBNull : fields[i].Integer ? (int)objects.Rows[0][i] == int.Parse(values[i]!, CultureInfo.InvariantCulture) :
+                        fields[i].Flag ? (bool)objects.Rows[0][i] == (values[i] == "YES") : (string)objects.Rows[0][i] == values[i]);
+                }
             }
             try { connection.GetSchema("DataTypes", ["private-payload"]); throw new InvalidOperationException("Schema restrictions were ignored."); }
             catch (ArgumentException error) { Require(!error.Message.Contains("private-payload", StringComparison.Ordinal)); }
@@ -413,6 +441,24 @@ internal static class PreparedAssetProbe
         connection.Close(); await peer.WaitAsync(token);
     }
 
+    static readonly string[] RelationalNames = ["PrimaryKeys", "UniqueKeys", "ForeignKeys", "ForeignKeyColumns", "Indexes", "IndexColumns"];
+    static (string Name, bool Integer, bool Flag)[] RelationalFields(string name) => (name switch
+    {
+        "PrimaryKeys" or "UniqueKeys" => "TABLE_CATALOG TABLE_SCHEMA TABLE_NAME CONSTRAINT_NAME COLUMN_NAME ORDINAL_POSITION IS_DEFERRABLE INITIALLY_DEFERRED",
+        "ForeignKeys" => "TABLE_CATALOG TABLE_SCHEMA TABLE_NAME CONSTRAINT_NAME REFERENCED_TABLE_CATALOG REFERENCED_TABLE_SCHEMA REFERENCED_TABLE_NAME REFERENCED_INDEX_NAME MATCH_OPTION UPDATE_RULE DELETE_RULE IS_DEFERRABLE INITIALLY_DEFERRED IS_VALIDATED",
+        "ForeignKeyColumns" => "TABLE_CATALOG TABLE_SCHEMA TABLE_NAME CONSTRAINT_NAME COLUMN_NAME ORDINAL_POSITION REFERENCED_TABLE_CATALOG REFERENCED_TABLE_SCHEMA REFERENCED_TABLE_NAME REFERENCED_COLUMN_NAME",
+        "Indexes" => "INDEX_CATALOG INDEX_SCHEMA INDEX_NAME TABLE_CATALOG TABLE_SCHEMA TABLE_NAME INDEX_TYPE IS_UNIQUE IS_PRIMARY IS_VALID IS_READY IS_LIVE IS_CLUSTERED KEY_COLUMN_COUNT COLUMN_COUNT PREDICATE EXPRESSION DEFINITION",
+        _ => "INDEX_CATALOG INDEX_SCHEMA INDEX_NAME ORDINAL_POSITION TABLE_CATALOG TABLE_SCHEMA TABLE_NAME COLUMN_NAME COLUMN_EXPRESSION IS_INCLUDED IS_DESCENDING NULLS_FIRST COLLATION_CATALOG COLLATION_SCHEMA COLLATION_NAME OPERATOR_CLASS_CATALOG OPERATOR_CLASS_SCHEMA OPERATOR_CLASS_NAME"
+    }).Split(' ').Select(field => (field, field is "ORDINAL_POSITION" or "KEY_COLUMN_COUNT" or "COLUMN_COUNT",
+        field.StartsWith("IS_", StringComparison.Ordinal) || field is "INITIALLY_DEFERRED" or "NULLS_FIRST")).ToArray();
+    static string?[] RelationalValues(string name) => name switch
+    {
+        "PrimaryKeys" or "UniqueKeys" => ["db", "MiXeD汉%_'", "table", "key", "column", "2", "YES", "NO"],
+        "ForeignKeys" => ["db", "MiXeD汉%_'", "table", "fk", "db", "target", "parent", "unique_index", "SIMPLE", "CASCADE", "SET NULL", "YES", "NO", "YES"],
+        "ForeignKeyColumns" => ["db", "MiXeD汉%_'", "table", "fk", "column", "2", "db", "target", "parent", "target_column"],
+        "Indexes" => ["db", "MiXeD汉%_'", "index", "db", "MiXeD汉%_'", "table", "btree", "YES", "NO", "YES", "YES", "YES", "NO", "1", "2", "flag > 0", "lower(name)", "CREATE INDEX ..."],
+        _ => ["db", "MiXeD汉%_'", "index", "2", "db", "MiXeD汉%_'", "table", null, "lower(name)", "NO", null, null, null, null, null, "db", "pg_catalog", "text_ops"]
+    };
     static readonly string[] DateValues = ["2000-02-29", "0001-01-01 BC", "infinity", "-infinity"];
     static readonly (string Style, string Text)[] IntervalValues =
     [

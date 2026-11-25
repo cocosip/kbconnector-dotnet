@@ -174,3 +174,14 @@ permission models and compatibility modes require separate acceptance.
 Character octet length is compared with an independent parameterized catalog
 query for the actual temporary column. UTF8 client encoding does not establish
 the server encoding or a fixed bytes-per-character multiplier.
+
+Relational schema cases opt into temporary writes. They compare composite
+primary/unique keys and reordered FK pairs, duplicate FK names on distinct
+tables, standalone referenced unique indexes, quoted Unicode/wildcard names,
+partial/expression/INCLUDE/btree/hash indexes and independent catalog oracles.
+Transaction ownership and local-role visibility/42501/rollback are checked
+for all six collections. Two same-role connections independently check that
+information_schema.tables and Tables hide the other session's temporary table;
+all six relational collections must hide it while its owner retains visibility.
+No persistent objects, grants or server settings are
+changed; temporary objects disappear when each dedicated connection closes.

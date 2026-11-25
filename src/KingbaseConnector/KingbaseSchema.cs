@@ -8,7 +8,7 @@ namespace KingbaseConnector;
 internal static class KingbaseSchema
 {
     internal const string KeywordsSql = "SELECT word::text FROM pg_catalog.pg_get_keywords() WHERE catcode = 'R' ORDER BY word";
-    static readonly string[] Names = ["MetaDataCollections", "Restrictions", "DataSourceInformation", "DataTypes", "ReservedWords", "Schemas", "Tables", "Views", "Columns"];
+    static readonly string[] Names = ["MetaDataCollections", "Restrictions", "DataSourceInformation", "DataTypes", "ReservedWords", .. KingbaseObjectSchema.All.Select(item => item.Name)];
 
     internal static string Resolve(string? name, string?[]? restrictions)
     {

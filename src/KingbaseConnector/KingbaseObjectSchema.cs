@@ -1,4 +1,5 @@
 using System.Data;
+using System.Globalization;
 using KingbaseConnector.Protocol;
 
 namespace KingbaseConnector;
@@ -6,13 +7,16 @@ namespace KingbaseConnector;
 internal static class KingbaseObjectSchema
 {
     internal sealed class Definition(string name, int identifierParts, string[] restrictions, string[] filterColumns,
-        (string Name, Type Type, bool Required)[] fields)
+        (string Name, Type Type, bool Required)[] fields, string? source = null, string[]? orderColumns = null)
     {
         internal string Name { get; } = name;
         internal int IdentifierParts { get; } = identifierParts;
         internal string[] Restrictions { get; } = restrictions;
         internal string[] FilterColumns { get; } = filterColumns;
         internal (string Name, Type Type, bool Required)[] Fields { get; } = fields;
+        internal string Source { get; } = source ?? "information_schema." + (name == "Schemas" ? "schemata" : name.ToLowerInvariant());
+        internal string[] OrderColumns { get; } = orderColumns ?? (name == "Columns" ?
+            filterColumns.Take(3).Concat(["ordinal_position"]).ToArray() : filterColumns.Take(identifierParts).ToArray());
     }
 
     internal static readonly Definition[] All =
@@ -29,7 +33,8 @@ internal static class KingbaseObjectSchema
                 Length("CHARACTER_MAXIMUM_LENGTH"), Length("CHARACTER_OCTET_LENGTH"), Number("NUMERIC_PRECISION"), Number("NUMERIC_PRECISION_RADIX"),
                 Number("NUMERIC_SCALE"), Number("DATETIME_PRECISION"), Text("INTERVAL_TYPE"), Number("INTERVAL_PRECISION"),
                 Text("UDT_CATALOG", true), Text("UDT_SCHEMA", true), Text("UDT_NAME", true), Text("DOMAIN_CATALOG"), Text("DOMAIN_SCHEMA"), Text("DOMAIN_NAME"),
-                Text("COLLATION_CATALOG"), Text("COLLATION_SCHEMA"), Text("COLLATION_NAME")])
+                Text("COLLATION_CATALOG"), Text("COLLATION_SCHEMA"), Text("COLLATION_NAME")]),
+        .. KingbaseRelationalSchema.All
     ];
 
     internal static Definition? Find(string name) => All.FirstOrDefault(item => item.Name == name);
@@ -48,11 +53,10 @@ internal static class KingbaseObjectSchema
             predicates.Add(definition.FilterColumns[i] + "::pg_catalog.text COLLATE pg_catalog.\"C\" OPERATOR(pg_catalog.=) @" + parameter);
             command.Parameters.Add(new KingbaseParameter(parameter, value) { KingbaseDbType = KingbaseDbType.Text });
         }
-        var order = definition.FilterColumns.Take(definition.Name == "Columns" ? 3 : definition.IdentifierParts)
-            .Select(column => column + "::pg_catalog.text COLLATE pg_catalog.\"C\"");
-        command.CommandText = "SELECT " + projection + " FROM information_schema." + (definition.Name == "Schemas" ? "schemata" : definition.Name.ToLowerInvariant()) +
-            (predicates.Count == 0 ? "" : " WHERE " + string.Join(" AND ", predicates)) + " ORDER BY " + string.Join(", ", order) +
-            (definition.Name == "Columns" ? ", ordinal_position" : "");
+        var order = definition.OrderColumns.Select(column => column + (definition.Fields.First(field =>
+            field.Name.Equals(column, StringComparison.OrdinalIgnoreCase)).Type == typeof(string) ? "::pg_catalog.text COLLATE pg_catalog.\"C\"" : ""));
+        command.CommandText = "SELECT " + projection + " FROM " + definition.Source +
+            (predicates.Count == 0 ? "" : " WHERE " + string.Join(" AND ", predicates)) + " ORDER BY " + string.Join(", ", order);
         return command;
     }
 
@@ -102,7 +106,7 @@ internal static class KingbaseObjectSchema
                         throw InvalidMetadata();
                     values[i] = value;
                 }
-                if (!unique.Add(string.Join("\0", values.Take(definition.IdentifierParts).Cast<string>()))) throw InvalidMetadata();
+                if (!unique.Add(string.Join("\0", values.Take(definition.IdentifierParts).Select(value => Convert.ToString(value, CultureInfo.InvariantCulture))))) throw InvalidMetadata();
                 table.Rows.Add(values);
             }
             if (reader.NextResult()) throw InvalidMetadata();
@@ -114,9 +118,9 @@ internal static class KingbaseObjectSchema
         catch { table.Dispose(); throw; }
     }
 
-    static (string, Type, bool) Text(string name, bool required = false) => (name, typeof(string), required);
-    static (string, Type, bool) Number(string name, bool required = false) => (name, typeof(int), required);
+    internal static (string, Type, bool) Text(string name, bool required = false) => (name, typeof(string), required);
+    internal static (string, Type, bool) Number(string name, bool required = false) => (name, typeof(int), required);
     static (string, Type, bool) Length(string name) => (name, typeof(long), false);
-    static (string, Type, bool) Flag(string name) => (name, typeof(bool), true);
+    internal static (string, Type, bool) Flag(string name, bool required = true) => (name, typeof(bool), required);
     static IOException InvalidMetadata() => new("Invalid Kingbase object schema metadata.");
 }
