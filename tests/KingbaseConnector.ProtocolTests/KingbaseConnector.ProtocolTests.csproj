@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../../src/KingbaseConnector/KingbaseConnector.csproj" />
+    <Compile Include="../Shared/TlsTestCertificates.cs" Link="TlsTestCertificates.cs" />
   </ItemGroup>
 </Project>

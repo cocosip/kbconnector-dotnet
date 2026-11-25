@@ -22,7 +22,7 @@ internal static class PgTestPeer
     internal static byte[] Catalog() => Join(Description(12), Join(new[] { "bool", "int2", "int4", "int8", "text", "bytea" }
         .Select((name, i) => Row([(6000 + i).ToString(System.Globalization.CultureInfo.InvariantCulture),
             "90", "sys_catalog", name, "4", "b", "N", "t", "0", "0", "0", "-1"])).ToArray()), Complete(), Ready());
-    internal static async Task<byte[]> ReadStartupAsync(NetworkStream stream, CancellationToken token)
+    internal static async Task<byte[]> ReadStartupAsync(Stream stream, CancellationToken token)
     {
         var header = new byte[4];
         await stream.ReadExactlyAsync(header, token);
@@ -33,7 +33,7 @@ internal static class PgTestPeer
         Assert.Equal(new byte[] { 0, 3, 0, 0 }, payload[..4]);
         return payload[4..];
     }
-    internal static async Task<string> ReadQueryAsync(NetworkStream stream, CancellationToken token)
+    internal static async Task<string> ReadQueryAsync(Stream stream, CancellationToken token)
     {
         var header = new byte[5];
         await stream.ReadExactlyAsync(header, token);

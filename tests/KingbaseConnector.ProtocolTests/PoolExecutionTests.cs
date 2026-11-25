@@ -14,9 +14,9 @@ public sealed partial class PoolExecutionTests
         var settings = PoolSettings(listener); settings.MaxPoolSize = 1; settings.ConnectionIdleLifetime = 0;
         return settings;
     }
-    internal static async Task InitializePool(NetworkStream stream, CancellationToken token, string[]? baseline = null, bool readStartup = true)
+    internal static async Task InitializePool(Stream stream, CancellationToken token, string[]? baseline = null, bool readStartup = true)
     { await Initialize(stream, token, readStartup); await Capture(stream, token, State(baseline)); }
-    internal static async Task Reset(NetworkStream stream, CancellationToken token, char previous = 'I', string[]? baseline = null)
+    internal static async Task Reset(Stream stream, CancellationToken token, char previous = 'I', string[]? baseline = null)
     {
         if (previous != 'I')
         {
@@ -25,9 +25,9 @@ public sealed partial class PoolExecutionTests
         Assert.Equal("DISCARD ALL", await ReadQueryAsync(stream, token)); await stream.WriteAsync(Control("DISCARD ALL"), token);
         await RefreshCatalog(stream, token); await Restore(stream, 12004, token); await Capture(stream, token, State(baseline)); await Identity(stream, token);
     }
-    internal static async Task Ping(NetworkStream stream, CancellationToken token)
+    internal static async Task Ping(Stream stream, CancellationToken token)
     { Assert.Equal("SELECT 1", await ReadQueryAsync(stream, token)); await stream.WriteAsync(Scalar("1"), token); }
-    internal static async Task Query(NetworkStream stream, string sql, uint oid, CancellationToken token, char status = 'I')
+    internal static async Task Query(Stream stream, string sql, uint oid, CancellationToken token, char status = 'I')
     {
         var frames = await ReadExtended(stream, token);
         Assert.Equal(Frame('P', Join([0], Encoding.UTF8.GetBytes(sql + "\0"), [0, 0])), frames[0]);

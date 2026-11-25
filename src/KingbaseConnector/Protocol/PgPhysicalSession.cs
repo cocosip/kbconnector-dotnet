@@ -89,8 +89,6 @@ internal sealed class PgPhysicalSession : IDisposable
         if (prepareForPooling && !settings.Pooling) throw new ArgumentException("Pooling reset initialization requires Pooling=true.");
         if (settings.WireProtocol != KingbaseWireProtocol.PostgreSql)
             throw new NotSupportedException("The PG physical session requires PostgreSql wire protocol.");
-        if (settings.RootCertificate.Length != 0)
-            throw new NotSupportedException("Custom root certificates are not yet supported by the PG transport.");
         var startupMessage = CreateStartupMessage(settings);
 
         var elapsed = Stopwatch.StartNew();
@@ -109,7 +107,7 @@ internal sealed class PgPhysicalSession : IDisposable
             if (passwordProvider is not null)
                 password = await PgPasswordProvider.GetAsync(passwordProvider, settings, linked.Token).ConfigureAwait(false);
             CheckDeadline();
-            transport = await PgTransport.ConnectAsync(settings.Host, settings.Port, settings.SslMode, linked.Token).ConfigureAwait(false);
+            transport = await PgTransport.ConnectAsync(settings.Host, settings.Port, settings.SslMode, linked.Token, settings.RootCertificate).ConfigureAwait(false);
             using var abort = linked.Token.Register(() => { try { transport.Dispose(); } catch { } });
             CheckDeadline();
             wire = new PgWire(transport.Stream);

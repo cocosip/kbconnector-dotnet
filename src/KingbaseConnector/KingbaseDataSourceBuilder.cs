@@ -25,7 +25,5 @@ public sealed class KingbaseDataSourceBuilder
             throw new NotSupportedException("The public execution slice requires PostgreSql wire protocol.");
         if (settings.CompatibilityMode is not KingbaseCompatibilityMode.Auto and not KingbaseCompatibilityMode.PostgreSql)
             throw new NotSupportedException("The public execution slice requires PostgreSql compatibility mode.");
-        if (settings.RootCertificate.Length != 0)
-            throw new NotSupportedException("Custom root certificates are not yet supported by the PG transport.");
     }
 }

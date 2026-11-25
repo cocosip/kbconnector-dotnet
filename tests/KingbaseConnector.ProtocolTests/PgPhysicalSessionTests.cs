@@ -190,7 +190,7 @@ public sealed class PgPhysicalSessionTests
         await Assert.ThrowsAsync<NotSupportedException>(() => PgPhysicalSession.OpenAsync(settings.ConnectionString));
         settings.WireProtocol = KingbaseWireProtocol.PostgreSql;
         settings.SslMode = KingbaseSslMode.VerifyFull; settings.RootCertificate = "private-certificate";
-        var error = await Assert.ThrowsAsync<NotSupportedException>(() => PgPhysicalSession.OpenAsync(settings.ConnectionString));
+        var error = await Assert.ThrowsAsync<System.Security.Authentication.AuthenticationException>(() => PgPhysicalSession.OpenAsync(settings.ConnectionString));
         Assert.DoesNotContain("private-", error.ToString());
         await Assert.ThrowsAsync<ArgumentException>(() => PgPhysicalSession.OpenAsync("Host=127.0.0.1"));
         settings.RootCertificate = ""; settings.ApplicationName = new string((char)0xd800, 1);

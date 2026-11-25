@@ -211,4 +211,6 @@ try
 }
 catch (ObjectDisposedException) { }
 
+await KingbaseConnector.Tests.TlsAssetProbe.RunAsync();
+Console.WriteLine($"PASS: {actual} custom CA/name/expiry/EKU/intermediate/IP TLS policy on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} on .NET {Environment.Version}; {assembly.Location}");

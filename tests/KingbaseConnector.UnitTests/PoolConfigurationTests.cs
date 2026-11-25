@@ -19,6 +19,7 @@ public sealed class PoolConfigurationTests
     [InlineData("Password", "changed-key")]
     [InlineData("CompatibilityMode", "PostgreSql")]
     [InlineData("SSL Mode", "Require")]
+    [InlineData("Root Certificate", "private-other-ca.crt")]
     [InlineData("Port", "54322")]
     [InlineData("Maximum Pool Size", "2")]
     [InlineData("Minimum Pool Size", "1")]

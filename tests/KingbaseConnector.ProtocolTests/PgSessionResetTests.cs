@@ -32,29 +32,29 @@ public sealed class PgSessionResetTests
         settings.SearchPath = Baseline()[7]; settings.Timezone = Baseline()[8];
         return settings;
     }
-    internal static async Task Capture(NetworkStream stream, CancellationToken token, byte[]? response = null)
+    internal static async Task Capture(Stream stream, CancellationToken token, byte[]? response = null)
     {
         Assert.Equal(StateSql, await ReadQueryAsync(stream, token));
         await stream.WriteAsync(response ?? State(), token);
     }
-    internal static async Task Restore(NetworkStream stream, uint textOid, CancellationToken token, byte[]? response = null)
+    internal static async Task Restore(Stream stream, uint textOid, CancellationToken token, byte[]? response = null)
     {
         await ReadRestore(stream, textOid, token);
         await stream.WriteAsync(response ?? Join(Frame('1'), Frame('2'), Description(10), Row(Baseline()[4..14]), Complete(), Ready()), token);
     }
-    static async Task ReadRestore(NetworkStream stream, uint textOid, CancellationToken token, string[]? baseline = null)
+    static async Task ReadRestore(Stream stream, uint textOid, CancellationToken token, string[]? baseline = null)
     {
         var frames = await ReadExtended(stream, token);
         Assert.Equal(Frame('P', Join([0], Encoding.UTF8.GetBytes(RestoreSql + "\0"), [0, 10], Join(Enumerable.Repeat(Int32(unchecked((int)textOid)), 10).ToArray()))), frames[0]);
         var values = (baseline ?? Baseline())[4..14];
         Assert.Equal(Frame('B', Join([0, 0, 0, 0, 0, 10], Join(values.Select(v => Join(Int32(Encoding.UTF8.GetByteCount(v)), Encoding.UTF8.GetBytes(v))).ToArray()), [0, 0])), frames[1]);
     }
-    internal static async Task RefreshCatalog(NetworkStream stream, CancellationToken token, uint start = 12000)
+    internal static async Task RefreshCatalog(Stream stream, CancellationToken token, uint start = 12000)
     {
         Assert.Contains("FROM sys_catalog.sys_type", await ReadQueryAsync(stream, token));
         await stream.WriteAsync(FreshCatalog(start), token);
     }
-    internal static async Task Identity(NetworkStream stream, CancellationToken token, string product = Product)
+    internal static async Task Identity(Stream stream, CancellationToken token, string product = Product)
     {
         Assert.Equal("SELECT sys_catalog.version();", await ReadQueryAsync(stream, token));
         await stream.WriteAsync(Scalar(product), token);

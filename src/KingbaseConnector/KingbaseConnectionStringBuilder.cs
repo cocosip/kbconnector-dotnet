@@ -118,6 +118,8 @@ public sealed class KingbaseConnectionStringBuilder : DbConnectionStringBuilder
             throw new ArgumentException("Host, Database and Username must be explicitly specified.");
         if (MinPoolSize > MaxPoolSize)
             throw new ArgumentException("Minimum Pool Size must not exceed Maximum Pool Size.");
+        if (RootCertificate.Length != 0 && SslMode != KingbaseSslMode.VerifyFull)
+            throw new ArgumentException("Root Certificate requires SSL Mode=VerifyFull.");
         if (WireProtocol == KingbaseWireProtocol.MySql)
         {
             if (!ContainsKey("Port"))

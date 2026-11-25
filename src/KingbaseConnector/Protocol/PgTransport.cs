@@ -8,18 +8,18 @@ using System.Security.Cryptography.X509Certificates;
 namespace KingbaseConnector.Protocol;
 
 /// <summary>Owns one TCP stream, optionally upgraded with PG SSLRequest and platform TLS.</summary>
-internal sealed class PgTransport(TcpClient client, Stream stream) : IDisposable
+internal sealed class PgTransport(TcpClient client, Stream stream, PgCertificateTrust? trust = null) : IDisposable
 {
     int _disposed;
 
     internal Stream Stream => Volatile.Read(ref _disposed) == 0 ? stream : throw new ObjectDisposedException(nameof(PgTransport));
 
     internal static PgTransport Connect(string host, int port, KingbaseSslMode sslMode,
-        CancellationToken cancellationToken = default) =>
-        ConnectAsync(host, port, sslMode, cancellationToken).GetAwaiter().GetResult();
+        CancellationToken cancellationToken = default, string rootCertificate = "") =>
+        ConnectAsync(host, port, sslMode, cancellationToken, rootCertificate).GetAwaiter().GetResult();
 
     internal static async Task<PgTransport> ConnectAsync(string host, int port, KingbaseSslMode sslMode,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, string rootCertificate = "")
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(host) || host.IndexOf('\0') >= 0)
@@ -27,11 +27,16 @@ internal sealed class PgTransport(TcpClient client, Stream stream) : IDisposable
         if (port < 1 || port > 65535) throw new ArgumentOutOfRangeException(nameof(port));
         if (sslMode != KingbaseSslMode.Disable && sslMode != KingbaseSslMode.Require && sslMode != KingbaseSslMode.VerifyFull)
             throw new ArgumentOutOfRangeException(nameof(sslMode));
+        if (rootCertificate.Length != 0 && sslMode != KingbaseSslMode.VerifyFull)
+            throw new ArgumentException("Root Certificate requires SSL Mode=VerifyFull.");
 
         var client = new TcpClient { NoDelay = true };
         Stream? connectedStream = null;
+        PgCertificateTrust? certificateTrust = null;
         try
         {
+            if (rootCertificate.Length != 0) certificateTrust = await PgCertificateTrust.LoadAsync(rootCertificate, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             using (cancellationToken.Register(() => Abort(client)))
             {
 #if NET8_0_OR_GREATER
@@ -51,6 +56,7 @@ internal sealed class PgTransport(TcpClient client, Stream stream) : IDisposable
 
                     var ssl = sslMode == KingbaseSslMode.Require
                         ? new SslStream(connectedStream, false, (_, _, _, _) => true)
+                        : certificateTrust is not null ? new SslStream(connectedStream, false, certificateTrust.Validate)
                         : new SslStream(connectedStream, false);
                     connectedStream = ssl;
 #if NET8_0_OR_GREATER
@@ -58,6 +64,7 @@ internal sealed class PgTransport(TcpClient client, Stream stream) : IDisposable
                     {
                         TargetHost = host,
                         EnabledSslProtocols = SslProtocols.None,
+                        CertificateChainPolicy = certificateTrust?.CreatePolicy(),
                         CertificateRevocationCheckMode = X509RevocationMode.NoCheck
                     }, cancellationToken).ConfigureAwait(false);
 #else
@@ -67,12 +74,13 @@ internal sealed class PgTransport(TcpClient client, Stream stream) : IDisposable
                 }
             }
             cancellationToken.ThrowIfCancellationRequested();
-            return new PgTransport(client, connectedStream);
+            return new PgTransport(client, connectedStream, certificateTrust);
         }
         catch
         {
             try { connectedStream?.Dispose(); } catch { }
             Abort(client);
+            certificateTrust?.Dispose();
             cancellationToken.ThrowIfCancellationRequested();
             throw;
         }
@@ -87,6 +95,6 @@ internal sealed class PgTransport(TcpClient client, Stream stream) : IDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         try { stream.Dispose(); }
-        finally { client.Dispose(); }
+        finally { try { client.Dispose(); } finally { trust?.Dispose(); } }
     }
 }
