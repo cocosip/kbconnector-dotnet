@@ -146,3 +146,14 @@ malformed XML and a well-formed multi-root fragment, then verify same-session re
 external entity payload is sent to a real server. Offline codecs preserve a
 literal external-entity document without parsing it. These cases do not establish
 binary XML, network streaming, other-mode XML, COPY/arrays or routine outputs.
+
+The PG standard-schema cases read all five common collections through synchronous
+and asynchronous APIs. An independent system-keyword query checks the exact
+ReservedWords result; an actual regtype/OID query checks DataTypes identity.
+Metadata retrieval inside a local transaction preserves its owner and allows
+rollback. A separate pool case verifies the same backend is reused after close,
+mutated result tables are not cached, and an active Reader excludes metadata
+calls. No persistent objects/data are changed. Offline peers exercise invalid
+names/restrictions, field structures, optional catalog/layout filtering, UInt32
+OIDs, invariant culture, malformed/NULL/duplicate keywords, permission errors,
+timeout/cancellation/close and the existing over-budget retirement behavior.

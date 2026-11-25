@@ -41,6 +41,10 @@ XML results use `String` through `GetString`, `GetChars` and buffered `GetTextRe
 
 `KingbaseConnection`, `KingbaseCommand` and `KingbaseFactory.Instance` expose the initial public PG execution path. It currently requires PostgreSql compatibility mode. Default `Pooling=true` rents ordinary PG sessions; `Pooling=false` creates dedicated sessions. Open confirms product identity and required catalog types; text commands bind values separately from SQL. Cancellation or an interrupted exchange closes the physical session; ordinary synchronized server errors allow reuse. `KingbaseException` exposes SQLSTATE safely; its explicit server text properties may contain sensitive data.
 
+On an open PG connection, `GetSchema()` and `GetSchemaAsync()` return the five standard collections: `MetaDataCollections`, `Restrictions`, `DataSourceInformation`, `DataTypes`, and `ReservedWords`. Collection names are case-insensitive; null selects the collection directory. All five have zero restrictions: use a null or empty restriction array. Empty/unknown names and nonempty restriction arrays throw `ArgumentException`. Every call returns a fresh invariant-culture table and requires the connection to be free of active commands/Readers.
+
+`DataTypes` lists the current session's cataloged, implemented scalar mappings, with actual unsigned `TypeOid` and `ProviderSpecificDataType` extension columns. Unsupported layouts and absent optional types are omitted. Unknown size, scale, operator and generation facts remain `DBNull`. `DataSourceInformation` uses the authenticated product identity and driver parameter-name rules; its normalized product version and unconfirmed SQL capabilities remain `DBNull`. `ReservedWords` queries the trusted system function using normal command timeout/cancellation and transaction ownership. The existing 1,024-row exchange limit applies. Table/column/routine collections and other compatibility modes remain pending.
+
 ```csharp
 using var connection = new KingbaseConnection(
     "Host=localhost;Database=app;Username=user;Password=secret");

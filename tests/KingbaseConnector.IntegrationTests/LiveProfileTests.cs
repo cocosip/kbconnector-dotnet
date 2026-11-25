@@ -755,6 +755,57 @@ public sealed class LiveProfileTests
         }
     });
 
+    [LiveTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task PgStandardSchemaCollectionsMatchSessionCatalogAndKeywords(bool async) => LiveProfile.RunPg(async (settings, token) =>
+    {
+        using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
+        var expectedKeywords = new List<string>();
+        using (var command = new KingbaseCommand("SELECT word::text FROM pg_catalog.pg_get_keywords() WHERE catcode = 'R' ORDER BY word", connection))
+        using (var reader = await command.ExecuteReaderAsync(token))
+            while (reader.Read()) expectedKeywords.Add(reader.GetString(0));
+        Assert.Contains("select", expectedKeywords); Assert.Contains("where", expectedKeywords);
+        using var collections = async ? await connection.GetSchemaAsync(token) : connection.GetSchema();
+        Assert.Equal(5, collections.Rows.Count);
+        using var source = async ? await connection.GetSchemaAsync("DataSourceInformation", token) : connection.GetSchema("DataSourceInformation");
+        Assert.Equal(connection.ServerVersion, source.Rows[0]["DataSourceProductVersion"]);
+        using var types = async ? await connection.GetSchemaAsync("DataTypes", token) : connection.GetSchema("DataTypes");
+        var integers = types.Rows.Cast<DataRow>().Single(row => (string)row["TypeName"] == "int4");
+        Assert.Equal(await Scalar(connection, "SELECT 'pg_catalog.int4'::regtype::oid", token), integers["TypeOid"]);
+        using var words = async ? await connection.GetSchemaAsync("ReservedWords", token) : connection.GetSchema("ReservedWords");
+        Assert.Equal(expectedKeywords, words.Rows.Cast<DataRow>().Select(row => (string)row[0]));
+        using var restrictions = async ? await connection.GetSchemaAsync("Restrictions", token) : connection.GetSchema("Restrictions");
+        Assert.Equal(4, restrictions.Columns.Count); Assert.Equal(0, restrictions.Rows.Count);
+        using (var transaction = await connection.BeginTransactionAsync(token))
+        {
+            using var inTransaction = await connection.GetSchemaAsync("ReservedWords", token);
+            Assert.Equal(expectedKeywords, inTransaction.Rows.Cast<DataRow>().Select(row => (string)row[0]));
+            Assert.Same(connection, transaction.Connection); await transaction.RollbackAsync(token);
+        }
+        Assert.Equal(42, await Scalar(connection, "SELECT 42", token));
+    });
+
+    [LiveFact]
+    public Task PgSchemaPoolReopenReturnsFreshCurrentMetadata() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        settings.Pooling = true; settings.MaxPoolSize = 1;
+        using var source = new KingbaseDataSourceBuilder(settings.ConnectionString).Build();
+        using var connection = await source.OpenConnectionAsync(token);
+        var pid = await Scalar(connection, "SELECT pg_catalog.pg_backend_pid()", token);
+        using var initial = connection.GetSchema("DataTypes");
+        var integerOid = initial.Rows.Cast<DataRow>().Single(row => (string)row["TypeName"] == "int4")["TypeOid"];
+        initial.Rows.Clear(); await connection.CloseAsync(); await connection.OpenAsync(token);
+        Assert.Equal(pid, await Scalar(connection, "SELECT pg_catalog.pg_backend_pid()", token));
+        using var fresh = await connection.GetSchemaAsync("DataTypes", token);
+        Assert.Equal(integerOid, fresh.Rows.Cast<DataRow>().Single(row => (string)row["TypeName"] == "int4")["TypeOid"]);
+        using var words = await connection.GetSchemaAsync("ReservedWords", token);
+        Assert.Contains(words.Rows.Cast<DataRow>(), row => (string)row[0] == "select");
+        using var command = new KingbaseCommand("SELECT 1", connection); using var reader = await command.ExecuteReaderAsync(token);
+        Assert.Throws<InvalidOperationException>(() => connection.GetSchema()); reader.Close();
+        using var collections = connection.GetSchema(); Assert.Equal(5, collections.Rows.Count);
+    });
+
     static async Task<object?> Scalar(KingbaseConnection connection, string sql, CancellationToken token)
     {
         using var command = new KingbaseCommand(sql, connection);

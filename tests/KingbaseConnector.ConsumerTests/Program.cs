@@ -226,6 +226,8 @@ await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(timestamp: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(interval: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(batch: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(xml: true);
+await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(schema: true);
+Console.WriteLine($"PASS: {actual} five schema collections, actual type OIDs, typed/BCL async APIs and reserved words on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} XML OID binding, preparation, NULL, buffered text and server-error recovery on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} sequential batch preparation, parameter/result ordering and partial-success reporting on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} INTERVAL calendar/clock fields, four styles, typed NULL and exact TimeSpan access on .NET {Environment.Version}");

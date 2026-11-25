@@ -6,7 +6,7 @@ using System.Diagnostics.CodeAnalysis;
 #endif
 namespace KingbaseConnector;
 /// <summary>Owns one PG physical lease and its active command or buffered Reader.</summary>
-public sealed class KingbaseConnection : DbConnection
+public sealed partial class KingbaseConnection : DbConnection
 {
     readonly object _sync = new();
     readonly KingbaseDataSource? _owner;

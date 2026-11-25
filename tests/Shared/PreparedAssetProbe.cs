@@ -11,7 +11,7 @@ namespace KingbaseConnector.Tests;
 // The consumer compiles this against each exact archive asset, including both Standard DLLs.
 internal static class PreparedAssetProbe
 {
-    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false)
+    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false, bool schema = false)
     {
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
@@ -35,6 +35,16 @@ internal static class PreparedAssetProbe
             var rows = names.Select((name, i) => Row((12000 + i).ToString(CultureInfo.InvariantCulture), "90", "pg_catalog", name,
                 sizes[i], "b", "U", "t", "0", "0", "0", "-1")).ToArray();
             await stream.WriteAsync(Join(Description(12), Join(rows), Complete(), Ready()), token);
+            if (schema)
+            {
+                for (var i = 0; i < 2; i++)
+                {
+                    var query = await ReadFrames(stream, "PBDES", token);
+                    Require(Encoding.UTF8.GetString(query[0]).Contains("FROM pg_catalog.pg_get_keywords() WHERE catcode = 'R'", StringComparison.Ordinal));
+                    await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, 12004, -1), Row("select"), Row("where"), Complete(), Ready()), token);
+                }
+                Require(await stream.ReadAsync(new byte[1], token) == 0); return;
+            }
             if (xml)
             {
                 var preparation = await ReadFrames(stream, "PS", token);
@@ -160,6 +170,27 @@ internal static class PreparedAssetProbe
         }.ConnectionString);
         await connection.OpenAsync(token);
         using var command = new KingbaseCommand("SELECT :p", connection);
+        if (schema)
+        {
+            using var collections = await connection.GetSchemaAsync(token); Require(collections.Rows.Count == 5);
+            using var source = connection.GetSchema("DataSourceInformation");
+            Require((string)source.Rows[0]["DataSourceProductVersion"] == connection.ServerVersion);
+            using var restrictions = await connection.GetSchemaAsync("Restrictions", null, token);
+            Require(restrictions.Columns.Count == 4 && restrictions.Rows.Count == 0);
+            using var types = await ((DbConnection)connection).GetSchemaAsync("DataTypes", token);
+            var integer = types.Rows.Cast<System.Data.DataRow>().Single(row => (string)row["TypeName"] == "int4");
+            Require((uint)integer["TypeOid"] == 12002 && (int)integer["ProviderDbType"] == (int)KingbaseDbType.Integer);
+            Require((string)integer["DataType"] == typeof(int).FullName);
+            using var words = await connection.GetSchemaAsync("ReservedWords", [], token);
+            Require(words.Rows.Count == 2 && (string)words.Rows[0][0] == "select");
+            using var more = ((DbConnection)connection).GetSchema("ReservedWords"); Require(more.Rows.Count == 2);
+            try { connection.GetSchema("DataTypes", ["private-payload"]); throw new InvalidOperationException("Schema restrictions were ignored."); }
+            catch (ArgumentException error) { Require(!error.Message.Contains("private-payload", StringComparison.Ordinal)); }
+            using var canceled = new CancellationTokenSource(); canceled.Cancel();
+            try { await connection.GetSchemaAsync(canceled.Token); throw new InvalidOperationException("Schema cancellation was ignored."); }
+            catch (OperationCanceledException) { }
+            connection.Close(); await peer.WaitAsync(token); return;
+        }
         if (xml)
         {
             var parameter = new KingbaseParameter("p", "<r>汉😀&amp;</r>") { DbType = System.Data.DbType.Xml };
