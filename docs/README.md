@@ -1,6 +1,6 @@
 # KingbaseConnector Documentation
 
-Baseline date: 2026-11-23. Last updated: 2026-11-24. The repository includes the DP01 engineering foundation, DP03 first configuration slice, and DP04 initial PG framing/control parsers: a five-target core, strongly typed settings, offline unit/stream simulation tests, opt-in live gate, packaging, and explicit package-asset consumers. See the progress tracker for implementation boundaries and validation evidence; no live server is accepted.
+Baseline date: 2026-11-23. Last updated: 2026-11-25. The repository implements bounded public PG execution, ordinary pooling, local transactions, preparation, sequential batches, scalar/temporal values, schema collections and declared Reader type facets, plus the five-target core and separate DI package. The progress tracker owns current implementation and per-profile SIM/LIVE evidence. Four-mode bootstrap and bounded PG LIVE cases do not establish complete mode/version/platform acceptance. Real-server TLS acceptance is temporarily deferred at the user's request because the supplied endpoints do not support TLS; offline TLS tests remain required.
 
 | Document | Purpose |
 | --- | --- |

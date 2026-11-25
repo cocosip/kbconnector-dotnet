@@ -243,3 +243,13 @@ rows while all four collections exclude the other session's temporary schema.
 Temporary session cleanup or rollback removes all fixtures and local grants.
 No value codecs, CLR mappings, anonymous record or other-mode acceptance is
 established. Deployment configuration and raw results remain external.
+
+Reader declared-facet cases use only constant expressions and session-owned
+connections. Prepared and ordinary execution check VARCHAR/CHAR character
+lengths, NUMERIC precision/scale up to precision 1000, unconstrained types,
+Unicode aliases, typed NULL and empty results. Literal expected modifiers and
+facets are checked against both BCL schema APIs without per-row catalog queries.
+The currently supplied PG profile rejects negative scale and scale greater than
+precision with 22023; these decoder boundaries have SIM coverage only. Base
+names, keys and nullability remain unknown. The user temporarily deferred LIVE
+TLS because the supplied endpoints do not support it; offline TLS remains required.

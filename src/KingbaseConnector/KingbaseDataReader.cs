@@ -175,17 +175,31 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     public ReadOnlyCollection<DbColumn> GetColumnSchema()
     {
         var schema = new List<DbColumn>(FieldCount);
-        for (var i = 0; i < FieldCount; i++) schema.Add(new ResultColumn(GetName(i), i, GetFieldType(i), GetDataTypeName(i)));
+        for (var i = 0; i < FieldCount; i++)
+            schema.Add(new ResultColumn(GetName(i), i, GetFieldType(i), GetDataTypeName(i), Column(i).TypeModifier));
         return schema.AsReadOnly();
     }
     sealed class ResultColumn : DbColumn
     {
-        internal ResultColumn(string name, int ordinal, Type type, string typeName)
+        internal ResultColumn(string name, int ordinal, Type type, string typeName, int modifier)
         {
             ColumnName = name;
             ColumnOrdinal = ordinal;
             DataType = type;
             DataTypeName = typeName;
+            if (typeName is "varchar" or "bpchar" && modifier > 4) ColumnSize = modifier - 4;
+            if (typeName == "numeric" && modifier >= 4)
+            {
+                var encoded = modifier - 4;
+                var precision = encoded >> 16;
+                var scale = ((encoded & 0x7ff) ^ 0x400) - 0x400;
+                // Only expose the supported PG numeric encoding; unrecognized modifiers stay unknown.
+                if ((encoded & 0xf800) == 0 && precision is >= 1 and <= 1000 && scale is >= -1000 and <= 1000)
+                {
+                    NumericPrecision = precision;
+                    NumericScale = scale;
+                }
+            }
         }
     }
     public override DataTable GetSchemaTable()
@@ -200,19 +214,23 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
             (SchemaTableColumn.BaseTableName, typeof(string)), (SchemaTableColumn.BaseColumnName, typeof(string)),
             ("DataTypeName", typeof(string)), ("DataTypeOID", typeof(uint)), ("BaseTableOID", typeof(uint)),
             ("ColumnAttributeNumber", typeof(short)), ("TypeModifier", typeof(int)) }) table.Columns.Add(name, type);
-        for (var i = 0; i < FieldCount; i++)
+        var schema = GetColumnSchema();
+        for (var i = 0; i < schema.Count; i++)
         {
             var column = Column(i);
             var row = table.NewRow();
             row[SchemaTableColumn.ColumnName] = column.Name;
             row[SchemaTableColumn.ColumnOrdinal] = i;
-            row[SchemaTableColumn.DataType] = GetFieldType(i);
+            row[SchemaTableColumn.DataType] = schema[i].DataType!;
             row["ProviderSpecificDataType"] = GetProviderSpecificFieldType(i);
-            row["DataTypeName"] = GetDataTypeName(i);
+            row["DataTypeName"] = schema[i].DataTypeName!;
             row["DataTypeOID"] = column.TypeOid;
             row["BaseTableOID"] = column.TableOid;
             row["ColumnAttributeNumber"] = column.AttributeNumber;
             row["TypeModifier"] = column.TypeModifier;
+            if (schema[i].ColumnSize is { } size) row[SchemaTableColumn.ColumnSize] = size;
+            if (schema[i].NumericPrecision is { } precision) row[SchemaTableColumn.NumericPrecision] = (short)precision;
+            if (schema[i].NumericScale is { } scale) row[SchemaTableColumn.NumericScale] = (short)scale;
             table.Rows.Add(row);
         }
         return table;

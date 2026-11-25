@@ -11,7 +11,7 @@ namespace KingbaseConnector.Tests;
 // The consumer compiles this against each exact archive asset, including both Standard DLLs.
 internal static class PreparedAssetProbe
 {
-    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false, bool schema = false)
+    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false, bool schema = false, bool readerSchema = false)
     {
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
@@ -30,11 +30,22 @@ internal static class PreparedAssetProbe
             await stream.WriteAsync(Join(Description(1), Row("KingbaseES V009R001C001B0001"), Complete(), Ready()), token);
             var catalogQuery = await ReadFrames(stream, "Q", token);
             Require(Encoding.UTF8.GetString(catalogQuery[0]).Contains("FROM sys_catalog.sys_type", StringComparison.Ordinal));
-            var names = new[] { "bool", "int2", "int4", "int8", "text", "bytea", "date", "time", "timetz", "timestamp", "timestamptz", "interval", "xml" };
-            var sizes = new[] { "1", "2", "4", "8", "-1", "-1", "4", "8", "12", "8", "8", "16", "-1" };
+            var names = new[] { "bool", "int2", "int4", "int8", "text", "bytea", "date", "time", "timetz", "timestamp", "timestamptz", "interval", "xml", "numeric", "varchar", "bpchar" };
+            var sizes = new[] { "1", "2", "4", "8", "-1", "-1", "4", "8", "12", "8", "8", "16", "-1", "-1", "-1", "-1" };
             var rows = names.Select((name, i) => Row((12000 + i).ToString(CultureInfo.InvariantCulture), "90", "pg_catalog", name,
                 sizes[i], "b", "U", "t", "0", "0", "0", "-1")).ToArray();
             await stream.WriteAsync(Join(Description(12), Join(rows), Complete(), Ready()), token);
+            if (readerSchema)
+            {
+                foreach (var (oid, modifier) in new[] { (12014, 21), (12015, 9), (12013, 786439), (12013, 329730), (12013, -1) })
+                    for (var empty = 0; empty < 2; empty++)
+                    {
+                        await ReadFrames(stream, "PBDES", token);
+                        var description = Frame('T', Join(Count(1), Encoding.UTF8.GetBytes("alias\0"), new byte[6], Int32(oid), Count(-1), Int32(modifier), Count(0)));
+                        await stream.WriteAsync(Join(Frame('1'), Frame('2'), description, empty == 0 ? Row((string?)null) : [], Complete(), Ready()), token);
+                    }
+                Require(await stream.ReadAsync(new byte[1], token) == 0); return;
+            }
             if (schema)
             {
                 for (var i = 0; i < 2; i++)
@@ -267,6 +278,25 @@ internal static class PreparedAssetProbe
         }.ConnectionString);
         await connection.OpenAsync(token);
         using var command = new KingbaseCommand("SELECT :p", connection);
+        if (readerSchema)
+        {
+            command.CommandText = "SELECT NULL";
+            foreach (var (size, precision, scale) in new (int?, int?, int?)[] { (17, null, null), (5, null, null), (null, 12, 3), (null, 5, -2), (null, null, null) })
+                for (var empty = 0; empty < 2; empty++)
+                {
+                    using DbDataReader reader = await command.ExecuteReaderAsync(token);
+                    var column = ((IDbColumnSchemaGenerator)reader).GetColumnSchema().Single();
+                    Require(column.ColumnSize == size && column.NumericPrecision == precision && column.NumericScale == scale);
+                    using var table = reader.GetSchemaTable()!;
+                    Require(Equals(table.Rows[0][System.Data.Common.SchemaTableColumn.ColumnSize], size is { } length ? length : DBNull.Value));
+                    Require(Equals(table.Rows[0][System.Data.Common.SchemaTableColumn.NumericPrecision], precision is { } digits ? (short)digits : DBNull.Value));
+                    Require(Equals(table.Rows[0][System.Data.Common.SchemaTableColumn.NumericScale], scale is { } fraction ? (short)fraction : DBNull.Value));
+                    Require(column.AllowDBNull is null && column.IsKey is null && column.BaseTableName is null);
+                    Require(reader.Read() == (empty == 0));
+                    if (empty == 0) Require(reader.IsDBNull(0));
+                }
+            connection.Close(); await peer.WaitAsync(token); return;
+        }
         if (schema)
         {
             using var collections = await connection.GetSchemaAsync(token); Require(collections.Rows.Count == 29);
