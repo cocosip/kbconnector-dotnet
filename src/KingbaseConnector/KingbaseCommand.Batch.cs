@@ -13,6 +13,7 @@ public sealed partial class KingbaseCommand
         var allResults = new List<PgTextResult>();
         var totalRows = 0; var totalColumns = 0; long totalBytes = 0; long totalAffected = 0;
         var scalarSelected = false;
+        var schemaOnly = (behavior & CommandBehavior.SchemaOnly) != 0;
         for (var index = 0; index < commands.Length; index++)
         {
             var command = commands[index];
@@ -46,7 +47,9 @@ public sealed partial class KingbaseCommand
                     command.PreparedGeneration == generation && statement.Sql == bindings.Sql && statement.LexicalStatus == lexicalStatus &&
                     statement.TypeOids.SequenceEqual(bindings.Parameters.Select(p => p.TypeOid));
                 IReadOnlyList<PgTextResult> results;
-                if (usePrepared)
+                if (schemaOnly)
+                    results = await queries.DescribeAsync(bindings.Sql, session.Catalog, bindings.Parameters.Select(p => p.TypeOid).ToArray(), token).ConfigureAwait(false);
+                else if (usePrepared)
                     results = await queries.ExecutePreparedAsync(statement!, session.Catalog, bindings.Parameters, token).ConfigureAwait(false);
                 else
                 {
@@ -56,12 +59,12 @@ public sealed partial class KingbaseCommand
                     results = automatic.Results;
                 }
                 // Acknowledgment remains visible even if local result validation or the following deadline check fails.
-                command.ExecutionStatus = KingbaseBatchCommandStatus.Succeeded;
+                if (!schemaOnly) command.ExecutionStatus = KingbaseBatchCommandStatus.Succeeded;
                 foreach (var result in results)
                     if (KingbaseDataReader.AffectedCount(result.CommandTag) is { } count)
                         command.Affected = command.Affected < 0 ? count : checked(command.Affected + count);
                 connection.ObserveTransaction(this, session, generation, KingbaseTransactionOperation.None, true,
-                    queries.TransactionStatus, bindings.EndsTransaction);
+                    queries.TransactionStatus, !schemaOnly && bindings.EndsTransaction);
                 checkMode();
                 using (var validation = new KingbaseDataReader(results, session.Catalog))
                 {
@@ -91,7 +94,7 @@ public sealed partial class KingbaseCommand
             }
             catch
             {
-                if (operation == Operation.Execute && command.ExecutionStatus == KingbaseBatchCommandStatus.NotExecuted)
+                if (operation == Operation.Execute && !schemaOnly && command.ExecutionStatus == KingbaseBatchCommandStatus.NotExecuted)
                     command.ExecutionStatus = queries.ExecutionWriteAttempts != writes && (!session.IsUsable || queries.UncertainError is not null)
                         ? KingbaseBatchCommandStatus.OutcomeUnknown : KingbaseBatchCommandStatus.Failed;
                 throw;

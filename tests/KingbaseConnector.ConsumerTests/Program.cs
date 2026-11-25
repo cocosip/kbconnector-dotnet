@@ -228,6 +228,8 @@ await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(batch: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(xml: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(schema: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(readerSchema: true);
+await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(schemaOnly: true);
+Console.WriteLine($"PASS: {actual} command/batch SchemaOnly without Bind/Execute, affected counts or executed statuses on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} Reader character lengths and numeric precision/signed scale, NULL/empty results and BCL schema agreement on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} twenty-seven canonical schema collections plus two aliases, 87 restrictions, UDT/routine/database/user/constraint/generation/sequence/relational facts and actual type OIDs on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} XML OID binding, preparation, NULL, buffered text and server-error recovery on .NET {Environment.Version}");

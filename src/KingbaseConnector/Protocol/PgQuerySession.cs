@@ -30,7 +30,7 @@ internal sealed class PgQueryException(PgServerError error)
     internal PgServerError ServerError { get; } = error;
 }
 
-internal enum PgQueryExchange { Simple, Extended, Prepare, PreparedExecution, Close }
+internal enum PgQueryExchange { Simple, Extended, Prepare, PreparedExecution, Close, Describe }
 
 /// <summary>Owns an authenticated wire and executes bounded PG exchanges with text results.</summary>
 internal sealed partial class PgQuerySession : IDisposable
@@ -78,6 +78,19 @@ internal sealed partial class PgQuerySession : IDisposable
         IReadOnlyList<PgQueryParameter> parameters, CancellationToken cancellationToken = default) =>
         ExecuteCoreAsync(() => PgExtendedQuery.Encode(sql, catalog, parameters), PgQueryExchange.Extended, cancellationToken);
 
+    internal Task<IReadOnlyList<PgTextResult>> DescribeAsync(string sql, PgTypeCatalog catalog,
+        IReadOnlyList<uint> typeOids, CancellationToken token = default) => OwnAsync(async () =>
+        {
+            if (typeOids is null) throw new ArgumentNullException(nameof(typeOids));
+            if (typeOids.Count > 1024) throw new ArgumentException("PG description exceeds the parameter limit.", nameof(typeOids));
+            var snapshot = typeOids.Take(1025).ToArray();
+            if (snapshot.Length != typeOids.Count || snapshot.Length > 1024)
+                throw new ArgumentException("Invalid PG description parameter types.", nameof(typeOids));
+            var codecs = new PgTextCodecs(catalog);
+            foreach (var oid in snapshot) codecs.Encode(oid, null);
+            return await ExchangeAsync(() => PgExtendedQuery.EncodeDescribe(sql, snapshot), PgQueryExchange.Describe, token, snapshot).ConfigureAwait(false);
+        }, token);
+
     internal Task<IReadOnlyList<PgTextResult>> ExecuteAsync(string sql,
         CancellationToken cancellationToken = default) => ExecuteCoreAsync(() =>
         {
@@ -99,10 +112,11 @@ internal sealed partial class PgQuerySession : IDisposable
     }
 
     async Task<IReadOnlyList<PgTextResult>> ExchangeAsync(Func<byte[][]> encode, PgQueryExchange exchange,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, IReadOnlyList<uint>? describedTypes = null)
     {
         var extended = exchange != PgQueryExchange.Simple;
         var control = exchange is PgQueryExchange.Prepare or PgQueryExchange.Close;
+        var describe = exchange == PgQueryExchange.Describe;
         CommandRejection = null;
         UncertainError = null;
         var started = false;
@@ -145,9 +159,17 @@ internal sealed partial class PgQuerySession : IDisposable
                 switch (message.Code)
                 {
                     case (byte)'1':
-                        if (exchange is not (PgQueryExchange.Extended or PgQueryExchange.Prepare) || extendedPhase != 0 || message.Payload.Length != 0)
+                        if (exchange is not (PgQueryExchange.Extended or PgQueryExchange.Prepare or PgQueryExchange.Describe) || extendedPhase != 0 || message.Payload.Length != 0)
                             throw InvalidExchange();
                         extendedPhase = 1;
+                        break;
+                    case (byte)'t':
+                        if (!describe || extendedPhase != 1 || describedTypes is null || message.Payload.Length != 2 + 4 * describedTypes.Count ||
+                            ((message.Payload[0] << 8) | message.Payload[1]) != describedTypes.Count)
+                            throw InvalidExchange();
+                        for (var i = 0; i < describedTypes.Count; i++)
+                            if (unchecked((uint)PgBinary.ReadInt32(message.Payload, 2 + 4 * i)) != describedTypes[i]) throw InvalidExchange();
+                        extendedPhase = 2;
                         break;
                     case (byte)'3':
                         if (exchange != PgQueryExchange.Close || extendedPhase != 0 || message.Payload.Length != 0) throw InvalidExchange();
@@ -160,6 +182,7 @@ internal sealed partial class PgQuerySession : IDisposable
                         break;
                     case (byte)'n':
                         if (!extended || extendedPhase != 2 || message.Payload.Length != 0) throw InvalidExchange();
+                        if (describe) results.Add(new PgTextResult(Array.Empty<PgColumnDescription>(), Array.Empty<IReadOnlyList<string?>>(), null));
                         extendedPhase = 3;
                         break;
                     case (byte)'T':
@@ -169,10 +192,16 @@ internal sealed partial class PgQuerySession : IDisposable
                         rows = new List<IReadOnlyList<string?>>();
                         _parameters.TryGetValue("DateStyle", out dateStyle);
                         _parameters.TryGetValue("IntervalStyle", out intervalStyle);
+                        if (describe)
+                        {
+                            results.Add(new PgTextResult(columns, Array.Empty<IReadOnlyList<string?>>(), null, dateStyle, intervalStyle));
+                            columns = null;
+                            rows = null;
+                        }
                         extendedPhase = 3;
                         break;
                     case (byte)'D':
-                        if (columns is null || totalRows == MaxRows) throw InvalidExchange();
+                        if (describe || columns is null || totalRows == MaxRows) throw InvalidExchange();
                         _parameters.TryGetValue("DateStyle", out var rowStyle);
                         if (rows!.Count == 0) dateStyle = rowStyle;
                         else if (rowStyle != dateStyle) dateStyle = null;
@@ -183,7 +212,7 @@ internal sealed partial class PgQuerySession : IDisposable
                         totalRows++;
                         break;
                     case (byte)'C':
-                        if (control || (extended && extendedPhase != 3)) throw InvalidExchange();
+                        if (control || describe || (extended && extendedPhase != 3)) throw InvalidExchange();
                         if (emptyQuery || results.Count == MaxResults) throw InvalidExchange();
                         var offset = 0;
                         var tag = PgBinary.ReadCString(message.Payload, ref offset);
@@ -197,7 +226,7 @@ internal sealed partial class PgQuerySession : IDisposable
                         extendedPhase = 4;
                         break;
                     case (byte)'I':
-                        if (control || (extended && extendedPhase != 3)) throw InvalidExchange();
+                        if (control || describe || (extended && extendedPhase != 3)) throw InvalidExchange();
                         if (columns is not null || message.Payload.Length != 0 || results.Count != 0)
                             throw InvalidExchange();
                         results.Add(new PgTextResult(Array.Empty<PgColumnDescription>(), Array.Empty<IReadOnlyList<string?>>(), null));
@@ -226,7 +255,7 @@ internal sealed partial class PgQuerySession : IDisposable
                         rows = null;
                         break;
                     case (byte)'Z':
-                        if (extended && serverError is null && extendedPhase != (control ? 1 : 4)) throw InvalidExchange();
+                        if (extended && serverError is null && extendedPhase != (control ? 1 : describe ? 3 : 4)) throw InvalidExchange();
                         if (columns is not null || (!control && serverError is null && results.Count == 0)) throw InvalidExchange();
                         TransactionStatus = PgBackendMessages.ParseReadyForQuery(message.Payload);
                         ThrowIfDisposed();

@@ -253,3 +253,13 @@ The currently supplied PG profile rejects negative scale and scale greater than
 precision with 22023; these decoder boundaries have SIM coverage only. Base
 names, keys and nullability remain unknown. The user temporarily deferred LIVE
 TLS because the supplied endpoints do not support it; offline TLS remains required.
+
+SchemaOnly cases create session-owned temporary tables/sequences and verify
+that ordinary and explicitly prepared descriptions do not execute INSERT,
+UPDATE, DELETE, TRUNCATE, CREATE TABLE, nextval or COMMIT. Independent count,
+stored-value, sequence-is_called and to_regclass checks establish absence of
+effects; rollback after a described COMMIT preserves the original value.
+Prepared sequential batches expose all descriptions with NotExecuted statuses,
+then execute normally when explicitly requested. Missing-column errors recover
+on the same session. All fixtures disappear with session cleanup; other modes,
+KeyInfo and complete Reader metadata acceptance remain open.

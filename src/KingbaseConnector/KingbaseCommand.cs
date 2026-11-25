@@ -154,7 +154,7 @@ public sealed partial class KingbaseCommand : DbCommand
             const CommandBehavior known = CommandBehavior.SingleResult | CommandBehavior.SchemaOnly | CommandBehavior.KeyInfo |
                 CommandBehavior.SingleRow | CommandBehavior.SequentialAccess | CommandBehavior.CloseConnection;
             if ((behavior & ~known) != 0) throw new ArgumentOutOfRangeException(nameof(behavior));
-            if ((behavior & (CommandBehavior.SchemaOnly | CommandBehavior.KeyInfo | CommandBehavior.SequentialAccess)) != 0)
+            if ((behavior & (CommandBehavior.KeyInfo | CommandBehavior.SequentialAccess)) != 0)
                 throw new NotSupportedException("This CommandBehavior requires an unimplemented execution contract.");
             if (operation != Operation.Unprepare && _batch is null)
             {
@@ -233,9 +233,12 @@ public sealed partial class KingbaseCommand : DbCommand
             var usePrepared = prepared is not null && prepared.IsValid && ReferenceEquals(prepared.Owner, queries) &&
                 preparedGeneration == generation && prepared.Sql == bindings.Sql && prepared.LexicalStatus == status &&
                 prepared.TypeOids.SequenceEqual(bindings.Parameters.Select(p => p.TypeOid));
-            if (!usePrepared) lock (_sync) _prepared = null;
+            var schemaOnly = (behavior & CommandBehavior.SchemaOnly) != 0;
+            if (!schemaOnly && !usePrepared) lock (_sync) _prepared = null;
             IReadOnlyList<PgTextResult> results;
-            if (usePrepared)
+            if (schemaOnly)
+                results = await queries.DescribeAsync(bindings.Sql, session.Catalog, bindings.Parameters.Select(p => p.TypeOid).ToArray(), linked.Token).ConfigureAwait(false);
+            else if (usePrepared)
                 results = await queries.ExecutePreparedAsync(prepared!, session.Catalog, bindings.Parameters, linked.Token).ConfigureAwait(false);
             else if (_transactionOperation == KingbaseTransactionOperation.None)
             {
@@ -255,7 +258,7 @@ public sealed partial class KingbaseCommand : DbCommand
                 acknowledged = true;
             }
             CheckMode();
-            connection.ObserveTransaction(this, session, generation, _transactionOperation, true, queries.TransactionStatus, bindings.EndsTransaction);
+            connection.ObserveTransaction(this, session, generation, _transactionOperation, true, queries.TransactionStatus, !schemaOnly && bindings.EndsTransaction);
             acknowledged = true;
             if (rolledBack) throw new KingbaseTransactionException(outcomeUnknown: false);
             if (_transactionOperation is not KingbaseTransactionOperation.None and not KingbaseTransactionOperation.Begin)

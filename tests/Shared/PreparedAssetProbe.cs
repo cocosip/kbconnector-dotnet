@@ -11,7 +11,7 @@ namespace KingbaseConnector.Tests;
 // The consumer compiles this against each exact archive asset, including both Standard DLLs.
 internal static class PreparedAssetProbe
 {
-    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false, bool schema = false, bool readerSchema = false)
+    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false, bool schema = false, bool readerSchema = false, bool schemaOnly = false)
     {
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
@@ -35,6 +35,31 @@ internal static class PreparedAssetProbe
             var rows = names.Select((name, i) => Row((12000 + i).ToString(CultureInfo.InvariantCulture), "90", "pg_catalog", name,
                 sizes[i], "b", "U", "t", "0", "0", "0", "-1")).ToArray();
             await stream.WriteAsync(Join(Description(12), Join(rows), Complete(), Ready()), token);
+            if (schemaOnly)
+            {
+                var first = await ReadFrames(stream, "PDS", token);
+                Require(first[0].SequenceEqual(Frame('P', Join(Encoding.UTF8.GetBytes("\0SELECT $1\0"), Count(1), Int32(12002)))));
+                Require(first[1].SequenceEqual(Frame('D', [(byte)'S', 0])));
+                await stream.WriteAsync(Join(Frame('1'), Frame('t', Join(Count(1), Int32(12002))), Description(1, 12002, 4), Ready()), token);
+                for (var index = 0; index < 2; index++)
+                {
+                    await ReadFrames(stream, "PDS", token);
+                    await stream.WriteAsync(Join(Frame('1'), Frame('t', Count(0)), index == 0 ? Description(1, 12002, 4) : Frame('n'), Ready()), token);
+                }
+                await ReadFrames(stream, "PBDES", token);
+                await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, 12002, 4), Row("42"), Complete(), Ready()), token);
+                await ReadFrames(stream, "PS", token); await stream.WriteAsync(Join(Frame('1'), Ready()), token);
+                await ReadFrames(stream, "PDS", token);
+                await stream.WriteAsync(Join(Frame('1'), Frame('t', Join(Count(1), Int32(12004))), Description(1, 12004, -1), Ready()), token);
+                await ReadFrames(stream, "BDES", token);
+                await stream.WriteAsync(Join(Frame('2'), Description(1, 12002, 4), Row("42"), Complete(), Ready()), token);
+                await ReadFrames(stream, "CS", token); await stream.WriteAsync(Join(Frame('3'), Ready()), token);
+                await ReadFrames(stream, "PDS", token);
+                await stream.WriteAsync(Join(Frame('1'), Frame('t', Count(0)), Description(1, 12002, 4), Ready()), token);
+                await ReadFrames(stream, "PDS", token);
+                await stream.WriteAsync(Join(Frame('E', Encoding.UTF8.GetBytes("SERROR\0C42703\0Mprivate-error\0\0")), Ready()), token);
+                Require(await stream.ReadAsync(new byte[1], token) == 0); return;
+            }
             if (readerSchema)
             {
                 foreach (var (oid, modifier) in new[] { (12014, 21), (12015, 9), (12013, 786439), (12013, 329730), (12013, -1) })
@@ -278,6 +303,38 @@ internal static class PreparedAssetProbe
         }.ConnectionString);
         await connection.OpenAsync(token);
         using var command = new KingbaseCommand("SELECT :p", connection);
+        if (schemaOnly)
+        {
+            command.Parameters.AddWithValue("p", 42);
+            using (var reader = await command.ExecuteReaderAsync(System.Data.CommandBehavior.SchemaOnly, token))
+                Require(reader.FieldCount == 1 && reader.GetFieldType(0) == typeof(int) && !reader.Read() && reader.RecordsAffected == -1);
+            using var schemaBatch = connection.CreateBatch();
+            schemaBatch.BatchCommands.Add(new KingbaseBatchCommand("INSERT INTO never_executed VALUES(1) RETURNING id"));
+            schemaBatch.BatchCommands.Add(new KingbaseBatchCommand("DELETE FROM never_executed"));
+            using (var reader = await schemaBatch.ExecuteReaderAsync(System.Data.CommandBehavior.SchemaOnly, token))
+            {
+                Require(reader.FieldCount == 1 && !reader.Read() && reader.NextResult());
+                Require(reader.FieldCount == 0 && !reader.Read() && !reader.NextResult() && reader.RecordsAffected == -1);
+            }
+            Require(schemaBatch.FailedCommandIndex is null && schemaBatch.BatchCommands.Cast<KingbaseBatchCommand>().All(item =>
+                item.ExecutionStatus == KingbaseBatchCommandStatus.NotExecuted && item.RecordsAffected == -1));
+            Require(Equals(42, await command.ExecuteScalarAsync(token)));
+            await command.PrepareAsync(token); command.Parameters[0].Value = "schema";
+            using (var reader = await command.ExecuteReaderAsync(System.Data.CommandBehavior.SchemaOnly, token)) Require(reader.GetFieldType(0) == typeof(string));
+            command.Parameters[0].Value = 42; Require(Equals(42, await command.ExecuteScalarAsync(token))); await command.UnprepareAsync(token);
+            schemaBatch.BatchCommands[1].CommandText = "SELECT missing";
+            try
+            {
+                using var unexpected = await schemaBatch.ExecuteReaderAsync(System.Data.CommandBehavior.SchemaOnly, token);
+                throw new InvalidOperationException("SchemaOnly batch failure was not reported.");
+            }
+            catch (KingbaseException error)
+            {
+                Require(error.SqlState == "42703" && ReferenceEquals(error.BatchCommand, schemaBatch.BatchCommands[1]) && schemaBatch.FailedCommandIndex == 1);
+                Require(schemaBatch.BatchCommands.Cast<KingbaseBatchCommand>().All(item => item.ExecutionStatus == KingbaseBatchCommandStatus.NotExecuted && item.RecordsAffected == -1));
+            }
+            connection.Close(); await peer.WaitAsync(token); return;
+        }
         if (readerSchema)
         {
             command.CommandText = "SELECT NULL";

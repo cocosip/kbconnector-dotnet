@@ -168,7 +168,7 @@ public sealed class PublicExecutionTests
         using var canceled = new CancellationTokenSource(); canceled.Cancel();
         var e = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => command.ExecuteScalarAsync(canceled.Token));
         Assert.Equal(canceled.Token, e.CancellationToken);
-        foreach (var behavior in new[] { CommandBehavior.SchemaOnly, CommandBehavior.KeyInfo, CommandBehavior.SequentialAccess })
+        foreach (var behavior in new[] { CommandBehavior.KeyInfo, CommandBehavior.SequentialAccess })
             await Assert.ThrowsAsync<NotSupportedException>(() => command.ExecuteReaderAsync(behavior, guard.Token));
         command.CommandType = CommandType.StoredProcedure;
         await Assert.ThrowsAsync<NotSupportedException>(() => command.ExecuteScalarAsync(guard.Token));

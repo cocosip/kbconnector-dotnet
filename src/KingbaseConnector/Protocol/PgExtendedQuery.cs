@@ -22,6 +22,17 @@ internal static class PgExtendedQuery
         return [Parse(sql, oids, name, (int)length), PgFrontendMessages.Sync()];
     }
 
+    internal static byte[][] EncodeDescribe(string sql, IReadOnlyList<uint> oids)
+    {
+        var frames = EncodePrepare(sql, oids, "");
+        if (frames[0].Length + 12 > MaxBytes)
+        {
+            Array.Clear(frames[0], 0, frames[0].Length);
+            throw TooLarge();
+        }
+        return [frames[0], [(byte)'D', 0, 0, 0, 6, (byte)'S', 0], frames[1]];
+    }
+
     internal static byte[][] EncodeClose(string name)
     {
         var message = new byte[6 + PgFrontendMessages.CStringLength(name)];
