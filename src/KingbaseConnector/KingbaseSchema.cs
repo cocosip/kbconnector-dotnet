@@ -8,14 +8,15 @@ namespace KingbaseConnector;
 internal static class KingbaseSchema
 {
     internal const string KeywordsSql = "SELECT word::text FROM pg_catalog.pg_get_keywords() WHERE catcode = 'R' ORDER BY word";
-    static readonly string[] Names = ["MetaDataCollections", "Restrictions", "DataSourceInformation", "DataTypes", "ReservedWords"];
+    static readonly string[] Names = ["MetaDataCollections", "Restrictions", "DataSourceInformation", "DataTypes", "ReservedWords", "Schemas", "Tables", "Views", "Columns"];
 
     internal static string Resolve(string? name, string?[]? restrictions)
     {
-        if (restrictions is { Length: > 0 }) throw new ArgumentException("This schema collection does not support restrictions.", nameof(restrictions));
-        if (name is null) return Names[0];
-        return Names.FirstOrDefault(value => value.Equals(name, StringComparison.OrdinalIgnoreCase)) ??
+        var resolved = name is null ? Names[0] : Names.FirstOrDefault(value => value.Equals(name, StringComparison.OrdinalIgnoreCase)) ??
             throw new ArgumentException("Unknown or unimplemented Kingbase schema collection.", nameof(name));
+        if (restrictions is not null && restrictions.Length > (KingbaseObjectSchema.Find(resolved)?.Restrictions.Length ?? 0))
+            throw new ArgumentException("Too many restrictions for this schema collection.", nameof(restrictions));
+        return resolved;
     }
 
     internal static DataTable Create(string name, KingbaseProductVersion version, PgTypeCatalog catalog)
@@ -24,10 +25,18 @@ internal static class KingbaseSchema
         {
             case "MetaDataCollections":
                 var collections = Table(name, ("CollectionName", typeof(string)), ("NumberOfRestrictions", typeof(int)), ("NumberOfIdentifierParts", typeof(int)));
-                foreach (var item in Names) collections.Rows.Add(item, 0, 0);
+                foreach (var item in Names)
+                {
+                    var definition = KingbaseObjectSchema.Find(item);
+                    collections.Rows.Add(item, definition?.Restrictions.Length ?? 0, definition?.IdentifierParts ?? 0);
+                }
                 return collections;
             case "Restrictions":
-                return Table(name, ("CollectionName", typeof(string)), ("RestrictionName", typeof(string)), ("RestrictionDefault", typeof(string)), ("RestrictionNumber", typeof(int)));
+                var restrictions = Table(name, ("CollectionName", typeof(string)), ("RestrictionName", typeof(string)), ("RestrictionDefault", typeof(string)), ("RestrictionNumber", typeof(int)));
+                foreach (var definition in KingbaseObjectSchema.All)
+                    for (var i = 0; i < definition.Restrictions.Length; i++)
+                        restrictions.Rows.Add(definition.Name, definition.Restrictions[i], DBNull.Value, i + 1);
+                return restrictions;
             case "DataSourceInformation": return Source(version);
             case "DataTypes": return Types(catalog);
             default: throw new ArgumentException("This schema collection requires server retrieval.", nameof(name));
@@ -128,7 +137,7 @@ internal static class KingbaseSchema
         catch { table.Dispose(); throw; }
     }
 
-    static DataTable Table(string name, params (string Name, Type Type)[] columns)
+    internal static DataTable Table(string name, params (string Name, Type Type)[] columns)
     {
         var table = new DataTable(name) { Locale = CultureInfo.InvariantCulture };
         foreach (var column in columns) table.Columns.Add(column.Name, column.Type);

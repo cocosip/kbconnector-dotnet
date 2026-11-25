@@ -43,6 +43,36 @@ internal static class PreparedAssetProbe
                     Require(Encoding.UTF8.GetString(query[0]).Contains("FROM pg_catalog.pg_get_keywords() WHERE catcode = 'R'", StringComparison.Ordinal));
                     await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, 12004, -1), Row("select"), Row("where"), Complete(), Ready()), token);
                 }
+                foreach (var name in new[] { "schemata", "tables", "views", "columns" })
+                {
+                    var query = await ReadFrames(stream, "PBDES", token);
+                    var sql = Encoding.UTF8.GetString(query[0]);
+                    Require(sql.Contains("FROM information_schema." + name, StringComparison.Ordinal));
+                    Require(sql.Contains("COLLATE pg_catalog.\"C\" OPERATOR(pg_catalog.=) $1", StringComparison.Ordinal));
+                    Require(!sql.Contains("MiXeD汉%_'", StringComparison.Ordinal));
+                    Require(Encoding.UTF8.GetString(query[1]).Contains("MiXeD汉%_'", StringComparison.Ordinal));
+                    var fieldNames = name == "schemata" ? new[] { "CATALOG_NAME", "SCHEMA_NAME", "SCHEMA_OWNER" } :
+                        name == "tables" ? ["TABLE_CATALOG", "TABLE_SCHEMA", "TABLE_NAME", "TABLE_TYPE"] :
+                        name == "views" ? ["TABLE_CATALOG", "TABLE_SCHEMA", "TABLE_NAME", "VIEW_DEFINITION", "CHECK_OPTION", "IS_UPDATABLE"] :
+                        ["TABLE_CATALOG", "TABLE_SCHEMA", "TABLE_NAME", "COLUMN_NAME", "ORDINAL_POSITION", "COLUMN_DEFAULT", "IS_NULLABLE", "DATA_TYPE",
+                            "CHARACTER_MAXIMUM_LENGTH", "CHARACTER_OCTET_LENGTH", "NUMERIC_PRECISION", "NUMERIC_PRECISION_RADIX", "NUMERIC_SCALE",
+                            "DATETIME_PRECISION", "INTERVAL_TYPE", "INTERVAL_PRECISION", "UDT_CATALOG", "UDT_SCHEMA", "UDT_NAME", "DOMAIN_CATALOG",
+                            "DOMAIN_SCHEMA", "DOMAIN_NAME", "COLLATION_CATALOG", "COLLATION_SCHEMA", "COLLATION_NAME"];
+                    var width = fieldNames.Length;
+                    var objectHeader = Frame('T', Join(Count(width), Join(Enumerable.Range(0, width).Select(i =>
+                    {
+                        var integer = name == "columns" && (i == 4 || i is >= 10 and <= 13 || i == 15);
+                        var length = name == "columns" && i is 8 or 9;
+                        Require(sql.Contains(" AS \"" + fieldNames[i] + "\"", StringComparison.Ordinal));
+                        return Join(Encoding.UTF8.GetBytes(fieldNames[i] + '\0'), new byte[6], Int32(integer ? 12002 : length ? 12003 : 12004),
+                            Count(integer ? 4 : length ? 8 : -1), Int32(-1), Count(0));
+                    }).ToArray())));
+                    var values = name == "schemata" ? new string?[] { "db", "MiXeD汉%_'", "owner" } : name == "tables" ? ["db", "MiXeD汉%_'", "object", "BASE TABLE"] :
+                        name == "views" ? ["db", "MiXeD汉%_'", "object", null, "NONE", "NO"] :
+                        ["db", "MiXeD汉%_'", "object", "column", "1", null, "YES", "text", null, null, null, null, null, null, null, null,
+                            "db", "pg_catalog", "text", null, null, null, null, null, null];
+                    await stream.WriteAsync(Join(Frame('1'), Frame('2'), objectHeader, Row(values), Complete(), Ready()), token);
+                }
                 Require(await stream.ReadAsync(new byte[1], token) == 0); return;
             }
             if (xml)
@@ -172,11 +202,11 @@ internal static class PreparedAssetProbe
         using var command = new KingbaseCommand("SELECT :p", connection);
         if (schema)
         {
-            using var collections = await connection.GetSchemaAsync(token); Require(collections.Rows.Count == 5);
+            using var collections = await connection.GetSchemaAsync(token); Require(collections.Rows.Count == 9);
             using var source = connection.GetSchema("DataSourceInformation");
             Require((string)source.Rows[0]["DataSourceProductVersion"] == connection.ServerVersion);
             using var restrictions = await connection.GetSchemaAsync("Restrictions", null, token);
-            Require(restrictions.Columns.Count == 4 && restrictions.Rows.Count == 0);
+            Require(restrictions.Columns.Count == 4 && restrictions.Rows.Count == 13);
             using var types = await ((DbConnection)connection).GetSchemaAsync("DataTypes", token);
             var integer = types.Rows.Cast<System.Data.DataRow>().Single(row => (string)row["TypeName"] == "int4");
             Require((uint)integer["TypeOid"] == 12002 && (int)integer["ProviderDbType"] == (int)KingbaseDbType.Integer);
@@ -184,6 +214,14 @@ internal static class PreparedAssetProbe
             using var words = await connection.GetSchemaAsync("ReservedWords", [], token);
             Require(words.Rows.Count == 2 && (string)words.Rows[0][0] == "select");
             using var more = ((DbConnection)connection).GetSchema("ReservedWords"); Require(more.Rows.Count == 2);
+            foreach (var name in new[] { "Schemas", "Tables", "Views", "Columns" })
+            {
+                using var objects = name is "Schemas" or "Views" ? connection.GetSchema(name, [null, "MiXeD汉%_'"]) :
+                    await connection.GetSchemaAsync(name, [null, "MiXeD汉%_'"], token);
+                Require(objects.Rows.Count == 1 && (string)objects.Rows[0][1] == "MiXeD汉%_'");
+                if (name == "Columns") Require((int)objects.Rows[0]["ORDINAL_POSITION"] == 1 && (bool)objects.Rows[0]["IS_NULLABLE"] && objects.Rows[0]["COLUMN_DEFAULT"] is DBNull);
+                if (name == "Views") Require(objects.Rows[0]["VIEW_DEFINITION"] is DBNull && !(bool)objects.Rows[0]["IS_UPDATABLE"]);
+            }
             try { connection.GetSchema("DataTypes", ["private-payload"]); throw new InvalidOperationException("Schema restrictions were ignored."); }
             catch (ArgumentException error) { Require(!error.Message.Contains("private-payload", StringComparison.Ordinal)); }
             using var canceled = new CancellationTokenSource(); canceled.Cancel();

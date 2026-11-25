@@ -157,3 +157,20 @@ calls. No persistent objects/data are changed. Offline peers exercise invalid
 names/restrictions, field structures, optional catalog/layout filtering, UInt32
 OIDs, invariant culture, malformed/NULL/duplicate keywords, permission errors,
 timeout/cancellation/close and the existing over-budget retirement behavior.
+
+The PG object-schema cases verify Schemas/Tables/Views/Columns against actual
+catalog results through synchronous/asynchronous APIs, including exact case,
+empty filters and literal wildcard/quote inputs. Write-opt-in cases create only
+session-local temporary tables/views with quoted Unicode names. They check
+varchar byte/character lengths, numeric precision/scale, timestamp precision,
+defaults/nullability, column order, fresh tables and transaction ownership.
+A separate write-opt-in case uses transaction-local `pg_monitor` role selection
+to confirm a test-owned temporary table and its columns are hidden when SELECT
+is denied; SQLSTATE 42501 and rollback restore normal metadata access. This
+profile-specific case requires the built-in role and authorized role selection;
+it changes no persistent objects, grants, roles or server settings. Other
+permission models and compatibility modes require separate acceptance.
+
+Character octet length is compared with an independent parameterized catalog
+query for the actual temporary column. UTF8 client encoding does not establish
+the server encoding or a fixed bytes-per-character multiplier.

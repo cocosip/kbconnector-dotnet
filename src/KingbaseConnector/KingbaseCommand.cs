@@ -13,6 +13,7 @@ public sealed partial class KingbaseCommand : DbCommand
     readonly KingbaseParameterCollection _parameters = new();
     readonly KingbaseBatch? _batch;
     internal object SyncRoot => _sync;
+    internal Action<IReadOnlyList<PgTextResult>, PgTypeCatalog>? ValidateResultSchema { get; set; }
     internal KingbaseCommand(KingbaseBatch batch) => _batch = batch;
     KingbaseConnection? _connection;
     KingbaseTransaction? _transaction;
@@ -260,6 +261,7 @@ public sealed partial class KingbaseCommand : DbCommand
             if (_transactionOperation is not KingbaseTransactionOperation.None and not KingbaseTransactionOperation.Begin)
                 return new KingbaseDataReader(results, session.Catalog);
             if (_transactionOperation == KingbaseTransactionOperation.None) CheckCancellation();
+            ValidateResultSchema?.Invoke(results, session.Catalog);
             var capturedSession = session;
             reader = new KingbaseDataReader(results, session.Catalog, behavior,
                 r => connection.ReleaseReader(r, capturedSession, generation, (behavior & CommandBehavior.CloseConnection) != 0));

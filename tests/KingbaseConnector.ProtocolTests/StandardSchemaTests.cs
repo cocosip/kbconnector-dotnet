@@ -12,7 +12,7 @@ namespace KingbaseConnector.ProtocolTests;
 public sealed class StandardSchemaTests
 {
     internal const string KeywordsSql = "SELECT word::text FROM pg_catalog.pg_get_keywords() WHERE catcode = 'R' ORDER BY word";
-    static readonly string[] Collections = ["MetaDataCollections", "Restrictions", "DataSourceInformation", "DataTypes", "ReservedWords"];
+    static readonly string[] Collections = ["MetaDataCollections", "Restrictions", "DataSourceInformation", "DataTypes", "ReservedWords", "Schemas", "Tables", "Views", "Columns"];
 
     [Theory]
     [InlineData(false)]
@@ -25,13 +25,13 @@ public sealed class StandardSchemaTests
             using var collections = async ? await bcl.GetSchemaAsync(token) : bcl.GetSchema();
             Assert.Equal(Collections.Order(), collections.Rows.Cast<DataRow>().Select(row => (string)row["CollectionName"]).Order());
             Columns(collections, ("CollectionName", typeof(string)), ("NumberOfRestrictions", typeof(int)), ("NumberOfIdentifierParts", typeof(int)));
-            Assert.All(collections.Rows.Cast<DataRow>(), row => { Assert.Equal(0, row["NumberOfRestrictions"]); Assert.Equal(0, row["NumberOfIdentifierParts"]); });
+            Assert.All(collections.Rows.Cast<DataRow>().Take(5), row => { Assert.Equal(0, row["NumberOfRestrictions"]); Assert.Equal(0, row["NumberOfIdentifierParts"]); });
             collections.Rows.Clear();
             using var fresh = async ? await bcl.GetSchemaAsync(null!, token) : bcl.GetSchema(null!);
-            Assert.Equal(5, fresh.Rows.Count);
+            Assert.Equal(9, fresh.Rows.Count);
             using var restrictions = async ? await bcl.GetSchemaAsync("restrictions", [], token) : bcl.GetSchema("restrictions", []);
             Columns(restrictions, ("CollectionName", typeof(string)), ("RestrictionName", typeof(string)), ("RestrictionDefault", typeof(string)), ("RestrictionNumber", typeof(int)));
-            Assert.Empty(restrictions.Rows.Cast<DataRow>());
+            Assert.Equal(13, restrictions.Rows.Count);
             using var source = async ? await bcl.GetSchemaAsync("DataSourceInformation", token) : bcl.GetSchema("DataSourceInformation");
             Assert.Equal(17, source.Columns.Count); Assert.Single(source.Rows.Cast<DataRow>());
             Assert.Equal("KingbaseES", source.Rows[0]["DataSourceProductName"]);
@@ -66,6 +66,10 @@ public sealed class StandardSchemaTests
     [InlineData("DataSourceInformation")]
     [InlineData("DataTypes")]
     [InlineData("ReservedWords")]
+    [InlineData("Schemas")]
+    [InlineData("Tables")]
+    [InlineData("Views")]
+    [InlineData("Columns")]
     public async Task ClosedDisposedAndPreCanceledCallsReject(string collection)
     {
         using var connection = new KingbaseConnection();
@@ -86,12 +90,12 @@ public sealed class StandardSchemaTests
             try
             {
                 CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("tr-TR");
-                foreach (var name in new[] { "", "private-payload", "Tables", " DataTypes" })
+                foreach (var name in new[] { "", "private-payload", "Indexes", " DataTypes" })
                 {
                     var error = Assert.Throws<ArgumentException>(() => connection.GetSchema(name));
                     Assert.DoesNotContain("private-payload", error.ToString()); Assert.Null(error.InnerException);
                 }
-                foreach (var name in Collections)
+                foreach (var name in Collections.Take(5))
                 {
                     Assert.Throws<ArgumentException>(() => connection.GetSchema(name, [null]));
                     await Assert.ThrowsAsync<ArgumentException>(() => connection.GetSchemaAsync(name, ["private-payload"], token));
@@ -136,7 +140,7 @@ public sealed class StandardSchemaTests
             await RejectAll(); release.SetResult();
             using var reader = await executing;
             Assert.True(reader.Read()); await RejectAll(); reader.Close();
-            using var schema = connection.GetSchema(); Assert.Equal(5, schema.Rows.Count);
+            using var schema = connection.GetSchema(); Assert.Equal(9, schema.Rows.Count);
             async Task RejectAll()
             {
                 foreach (var name in Collections)

@@ -767,7 +767,7 @@ public sealed class LiveProfileTests
             while (reader.Read()) expectedKeywords.Add(reader.GetString(0));
         Assert.Contains("select", expectedKeywords); Assert.Contains("where", expectedKeywords);
         using var collections = async ? await connection.GetSchemaAsync(token) : connection.GetSchema();
-        Assert.Equal(5, collections.Rows.Count);
+        Assert.Equal(9, collections.Rows.Count);
         using var source = async ? await connection.GetSchemaAsync("DataSourceInformation", token) : connection.GetSchema("DataSourceInformation");
         Assert.Equal(connection.ServerVersion, source.Rows[0]["DataSourceProductVersion"]);
         using var types = async ? await connection.GetSchemaAsync("DataTypes", token) : connection.GetSchema("DataTypes");
@@ -776,7 +776,7 @@ public sealed class LiveProfileTests
         using var words = async ? await connection.GetSchemaAsync("ReservedWords", token) : connection.GetSchema("ReservedWords");
         Assert.Equal(expectedKeywords, words.Rows.Cast<DataRow>().Select(row => (string)row[0]));
         using var restrictions = async ? await connection.GetSchemaAsync("Restrictions", token) : connection.GetSchema("Restrictions");
-        Assert.Equal(4, restrictions.Columns.Count); Assert.Equal(0, restrictions.Rows.Count);
+        Assert.Equal(4, restrictions.Columns.Count); Assert.Equal(13, restrictions.Rows.Count);
         using (var transaction = await connection.BeginTransactionAsync(token))
         {
             using var inTransaction = await connection.GetSchemaAsync("ReservedWords", token);
@@ -803,7 +803,95 @@ public sealed class LiveProfileTests
         Assert.Contains(words.Rows.Cast<DataRow>(), row => (string)row[0] == "select");
         using var command = new KingbaseCommand("SELECT 1", connection); using var reader = await command.ExecuteReaderAsync(token);
         Assert.Throws<InvalidOperationException>(() => connection.GetSchema()); reader.Close();
-        using var collections = connection.GetSchema(); Assert.Equal(5, collections.Rows.Count);
+        using var collections = connection.GetSchema(); Assert.Equal(9, collections.Rows.Count);
+    });
+
+    [LiveTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task PgObjectSchemaCollectionsMatchCatalogAndExactRestrictions(bool async) => LiveProfile.RunPg(async (settings, token) =>
+    {
+        using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
+        using var schemas = await Schema("Schemas", [connection.Database, "information_schema"]);
+        Assert.Single(schemas.Rows.Cast<DataRow>()); Assert.Equal("information_schema", schemas.Rows[0]["SCHEMA_NAME"]);
+        using var tables = await Schema("Tables", [null, "information_schema", "columns", "VIEW"]);
+        Assert.Single(tables.Rows.Cast<DataRow>()); Assert.Equal("VIEW", tables.Rows[0]["TABLE_TYPE"]);
+        using var views = await Schema("Views", [null, "information_schema", "columns"]);
+        Assert.Single(views.Rows.Cast<DataRow>()); Assert.Equal("NONE", views.Rows[0]["CHECK_OPTION"]);
+        using var columns = await Schema("Columns", [null, "information_schema", "columns"]);
+        Assert.Equal(await Scalar(connection, "SELECT count(*)::pg_catalog.int4 FROM information_schema.columns WHERE table_schema = 'information_schema' AND table_name = 'columns'", token), columns.Rows.Count);
+        Assert.Equal(Enumerable.Range(1, columns.Rows.Count), columns.Rows.Cast<DataRow>().Select(row => (int)row["ORDINAL_POSITION"]));
+        using var selected = await Schema("Columns", [null, "information_schema", "columns", "table_name"]);
+        Assert.Single(selected.Rows.Cast<DataRow>()); Assert.Equal(3, selected.Rows[0]["ORDINAL_POSITION"]);
+        foreach (var wrong in new[] { "COLUMNS", "col%", "columns' OR 1=1 --", "" })
+        {
+            using var absent = await Schema("Tables", [null, "information_schema", wrong]);
+            Assert.Empty(absent.Rows.Cast<DataRow>());
+        }
+        using var noCatalog = await Schema("Schemas", [""]);
+        Assert.Empty(noCatalog.Rows.Cast<DataRow>());
+        using var canceled = new CancellationTokenSource(); canceled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => connection.GetSchemaAsync("Columns", canceled.Token));
+        Assert.Equal(42, await Scalar(connection, "SELECT 42", token));
+        Task<DataTable> Schema(string name, string?[] restrictions) => async ? connection.GetSchemaAsync(name, restrictions, token) : Task.FromResult(connection.GetSchema(name, restrictions));
+    });
+
+    [LiveTheory(writes: true)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task PgObjectSchemaReportsQuotedTemporaryColumnsAndTransactionOwnership(bool async) => LiveProfile.RunPg(async (settings, token) =>
+    {
+        const string tableName = "kb_meta_%_'汉\"Name";
+        using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
+        await Scalar(connection, "CREATE TEMP TABLE \"kb_meta_%_'汉\"\"Name\" (\"MiXeD\" varchar(12) NOT NULL DEFAULT 'sample', amount numeric(12,3), stamp timestamp(4), flag int)", token);
+        await Scalar(connection, "CREATE TEMP VIEW \"kb_meta_View汉%\" AS SELECT \"MiXeD\", amount FROM \"kb_meta_%_'汉\"\"Name\"", token);
+        var schema = Assert.IsType<string>(await Scalar(connection, "SELECT nspname::text FROM pg_catalog.pg_namespace WHERE oid = pg_catalog.pg_my_temp_schema()", token));
+        using var transaction = await connection.BeginTransactionAsync(token);
+        using var tables = await Schema("Tables", [connection.Database, schema, tableName, "LOCAL TEMPORARY"]);
+        Assert.Single(tables.Rows.Cast<DataRow>()); Assert.Equal(tableName, tables.Rows[0]["TABLE_NAME"]);
+        using var columns = await Schema("Columns", [connection.Database, schema, tableName]);
+        Assert.Equal(new[] { "MiXeD", "amount", "stamp", "flag" }, columns.Rows.Cast<DataRow>().Select(row => (string)row["COLUMN_NAME"]));
+        using var octets = new KingbaseCommand("SELECT character_octet_length::pg_catalog.int8 FROM information_schema.columns WHERE " +
+            "table_catalog::pg_catalog.text OPERATOR(pg_catalog.=) @catalog AND table_schema::pg_catalog.text OPERATOR(pg_catalog.=) @schema AND " +
+            "table_name::pg_catalog.text OPERATOR(pg_catalog.=) @table AND column_name::pg_catalog.text OPERATOR(pg_catalog.=) @column", connection) { Transaction = transaction };
+        octets.Parameters.Add(new KingbaseParameter("catalog", connection.Database) { KingbaseDbType = KingbaseDbType.Text });
+        octets.Parameters.Add(new KingbaseParameter("schema", schema) { KingbaseDbType = KingbaseDbType.Text });
+        octets.Parameters.Add(new KingbaseParameter("table", tableName) { KingbaseDbType = KingbaseDbType.Text });
+        octets.Parameters.Add(new KingbaseParameter("column", "MiXeD") { KingbaseDbType = KingbaseDbType.Text });
+        Assert.Equal(12L, columns.Rows[0]["CHARACTER_MAXIMUM_LENGTH"]);
+        Assert.Equal(Assert.IsType<long>(await octets.ExecuteScalarAsync(token)), columns.Rows[0]["CHARACTER_OCTET_LENGTH"]);
+        Assert.False((bool)columns.Rows[0]["IS_NULLABLE"]); Assert.Contains("sample", (string)columns.Rows[0]["COLUMN_DEFAULT"]);
+        Assert.Equal("varchar", columns.Rows[0]["UDT_NAME"]);
+        Assert.Equal(12, columns.Rows[1]["NUMERIC_PRECISION"]); Assert.Equal(3, columns.Rows[1]["NUMERIC_SCALE"]);
+        Assert.Equal(4, columns.Rows[2]["DATETIME_PRECISION"]);
+        Assert.True((bool)columns.Rows[3]["IS_NULLABLE"]); Assert.Equal(DBNull.Value, columns.Rows[3]["COLUMN_DEFAULT"]);
+        using var exactColumn = await Schema("Columns", [null, schema, tableName, "MiXeD"]); Assert.Single(exactColumn.Rows.Cast<DataRow>());
+        using var wrongCase = await Schema("Columns", [null, schema, tableName, "mixed"]); Assert.Empty(wrongCase.Rows.Cast<DataRow>());
+        using var views = await Schema("Views", [null, schema, "kb_meta_View汉%"]);
+        Assert.Single(views.Rows.Cast<DataRow>()); Assert.Contains("amount", (string)views.Rows[0]["VIEW_DEFINITION"]);
+        Assert.True((bool)views.Rows[0]["IS_UPDATABLE"]);
+        columns.Rows.Clear(); using var fresh = await Schema("Columns", [null, schema, tableName]); Assert.Equal(4, fresh.Rows.Count);
+        Assert.Same(connection, transaction.Connection); await transaction.RollbackAsync(token);
+        Assert.Equal(42, await Scalar(connection, "SELECT 42", token));
+        Task<DataTable> Schema(string name, string?[] restrictions) => async ? connection.GetSchemaAsync(name, restrictions, token) : Task.FromResult(connection.GetSchema(name, restrictions));
+    });
+
+    [LiveFact(writes: true)]
+    public Task PgObjectSchemaRespectsLocalRoleVisibilityAndRollback() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
+        await Scalar(connection, "CREATE TEMP TABLE kb_metadata_private (id int)", token);
+        var schema = Assert.IsType<string>(await Scalar(connection, "SELECT nspname::text FROM pg_catalog.pg_namespace WHERE oid = pg_catalog.pg_my_temp_schema()", token));
+        using (var visible = connection.GetSchema("Tables", [null, schema, "kb_metadata_private"])) Assert.Single(visible.Rows.Cast<DataRow>());
+        using var transaction = await connection.BeginTransactionAsync(token);
+        await Scalar(connection, "SET LOCAL ROLE pg_monitor", token);
+        Assert.False(Assert.IsType<bool>(await Scalar(connection, "SELECT pg_catalog.has_table_privilege('pg_temp.kb_metadata_private', 'SELECT')", token)));
+        using (var hidden = await connection.GetSchemaAsync("Tables", [null, schema, "kb_metadata_private"], token)) Assert.Empty(hidden.Rows.Cast<DataRow>());
+        using (var hidden = await connection.GetSchemaAsync("Columns", [null, schema, "kb_metadata_private"], token)) Assert.Empty(hidden.Rows.Cast<DataRow>());
+        var denied = await Assert.ThrowsAsync<KingbaseException>(() => Scalar(connection, "SELECT id FROM pg_temp.kb_metadata_private", token));
+        Assert.Equal("42501", denied.SqlState); await transaction.RollbackAsync(token);
+        using var recovered = await connection.GetSchemaAsync("Columns", [null, schema, "kb_metadata_private"], token);
+        Assert.Single(recovered.Rows.Cast<DataRow>()); Assert.Equal(42, await Scalar(connection, "SELECT 42", token));
     });
 
     static async Task<object?> Scalar(KingbaseConnection connection, string sql, CancellationToken token)
