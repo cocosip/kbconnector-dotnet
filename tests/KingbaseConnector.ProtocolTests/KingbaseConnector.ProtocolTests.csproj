@@ -3,5 +3,6 @@
     <ProjectReference Include="../../src/KingbaseConnector/KingbaseConnector.csproj" />
     <Compile Include="../Shared/UdtSchemaFixtures.cs" Link="UdtSchemaFixtures.cs" />
     <Compile Include="../Shared/TlsTestCertificates.cs" Link="TlsTestCertificates.cs" />
+    <Compile Include="../Shared/PreparedAssetProbe.cs" Link="PreparedAssetProbe.cs" />
   </ItemGroup>
 </Project>

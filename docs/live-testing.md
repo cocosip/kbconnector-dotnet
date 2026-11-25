@@ -278,3 +278,15 @@ transactionally rolled back. Catalog drift between phases is also simulated in
 protocol tests; no unconditional concurrent-DDL consistency claim is made.
 Exact-package consumers exercise KeyInfo offline on all five assets; LIVE uses
 source-built modern assets. Other modes/platforms and full M06/Q16 stay open.
+
+
+DataAdapter acceptance uses session-temporary PG tables for mapped DataSet Fill,
+AddWithKey/FillSchema, paging, explicit INSERT/UPDATE/DELETE with Current/Original
+and typed NULL parameters, and independent stored-value/count oracles. Stale
+original values produce DBConcurrencyException and retain modified rows/errors;
+a duplicate-key server error with ContinueUpdateOnError allows a later row after
+synchronization. Typed row events skip or replace commands and report original
+command identities/counts, including retained base event arguments. Original-NULL flags and explicit transaction rollback preserve pending DataRow changes when configured. Returned INSERT rows and accept-change policies are
+checked independently. Read-only constant queries establish adapter-owned
+connection opening/closing, including a query error. These cases do not accept
+CommandBuilder, adapter batching, streaming or other public compatibility modes.

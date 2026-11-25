@@ -8,6 +8,12 @@ public sealed class KingbaseFactory : DbProviderFactory
     public override DbCommand CreateCommand() => new KingbaseCommand();
     public override DbParameter CreateParameter() => new KingbaseParameter();
     public override DbConnectionStringBuilder CreateConnectionStringBuilder() => new KingbaseConnectionStringBuilder();
+#if NETSTANDARD2_0
+    public bool CanCreateDataAdapter => true;
+#else
+    public override bool CanCreateDataAdapter => true;
+#endif
+    public override DbDataAdapter CreateDataAdapter() => new KingbaseDataAdapter();
 #if NET6_0_OR_GREATER
     public override bool CanCreateBatch => true;
     public override KingbaseBatch CreateBatch() => new();

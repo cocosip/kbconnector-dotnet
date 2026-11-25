@@ -9,6 +9,8 @@ if (args.Length != 2)
     throw new ArgumentException("Supply the expected package asset framework name and project version.");
 
 var assembly = Assembly.Load("KingbaseConnector");
+await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(adapter: true);
+Console.WriteLine("PASS: DataAdapter Fill, typed row events, returned updates and optimistic concurrency");
 if (assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+')[0] != args[1])
     throw new InvalidOperationException("The package must match the centrally managed project version.");
 var actual = assembly.GetCustomAttribute<TargetFrameworkAttribute>()!.FrameworkName;

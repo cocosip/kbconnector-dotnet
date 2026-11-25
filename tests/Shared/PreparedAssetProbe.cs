@@ -11,7 +11,7 @@ namespace KingbaseConnector.Tests;
 // The consumer compiles this against each exact archive asset, including both Standard DLLs.
 internal static class PreparedAssetProbe
 {
-    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false, bool schema = false, bool readerSchema = false, bool schemaOnly = false, bool keyInfo = false)
+    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false, bool schema = false, bool readerSchema = false, bool schemaOnly = false, bool keyInfo = false, bool adapter = false)
     {
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
@@ -35,6 +35,18 @@ internal static class PreparedAssetProbe
             var rows = names.Select((name, i) => Row((12000 + i).ToString(CultureInfo.InvariantCulture), "90", "pg_catalog", name,
                 sizes[i], "b", "U", "t", "0", "0", "0", "-1")).ToArray();
             await stream.WriteAsync(Join(Description(12), Join(rows), Complete(), Ready()), token);
+            if (adapter)
+            {
+                for (var phase = 0; phase < 3; phase++)
+                {
+                    var request = await ReadFrames(stream, "PBDES", token);
+                    if (phase != 0) Require(Encoding.UTF8.GetString(request[1]).Contains(phase == 1 ? "9" : "12", StringComparison.Ordinal));
+                    await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, 12002, 4),
+                        phase == 2 ? [] : Row(phase == 0 ? "7" : "11"),
+                        phase == 0 ? Complete() : Frame('C', Encoding.UTF8.GetBytes(phase == 1 ? "UPDATE 1\0" : "UPDATE 0\0")), Ready()), token);
+                }
+                Require(await stream.ReadAsync(new byte[1], token) == 0); return;
+            }
             if (keyInfo)
             {
                 await ReadFrames(stream, "PS", token); await stream.WriteAsync(Join(Frame('1'), Ready()), token);
@@ -327,6 +339,26 @@ internal static class PreparedAssetProbe
         }.ConnectionString);
         await connection.OpenAsync(token);
         using var command = new KingbaseCommand("SELECT :p", connection);
+        if (adapter)
+        {
+            Require(KingbaseFactory.Instance.CanCreateDataAdapter);
+            using var dataAdapter = (KingbaseDataAdapter)KingbaseFactory.Instance.CreateDataAdapter();
+            command.CommandText = "SELECT 7"; dataAdapter.SelectCommand = command;
+            using var table = new System.Data.DataTable(); Require(dataAdapter.Fill(table) == 1 && Equals(table.Rows[0]["c0"], 7));
+            using var update = new KingbaseCommand("UPDATE public.items SET id=:id RETURNING id", connection) { UpdatedRowSource = System.Data.UpdateRowSource.FirstReturnedRecord };
+            update.Parameters.Add(new KingbaseParameter { ParameterName = "id", DbType = System.Data.DbType.Int32, SourceColumn = "c0" });
+            dataAdapter.UpdateCommand = update; table.Rows[0]["c0"] = 9; var before = 0; var after = 0;
+            var notifications = new List<System.Data.Common.RowUpdatingEventArgs>();
+            dataAdapter.RowUpdating += (_, args) => { Require(ReferenceEquals(update, args.Command)); notifications.Add(args); before++; };
+            dataAdapter.RowUpdated += (_, args) => { Require(ReferenceEquals(update, args.Command)); after++; };
+            Require(dataAdapter.Update(table) == 1 && Equals(table.Rows[0]["c0"], 11) && table.Rows[0].RowState == System.Data.DataRowState.Unchanged);
+            Require(notifications.All(args => ReferenceEquals(update, args.Command)));
+            table.Rows[0]["c0"] = 12;
+            try { dataAdapter.Update(table); throw new InvalidOperationException("Missing adapter concurrency failure."); }
+            catch (System.Data.DBConcurrencyException) { }
+            Require(before == 2 && after == 2 && table.Rows[0].HasErrors && table.Rows[0].RowState == System.Data.DataRowState.Modified);
+            Require(connection.State == System.Data.ConnectionState.Open); connection.Close(); await peer.WaitAsync(token); return;
+        }
         if (keyInfo)
         {
             command.CommandText = "SELECT id AS alias FROM public.items"; await command.PrepareAsync(token);
