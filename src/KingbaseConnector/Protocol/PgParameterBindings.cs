@@ -7,15 +7,19 @@ namespace KingbaseConnector.Protocol;
 
 internal sealed class PgParameterBindings
 {
-    PgParameterBindings(string sql, PgQueryParameter[] parameters, bool endsTransaction)
+    PgParameterBindings(string sql, PgQueryParameter[] parameters, bool endsTransaction, bool invalidatesLargeObjects, bool changesLargeObjectScopes)
     {
         Sql = sql;
         Parameters = Array.AsReadOnly(parameters);
         EndsTransaction = endsTransaction;
+        InvalidatesLargeObjects = invalidatesLargeObjects;
+        ChangesLargeObjectScopes = changesLargeObjectScopes;
     }
     internal string Sql { get; }
     internal IReadOnlyList<PgQueryParameter> Parameters { get; }
     internal bool EndsTransaction { get; }
+    internal bool InvalidatesLargeObjects { get; }
+    internal bool ChangesLargeObjectScopes { get; }
     internal static PgParameterBindings Create(string sql, KingbaseParameterCollection parameters,
         PgTypeCatalog catalog, KingbaseCompatibilityMode mode, bool? standardConformingStrings)
     {
@@ -49,7 +53,7 @@ internal sealed class PgParameterBindings
             if (values[i].Value is byte[] bytes) values[i] = new PgQueryParameter(values[i].TypeOid, (byte[])bytes.Clone());
             else if (values[i].Value is BitArray bits) values[i] = new PgQueryParameter(values[i].TypeOid, bits.Clone());
         }
-        return new PgParameterBindings(plan.Sql, values, plan.EndsTransaction);
+        return new PgParameterBindings(plan.Sql, values, plan.EndsTransaction, plan.InvalidatesLargeObjects, plan.ChangesLargeObjectScopes);
     }
 
     static PgTypeDescription Resolve(KingbaseParameter p, PgTypeCatalog catalog)

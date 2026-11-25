@@ -8,5 +8,6 @@
     <Compile Include="../Shared/NativeScalarAssetProbe.cs" Link="NativeScalarAssetProbe.cs" />
     <Compile Include="../Shared/NotificationAssetProbe.cs" Link="NotificationAssetProbe.cs" />
     <Compile Include="../Shared/CopyAssetProbe.cs" Link="CopyAssetProbe.cs" />
+    <Compile Include="../Shared/LargeObjectAssetProbe.cs" Link="LargeObjectAssetProbe.cs" />
   </ItemGroup>
 </Project>

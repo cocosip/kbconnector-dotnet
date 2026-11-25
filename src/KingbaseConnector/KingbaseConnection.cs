@@ -174,6 +174,7 @@ public sealed partial class KingbaseConnection : DbConnection
             hadCommand = _command is not null;
             _command = null;
             _transaction = null;
+            InvalidateLargeObjects();
             operationCancel = _operationCancel; _operationCancel = null;
             reader = _reader; _reader = null;
             _generation++;
@@ -299,6 +300,7 @@ public sealed partial class KingbaseConnection : DbConnection
                 if (_transaction is not null || physical.Queries.TransactionStatus != PgTransactionStatus.Idle)
                     throw new InvalidOperationException("A transaction is already active on this Kingbase connection.");
                 _transaction = transaction;
+                InvalidateLargeObjects();
             }
             else if ((transaction is not null && !ReferenceEquals(transaction, _transaction)) ||
                 (operation != KingbaseTransactionOperation.None && transaction is null))
@@ -313,7 +315,7 @@ public sealed partial class KingbaseConnection : DbConnection
         }
     }
     internal void ObserveTransaction(KingbaseCommand command, PgPhysicalSession session, long generation,
-        KingbaseTransactionOperation operation, bool completed, PgTransactionStatus status, bool endsTransaction)
+        KingbaseTransactionOperation operation, bool completed, PgTransactionStatus status, bool endsTransaction, string? savepointName = null, bool rawRollback = false, bool rawScopeControl = false)
     {
         lock (_sync)
         {
@@ -322,7 +324,8 @@ public sealed partial class KingbaseConnection : DbConnection
                 if (completed && operation is KingbaseTransactionOperation.Commit or KingbaseTransactionOperation.Rollback) return;
                 throw new InvalidOperationException("The Kingbase command no longer owns its connection.");
             }
-            if (status == PgTransactionStatus.Idle || (completed && endsTransaction)) _transaction = null;
+            if (status == PgTransactionStatus.Idle || (completed && endsTransaction)) { _transaction = null; InvalidateLargeObjects(); }
+            else if (completed) ObserveLargeObjectSavepoint(operation, savepointName, rawRollback, rawScopeControl);
             if (operation == KingbaseTransactionOperation.Begin && !completed)
             {
                 _transaction = null;
@@ -390,6 +393,7 @@ public sealed partial class KingbaseConnection : DbConnection
             lease = _lease; _lease = null;
             _transaction = null;
             _command = null;
+            InvalidateLargeObjects();
             _operationCancel = null;
         }
         try { if (lease is not null) lease.ReturnAsync(canReset: false).GetAwaiter().GetResult(); else session.Dispose(); }

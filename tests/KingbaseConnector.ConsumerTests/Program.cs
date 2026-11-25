@@ -9,6 +9,9 @@ if (args.Length != 2)
     throw new ArgumentException("Supply the expected package asset framework name and project version.");
 
 var assembly = Assembly.Load("KingbaseConnector");
+foreach (var lobMode in new[] { KingbaseCompatibilityMode.PostgreSql, KingbaseCompatibilityMode.Oracle, KingbaseCompatibilityMode.MySql, KingbaseCompatibilityMode.SqlServer })
+    await KingbaseConnector.Tests.LargeObjectAssetProbe.RunAsync(lobMode);
+Console.WriteLine("PASS: transactional OID streams, bounded chunks, 64-bit seek and pooled descriptor ownership");
 foreach (var copyMode in new[] { KingbaseCompatibilityMode.PostgreSql, KingbaseCompatibilityMode.Oracle, KingbaseCompatibilityMode.MySql, KingbaseCompatibilityMode.SqlServer })
     await KingbaseConnector.Tests.CopyAssetProbe.RunAsync(copyMode);
 Console.WriteLine("PASS: four-mode raw/text COPY streams, explicit completion, cancellation and pooled logical ownership");

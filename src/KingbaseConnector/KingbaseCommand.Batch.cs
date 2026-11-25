@@ -20,6 +20,7 @@ public sealed partial class KingbaseCommand
             _batch!.FailedCommandIndex = index;
             var writes = queries.ExecutionWriteAttempts;
             var originalStarted = false;
+            var largeObjectControl = false;
             try
             {
                 checkCancellation(); checkMode();
@@ -33,6 +34,7 @@ public sealed partial class KingbaseCommand
                 bool? conforming = lexicalStatus switch { "on" => true, "off" => false, _ => null };
                 var bindings = PgParameterBindings.Create(command.CommandText, command.Parameters, session.Catalog,
                     session.Identity.EffectiveMode, conforming);
+                largeObjectControl = bindings.InvalidatesLargeObjects || bindings.ChangesLargeObjectScopes;
                 checkCancellation();
                 if (operation == Operation.Prepare)
                 {
@@ -76,7 +78,8 @@ public sealed partial class KingbaseCommand
                     if (KingbaseDataReader.AffectedCount(result.CommandTag) is { } count)
                         command.Affected = command.Affected < 0 ? count : checked(command.Affected + count);
                 connection.ObserveTransaction(this, session, generation, KingbaseTransactionOperation.None, true,
-                    queries.TransactionStatus, !schemaOnly && bindings.EndsTransaction);
+                    queries.TransactionStatus, !schemaOnly && bindings.EndsTransaction, rawRollback: !schemaOnly && bindings.InvalidatesLargeObjects,
+                    rawScopeControl: !schemaOnly && bindings.ChangesLargeObjectScopes);
                 checkMode();
                 if ((behavior & CommandBehavior.KeyInfo) != 0)
                 {
@@ -112,6 +115,7 @@ public sealed partial class KingbaseCommand
             }
             catch
             {
+                if (largeObjectControl && queries.UncertainError is not null) session.Dispose();
                 if (operation == Operation.Execute && !schemaOnly && command.ExecutionStatus == KingbaseBatchCommandStatus.NotExecuted &&
                     ((behavior & CommandBehavior.KeyInfo) == 0 || originalStarted))
                     command.ExecutionStatus = queries.ExecutionWriteAttempts != writes && (!session.IsUsable || queries.UncertainError is not null)

@@ -75,7 +75,7 @@ public sealed class KingbaseTransaction : DbTransaction
         {
             KingbaseTransactionOperation.Save => "SAVEPOINT", KingbaseTransactionOperation.Release => "RELEASE SAVEPOINT", _ => "ROLLBACK TO SAVEPOINT"
         };
-        using var command = new KingbaseCommand(sql + " \"" + savepointName.Replace("\"", "\"\"") + "\"", _owner, this, operation);
+        using var command = new KingbaseCommand(sql + " \"" + savepointName.Replace("\"", "\"\"") + "\"", _owner, this, operation, savepointName);
         await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
     }
     async Task CompleteAsync(KingbaseTransactionOperation operation, CancellationToken token)

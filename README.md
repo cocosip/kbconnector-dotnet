@@ -59,7 +59,29 @@ Only a single client COPY statement with FROM STDIN or TO STDOUT is accepted. Se
 
 Command Timeout is one lifetime deadline, including application pauses; zero is unlimited. The token supplied to Begin remains applicable for that resource's lifetime. An in-flight I/O cancellation or connection Close retires the physical session; pre-canceled calls do no I/O. Explicit import cancellation uses the separate Cleanup Timeout and consumes only its own acknowledged 57014; known earlier server/receive failures remain visible. It does not roll back an enclosing transaction: the tested profiles report a failed outer transaction, which the application must explicitly roll back. Concurrent operations on the same COPY resource reject, including cancellation during unacknowledged completion; use an I/O token or connection Close to interrupt pending work.
 
-COPY data streams beyond the buffered query's 1 MiB total limit. Frames remain bounded to 64 MiB and total control/empty-message traffic to 4096 frames/1 MiB. Shared byte-array I/O and the declared modern Span/Memory overrides split data into chunks of at most 64 KiB; Span/Memory adaptation may stage one additional chunk. The netstandard2.0 asset exposes the shared byte-array contract; later host BCL adapters are outside that memory guarantee. TextReader.ReadToEnd and application destination buffers can deliberately materialize the result. Typed binary COPY, LOB APIs, broader platforms/profiles, native MySQL wire and real-server TLS remain separate acceptance work.
+COPY data streams beyond the buffered query's 1 MiB total limit. Frames remain bounded to 64 MiB and total control/empty-message traffic to 4096 frames/1 MiB. Shared byte-array I/O and the declared modern Span/Memory overrides split data into chunks of at most 64 KiB; Span/Memory adaptation may stage one additional chunk. The netstandard2.0 asset exposes the shared byte-array contract; later host BCL adapters are outside that memory guarantee. TextReader.ReadToEnd and application destination buffers can deliberately materialize the result. Typed binary COPY, ordinary BLOB/CLOB binding, broader platforms/profiles, native MySQL wire and real-server TLS remain separate acceptance work.
+
+OID large objects use an explicit local transaction on the four tested PG-wire modes:
+
+```csharp
+using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+var objects = new KingbaseLargeObjectManager(connection);
+uint oid = await objects.CreateAsync(cancellationToken: cancellationToken);
+using (var stream = await objects.OpenReadWriteAsync(oid, cancellationToken))
+{
+    await input.CopyToAsync(stream, 65536, cancellationToken);
+    stream.Position = 0;
+    await stream.CopyToAsync(output, 65536, cancellationToken);
+}
+await objects.UnlinkAsync(oid, cancellationToken);
+await transaction.CommitAsync(cancellationToken);
+```
+
+`Open` accepts FileAccess.Read, Write or ReadWrite. Streams support byte-array Read/Write, Position, Length, 64-bit Seek/SeekAsync and SetLength/SetLengthAsync. Length restores the previous cursor before returning. There is no client write buffer; Flush validates ownership. Create accepts an optional UInt32 OID, with zero asking the server to allocate it. OID values, bytea and ordinary BLOB/CLOB/NCLOB binding are separate contracts.
+
+Every operation requires a healthy explicit transaction and exclusively owns the connection until it completes; ordinary commands may run between stream operations. Commit, rollback, Close and pool return invalidate old handles. Public savepoint rollback invalidates descriptors opened in its reverted scope while preserving older ones. Successful raw rollback conservatively invalidates all handles because raw savepoint scope cannot be trusted. Unlink invalidates handles for that OID. Disposing an invalidated handle cannot close a subsequently reused descriptor. Disposing in a failed transaction defers a surviving descriptor's close until a later large-object operation after recovery; ending the transaction releases remaining descriptors.
+
+One Command Timeout covers all SQL in each operation. Close and deferred close additionally use Cleanup Timeout. Cancellation after I/O starts retires the physical session; pre-canceled calls and cancellation of operations that send no SQL preserve it. Acknowledged effects are never replayed or implicitly committed. Notice/notification callbacks finish after ownership and result checks; an unpublished Create/Open is cleaned up independently if callback delivery fails, or its session is retired. Byte-array transfers use chunks of at most 64 KiB without buffering an entire object. Inherited BCL Span/Memory adapters may allocate for the caller's full buffer; use byte-array methods or CopyToAsync with a bounded buffer when memory bounds matter. Broader platform/profile, privileges, exact-package LIVE and ordinary B05 LOB acceptance remain open.
 
 `KingbaseNumeric` preserves high-precision numeric values without rounding:
 

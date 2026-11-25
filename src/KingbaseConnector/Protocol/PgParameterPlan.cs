@@ -21,6 +21,8 @@ internal sealed class PgParameterPlan
     internal IReadOnlyList<int> ParameterIndexes { get; }
     internal bool EndsTransaction { get; }
     internal string? FirstKeyword { get; }
+    internal bool InvalidatesLargeObjects => FirstKeyword is "ROLLBACK" or "ABORT";
+    internal bool ChangesLargeObjectScopes => FirstKeyword is "SAVEPOINT" or "SAVE" or "RELEASE";
     internal bool? CopyIsImport { get; }
 
     internal static PgParameterPlan Create(string sql, IReadOnlyList<string?> parameterNames,

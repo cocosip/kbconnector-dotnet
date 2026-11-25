@@ -510,3 +510,25 @@ same-socket two-borrower reset probe. These package checks use loopback servers,
 while LIVE remains source-built on the three modern Windows runtimes. Typed binary
 COPY, native MySQL wire, broader profiles/platforms, exact-package LIVE and real TLS
 remain separate work; real TLS is user-deferred and offline TLS tests stay required.
+
+OID large-object acceptance covers create/open/read/write/length/64-bit seek and
+truncate/close/unlink in each PG-wire mode. Multi-MiB fixtures exercise bounded
+byte-array chunks and cursor restoration; a seek beyond 2GiB does not write or
+allocate a 2GiB object. Savepoint fixtures distinguish surviving parents, reverted
+children, released nested scopes and immediate server descriptor reuse. Unlink
+invalidates only matching OID handles; access restrictions and raw rollback
+ownership are checked independently. Committed-content tests delete their object
+in a finally block using a separate connection and independent cleanup deadline.
+Other fixtures roll back their objects. Pool fixtures verify the same backend PID,
+rollback of the previous borrower's object, and stale disposal while the new
+borrower owns a reused descriptor.
+
+Offline faults cover exact result metadata/counts, partial writes, interrupted
+reads, operation/cleanup deadlines, callbacks and primary SQLSTATE precedence,
+failed-transaction deferred close, public/raw savepoint state and descriptor reuse.
+Each exact package asset runs a four-mode same-socket two-borrower probe with high
+UInt32 OIDs, multi-chunk bytes, 64-bit positions and explicit cleanup. These are
+simulated package-consumer checks; LIVE remains source-built. Memory bounds cover
+the byte-array stream methods, not inherited BCL Span/Memory staging. Broader
+privilege/profile/platform and exact-package LIVE acceptance remains pending;
+B05 ordinary BLOB/CLOB/NCLOB binding and typed binary COPY remain separate work.

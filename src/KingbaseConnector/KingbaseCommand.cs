@@ -20,6 +20,7 @@ public sealed partial class KingbaseCommand : DbCommand
     KingbaseConnection? _connection;
     KingbaseTransaction? _transaction;
     readonly KingbaseTransactionOperation _transactionOperation;
+    readonly string? _savepointName;
     string _text = "";
     int? _timeout;
     CommandType _type = CommandType.Text;
@@ -33,8 +34,8 @@ public sealed partial class KingbaseCommand : DbCommand
     enum Operation { Execute, Prepare, Unprepare }
     public KingbaseCommand() { }
     public KingbaseCommand(string? text, KingbaseConnection? connection) { CommandText = text!; Connection = connection; }
-    internal KingbaseCommand(string text, KingbaseConnection connection, KingbaseTransaction transaction, KingbaseTransactionOperation operation)
-        : this(text, connection) { _transaction = transaction; _transactionOperation = operation; }
+    internal KingbaseCommand(string text, KingbaseConnection connection, KingbaseTransaction transaction, KingbaseTransactionOperation operation, string? savepointName = null)
+        : this(text, connection) { _transaction = transaction; _transactionOperation = operation; _savepointName = savepointName; }
 #if !NETSTANDARD2_0
     [AllowNull]
 #endif
@@ -188,6 +189,7 @@ public sealed partial class KingbaseCommand : DbCommand
         var acknowledged = false;
         PgQuerySession? queries = null;
         long writeAttempts = 0;
+        var largeObjectControl = _transactionOperation is KingbaseTransactionOperation.Save or KingbaseTransactionOperation.RollbackTo or KingbaseTransactionOperation.Release;
         try
         {
             (session, generation) = connection.BeginExecution(this, cancel, transaction, _transactionOperation);
@@ -224,6 +226,7 @@ public sealed partial class KingbaseCommand : DbCommand
                 ? status switch { "on" => true, "off" => false, _ => null } : null;
             CheckMode();
             var bindings = PgParameterBindings.Create(text, _parameters, session.Catalog, session.Identity.EffectiveMode, conforming);
+            largeObjectControl |= bindings.InvalidatesLargeObjects || bindings.ChangesLargeObjectScopes;
             CheckCancellation();
             if (operation == Operation.Prepare)
             {
@@ -273,7 +276,8 @@ public sealed partial class KingbaseCommand : DbCommand
                 acknowledged = true;
             }
             CheckMode();
-            connection.ObserveTransaction(this, session, generation, _transactionOperation, true, queries.TransactionStatus, !schemaOnly && bindings.EndsTransaction);
+            connection.ObserveTransaction(this, session, generation, _transactionOperation, true, queries.TransactionStatus, !schemaOnly && bindings.EndsTransaction,
+                _savepointName, !schemaOnly && bindings.InvalidatesLargeObjects, !schemaOnly && bindings.ChangesLargeObjectScopes);
             acknowledged = true;
             if (rolledBack) throw new KingbaseTransactionException(outcomeUnknown: false);
             if (_transactionOperation is not KingbaseTransactionOperation.None and not KingbaseTransactionOperation.Begin)
@@ -319,12 +323,13 @@ public sealed partial class KingbaseCommand : DbCommand
         catch (Exception error)
         {
             reader?.Close();
+            if (largeObjectControl && queries?.UncertainError is not null) session?.Dispose();
             if (session is not null && session.IsUsable && !acknowledged && error is not KingbaseTransactionException)
             {
                 try { connection.ObserveTransaction(this, session, generation, _transactionOperation, false, queries!.TransactionStatus, false); }
                 catch { session.Dispose(); }
             }
-            if (session is not null) connection.RetireIfBroken(session);
+            if (session is not null) { try { connection.RetireIfBroken(session); } catch { /* Preserve the primary execution failure. */ } }
             if (_transactionOperation == KingbaseTransactionOperation.Commit && !acknowledged && session is not null &&
                 queries is not null && queries.WriteAttempts != writeAttempts)
             {
