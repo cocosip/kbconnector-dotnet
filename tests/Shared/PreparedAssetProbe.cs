@@ -113,6 +113,20 @@ internal static class PreparedAssetProbe
                             Count(field.Type == typeof(int) ? 4 : -1), Int32(-1), Count(0))).ToArray())));
                     await stream.WriteAsync(Join(Frame('1'), Frame('2'), directoryHeader, Row(DirectoryValues(name)), Complete(), Ready()), token);
                 }
+                foreach (var name in new[] { "Functions", "Procedures", "ProcedureParameters" })
+                {
+                    var query = await ReadFrames(stream, "PBDES", token); var sql = Encoding.UTF8.GetString(query[0]);
+                    Require(sql.Contains("information_schema.routines", StringComparison.Ordinal));
+                    Require(sql.Contains("NOT pg_catalog.pg_is_other_temp_schema", StringComparison.Ordinal));
+                    Require(!sql.Contains("MiXeD汉%_'", StringComparison.Ordinal));
+                    Require(Encoding.UTF8.GetString(query[1]).Contains("MiXeD汉%_'", StringComparison.Ordinal));
+                    var fields = RoutineFields(name);
+                    var routineHeader = Frame('T', Join(Count(fields.Length), Join(fields.Select(field =>
+                        Join(Encoding.UTF8.GetBytes(field.Name + '\0'), new byte[6],
+                            Int32(field.Type == typeof(int) ? 12002 : field.Type == typeof(long) ? 12003 : 12004),
+                            Count(field.Type == typeof(int) ? 4 : field.Type == typeof(long) ? 8 : -1), Int32(-1), Count(0))).ToArray())));
+                    await stream.WriteAsync(Join(Frame('1'), Frame('2'), routineHeader, Row(RoutineValues(name)), Complete(), Ready()), token);
+                }
                 Require(await stream.ReadAsync(new byte[1], token) == 0); return;
             }
             if (xml)
@@ -242,11 +256,11 @@ internal static class PreparedAssetProbe
         using var command = new KingbaseCommand("SELECT :p", connection);
         if (schema)
         {
-            using var collections = await connection.GetSchemaAsync(token); Require(collections.Rows.Count == 22);
+            using var collections = await connection.GetSchemaAsync(token); Require(collections.Rows.Count == 25);
             using var source = connection.GetSchema("DataSourceInformation");
             Require((string)source.Rows[0]["DataSourceProductVersion"] == connection.ServerVersion);
             using var restrictions = await connection.GetSchemaAsync("Restrictions", null, token);
-            Require(restrictions.Columns.Count == 4 && restrictions.Rows.Count == 59);
+            Require(restrictions.Columns.Count == 4 && restrictions.Rows.Count == 72);
             foreach (var alias in new[] { "Schemata", "PrimaryKey" })
             {
                 var count = alias == "Schemata" ? 2 : 4;
@@ -316,6 +330,21 @@ internal static class PreparedAssetProbe
                     var field = fields[i]; var value = objects.Rows[0][i];
                     Require(objects.Columns[i].ColumnName == field.Name && objects.Columns[i].DataType == field.Type);
                     Require(field.Type == typeof(int) ? (int)value == int.Parse(values[i]!, CultureInfo.InvariantCulture) :
+                        field.Type == typeof(bool) ? (bool)value == (values[i] == "YES") : (string)value == values[i]);
+                }
+            }
+            foreach (var name in new[] { "Functions", "Procedures", "ProcedureParameters" })
+            {
+                using var objects = name == "Functions" ? connection.GetSchema(name, [null, "MiXeD汉%_'"]) :
+                    await connection.GetSchemaAsync(name, [null, "MiXeD汉%_'"], token);
+                var fields = RoutineFields(name); var values = RoutineValues(name);
+                Require(objects.TableName == name && objects.Rows.Count == 1 && objects.Columns.Count == fields.Length);
+                for (var i = 0; i < fields.Length; i++)
+                {
+                    var field = fields[i]; var value = objects.Rows[0][i];
+                    Require(objects.Columns[i].ColumnName == field.Name && objects.Columns[i].DataType == field.Type);
+                    Require(values[i] is null ? value is DBNull : field.Type == typeof(int) ? (int)value == int.Parse(values[i]!, CultureInfo.InvariantCulture) :
+                        field.Type == typeof(long) ? (long)value == long.Parse(values[i]!, CultureInfo.InvariantCulture) :
                         field.Type == typeof(bool) ? (bool)value == (values[i] == "YES") : (string)value == values[i]);
                 }
             }
@@ -509,6 +538,29 @@ internal static class PreparedAssetProbe
         Require(Equals(await command.ExecuteScalarAsync(token), 43));
         connection.Close(); await peer.WaitAsync(token);
     }
+
+    static (string Name, Type Type)[] RoutineFields(string name) => name == "ProcedureParameters" ?
+        [("ROUTINE_CATALOG", typeof(string)), ("ROUTINE_SCHEMA", typeof(string)), ("ROUTINE_NAME", typeof(string)), ("SPECIFIC_NAME", typeof(string)),
+            ("ORDINAL_POSITION", typeof(int)), ("PARAMETER_NAME", typeof(string)), ("PARAMETER_MODE", typeof(string)),
+            ("IS_VARIADIC", typeof(bool)), ("IS_TABLE_COLUMN", typeof(bool)), ("DATA_TYPE", typeof(string)),
+            ("CHARACTER_MAXIMUM_LENGTH", typeof(long)), ("CHARACTER_OCTET_LENGTH", typeof(long)), ("NUMERIC_PRECISION", typeof(int)),
+            ("NUMERIC_PRECISION_RADIX", typeof(int)), ("NUMERIC_SCALE", typeof(int)), ("DATETIME_PRECISION", typeof(int)),
+            ("INTERVAL_TYPE", typeof(string)), ("INTERVAL_PRECISION", typeof(int)), ("UDT_CATALOG", typeof(string)),
+            ("UDT_SCHEMA", typeof(string)), ("UDT_NAME", typeof(string)), ("PARAMETER_DEFAULT", typeof(string))] :
+        [("ROUTINE_CATALOG", typeof(string)), ("ROUTINE_SCHEMA", typeof(string)), ("ROUTINE_NAME", typeof(string)), ("SPECIFIC_NAME", typeof(string)),
+            ("ROUTINE_TYPE", typeof(string)), ("DATA_TYPE", typeof(string)), ("CHARACTER_MAXIMUM_LENGTH", typeof(long)),
+            ("CHARACTER_OCTET_LENGTH", typeof(long)), ("NUMERIC_PRECISION", typeof(int)), ("NUMERIC_PRECISION_RADIX", typeof(int)),
+            ("NUMERIC_SCALE", typeof(int)), ("DATETIME_PRECISION", typeof(int)), ("INTERVAL_TYPE", typeof(string)), ("INTERVAL_PRECISION", typeof(int)),
+            ("UDT_CATALOG", typeof(string)), ("UDT_SCHEMA", typeof(string)), ("UDT_NAME", typeof(string)), ("RETURNS_SET", typeof(bool)),
+            ("INPUT_PARAMETER_COUNT", typeof(int)), ("DEFAULT_PARAMETER_COUNT", typeof(int)), ("EXTERNAL_LANGUAGE", typeof(string)),
+            ("IS_DETERMINISTIC", typeof(bool)), ("SECURITY_TYPE", typeof(string)), ("IS_NULL_CALL", typeof(bool))];
+    static string?[] RoutineValues(string name) => name == "ProcedureParameters" ?
+        ["db", "MiXeD汉%_'", "routine", "routine_1", "1", null, "IN", "YES", "NO", "ARRAY", null, null, null, null, "-2", null, null, null,
+            "db", "pg_catalog", "_int4", "ARRAY[1, 2]"] :
+        ["db", "MiXeD汉%_'", "routine", "routine_1", name == "Functions" ? "FUNCTION" : "PROCEDURE", name == "Functions" ? "numeric" : null,
+            null, null, null, null, null, null, null, null, name == "Functions" ? "db" : null,
+            name == "Functions" ? "pg_catalog" : null, name == "Functions" ? "numeric" : null,
+            "NO", "2", "1", "SQL", "NO", "INVOKER", name == "Functions" ? "YES" : null];
 
     static (string Name, Type Type)[] DirectoryFields(string name) => name == "Databases" ?
         [("DATABASE_NAME", typeof(string)), ("OWNER", typeof(string)), ("ENCODING", typeof(string)), ("COLLATION", typeof(string)), ("CTYPE", typeof(string)),

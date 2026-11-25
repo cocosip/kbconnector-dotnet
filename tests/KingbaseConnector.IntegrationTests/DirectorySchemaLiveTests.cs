@@ -10,8 +10,8 @@ public sealed class DirectorySchemaLiveTests
     public Task PgDirectoriesMatchPublicCatalogFactsAndExactNames(bool async) => LiveProfile.RunPg(async (settings, token) =>
     {
         using var connection = new KingbaseConnection(settings.ConnectionString); await connection.OpenAsync(token);
-        using var directory = await connection.GetSchemaAsync(token); Assert.Equal(22, directory.Rows.Count);
-        using var restrictions = connection.GetSchema("Restrictions"); Assert.Equal(59, restrictions.Rows.Count);
+        using var directory = await connection.GetSchemaAsync(token); Assert.Equal(25, directory.Rows.Count);
+        using var restrictions = connection.GetSchema("Restrictions"); Assert.Equal(72, restrictions.Rows.Count);
         foreach (var alias in new[] { "Schemata", "PrimaryKey" })
         {
             Assert.Single(directory.Rows.Cast<DataRow>(), row => (string)row[0] == alias);

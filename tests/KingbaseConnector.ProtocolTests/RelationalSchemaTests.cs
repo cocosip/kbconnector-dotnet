@@ -19,11 +19,11 @@ public sealed class RelationalSchemaTests
     {
         await StandardSchemaTests.Run(async (connection, token) =>
         {
-            using var directory = connection.GetSchema(); Assert.Equal(22, directory.Rows.Count);
+            using var directory = connection.GetSchema(); Assert.Equal(25, directory.Rows.Count);
             var row = Assert.Single(directory.Rows.Cast<DataRow>(), item => (string)item[0] == name);
             Assert.Equal(count, row[1]); Assert.Equal(parts, row[2]);
             using var restrictions = await connection.GetSchemaAsync("Restrictions", token);
-            Assert.Equal(59, restrictions.Rows.Count);
+            Assert.Equal(72, restrictions.Rows.Count);
             var entries = restrictions.Rows.Cast<DataRow>().Where(item => (string)item[0] == name).ToArray();
             var names = name.StartsWith("Index", StringComparison.Ordinal) ? new[] { "Catalog", "Schema", "Table", "Index", "Column" } :
                 ["Catalog", "Schema", "Table", "Constraint", "Column"];

@@ -39,7 +39,8 @@ internal static class KingbaseObjectSchema
                 Text("IS_GENERATED", true), Text("GENERATION_EXPRESSION")]),
         KingbaseGenerationSchema.Sequences,
         .. KingbaseRelationalSchema.All,
-        .. KingbaseDirectorySchema.All
+        .. KingbaseDirectorySchema.All,
+        .. KingbaseRoutineSchema.All
     ];
 
     internal static Definition? Find(string name) => All.FirstOrDefault(item => item.Name == name);

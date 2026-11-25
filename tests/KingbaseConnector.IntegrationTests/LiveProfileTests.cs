@@ -767,7 +767,7 @@ public sealed class LiveProfileTests
             while (reader.Read()) expectedKeywords.Add(reader.GetString(0));
         Assert.Contains("select", expectedKeywords); Assert.Contains("where", expectedKeywords);
         using var collections = async ? await connection.GetSchemaAsync(token) : connection.GetSchema();
-        Assert.Equal(22, collections.Rows.Count);
+        Assert.Equal(25, collections.Rows.Count);
         using var source = async ? await connection.GetSchemaAsync("DataSourceInformation", token) : connection.GetSchema("DataSourceInformation");
         Assert.Equal(connection.ServerVersion, source.Rows[0]["DataSourceProductVersion"]);
         using var types = async ? await connection.GetSchemaAsync("DataTypes", token) : connection.GetSchema("DataTypes");
@@ -776,7 +776,7 @@ public sealed class LiveProfileTests
         using var words = async ? await connection.GetSchemaAsync("ReservedWords", token) : connection.GetSchema("ReservedWords");
         Assert.Equal(expectedKeywords, words.Rows.Cast<DataRow>().Select(row => (string)row[0]));
         using var restrictions = async ? await connection.GetSchemaAsync("Restrictions", token) : connection.GetSchema("Restrictions");
-        Assert.Equal(4, restrictions.Columns.Count); Assert.Equal(59, restrictions.Rows.Count);
+        Assert.Equal(4, restrictions.Columns.Count); Assert.Equal(72, restrictions.Rows.Count);
         using (var transaction = await connection.BeginTransactionAsync(token))
         {
             using var inTransaction = await connection.GetSchemaAsync("ReservedWords", token);
@@ -803,7 +803,7 @@ public sealed class LiveProfileTests
         Assert.Contains(words.Rows.Cast<DataRow>(), row => (string)row[0] == "select");
         using var command = new KingbaseCommand("SELECT 1", connection); using var reader = await command.ExecuteReaderAsync(token);
         Assert.Throws<InvalidOperationException>(() => connection.GetSchema()); reader.Close();
-        using var collections = connection.GetSchema(); Assert.Equal(22, collections.Rows.Count);
+        using var collections = connection.GetSchema(); Assert.Equal(25, collections.Rows.Count);
     });
 
     [LiveTheory]

@@ -214,3 +214,18 @@ read the public directory while authentication-catalog access is denied;
 rollback restores the original role and usable connection. No databases,
 roles, grants or settings are created or changed persistently. Credentials,
 deployment identities and raw catalog/assertion output remain external.
+
+Routine metadata cases use session-owned temporary functions/procedures and
+an aggregate, with quoted Unicode/literal names, overloads, unnamed/defaulted
+arguments, IN/OUT/INOUT, VARIADIC arrays, TABLE outputs and zero arguments.
+Independent pg_proc facts verify identities, input/default counts, return-set
+flags and declared slot counts/order. Return modifiers unavailable from the
+server remain null; procedure return/strictness facts are null. Aggregates
+and the built-in window function are excluded. Sync/async restrictions,
+specific identities, freshness and transactional rollback are checked.
+A transaction-local restricted role sees EXECUTE-granted routines but cannot
+see their owner-only default text; revoked procedures/arguments are hidden.
+A second same-role session can see committed raw pg_proc rows from the first
+session's temporary namespace while all three metadata collections exclude
+them. Fixtures leave no persistent objects/grants/settings, do not invoke
+routines, and raw LIVE output/configuration remain outside the repository.
