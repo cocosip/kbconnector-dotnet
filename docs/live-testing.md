@@ -229,3 +229,17 @@ A second same-role session can see committed raw pg_proc rows from the first
 session's temporary namespace while all three metadata collections exclude
 them. Fixtures leave no persistent objects/grants/settings, do not invoke
 routines, and raw LIVE output/configuration remain outside the repository.
+
+UDT metadata cases create session-owned temporary enums, numeric/text domains
+and standalone composites. Independent catalog queries check type/base/owner
+identity, domain defaults and constraints; BEFORE/AFTER insertions preserve
+numeric enum order, including empty and Unicode labels. Composite attributes
+retain dropped-slot gaps and actual array/domain/nested member identities.
+Domain nullability, numeric/text limits and collation are compared with server
+facts. A transaction-local restricted role sees USAGE-granted types and domain
+constraint flags, with owner-only definitions hidden; revoked types and their
+attributes are excluded. A second session sees committed raw temporary type
+rows while all four collections exclude the other session's temporary schema.
+Temporary session cleanup or rollback removes all fixtures and local grants.
+No value codecs, CLR mappings, anonymous record or other-mode acceptance is
+established. Deployment configuration and raw results remain external.

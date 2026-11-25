@@ -13,7 +13,7 @@ public sealed class StandardSchemaTests
 {
     internal const string KeywordsSql = "SELECT word::text FROM pg_catalog.pg_get_keywords() WHERE catcode = 'R' ORDER BY word";
     static readonly string[] Collections = ["MetaDataCollections", "Restrictions", "DataSourceInformation", "DataTypes", "ReservedWords", "Schemas", "Tables", "Views", "Columns",
-        "Sequences", "PrimaryKeys", "UniqueKeys", "ForeignKeys", "ForeignKeyColumns", "Indexes", "IndexColumns", "Constraints", "ConstraintColumns", "Databases", "Users", "Functions", "Procedures", "ProcedureParameters", "Schemata", "PrimaryKey"];
+        "Sequences", "PrimaryKeys", "UniqueKeys", "ForeignKeys", "ForeignKeyColumns", "Indexes", "IndexColumns", "Constraints", "ConstraintColumns", "Databases", "Users", "Functions", "Procedures", "ProcedureParameters", "UserDefinedTypes", "TypeAttributes", "EnumLabels", "DomainConstraints", "Schemata", "PrimaryKey"];
 
     [Theory]
     [InlineData(false)]
@@ -29,10 +29,10 @@ public sealed class StandardSchemaTests
             Assert.All(collections.Rows.Cast<DataRow>().Take(5), row => { Assert.Equal(0, row["NumberOfRestrictions"]); Assert.Equal(0, row["NumberOfIdentifierParts"]); });
             collections.Rows.Clear();
             using var fresh = async ? await bcl.GetSchemaAsync(null!, token) : bcl.GetSchema(null!);
-            Assert.Equal(25, fresh.Rows.Count);
+            Assert.Equal(29, fresh.Rows.Count);
             using var restrictions = async ? await bcl.GetSchemaAsync("restrictions", [], token) : bcl.GetSchema("restrictions", []);
             Columns(restrictions, ("CollectionName", typeof(string)), ("RestrictionName", typeof(string)), ("RestrictionDefault", typeof(string)), ("RestrictionNumber", typeof(int)));
-            Assert.Equal(72, restrictions.Rows.Count);
+            Assert.Equal(87, restrictions.Rows.Count);
             using var source = async ? await bcl.GetSchemaAsync("DataSourceInformation", token) : bcl.GetSchema("DataSourceInformation");
             Assert.Equal(17, source.Columns.Count); Assert.Single(source.Rows.Cast<DataRow>());
             Assert.Equal("KingbaseES", source.Rows[0]["DataSourceProductName"]);
@@ -87,6 +87,10 @@ public sealed class StandardSchemaTests
     [InlineData("Functions")]
     [InlineData("Procedures")]
     [InlineData("ProcedureParameters")]
+    [InlineData("UserDefinedTypes")]
+    [InlineData("TypeAttributes")]
+    [InlineData("EnumLabels")]
+    [InlineData("DomainConstraints")]
     public async Task ClosedDisposedAndPreCanceledCallsReject(string collection)
     {
         using var connection = new KingbaseConnection();
@@ -157,7 +161,7 @@ public sealed class StandardSchemaTests
             await RejectAll(); release.SetResult();
             using var reader = await executing;
             Assert.True(reader.Read()); await RejectAll(); reader.Close();
-            using var schema = connection.GetSchema(); Assert.Equal(25, schema.Rows.Count);
+            using var schema = connection.GetSchema(); Assert.Equal(29, schema.Rows.Count);
             async Task RejectAll()
             {
                 foreach (var name in Collections)

@@ -40,7 +40,8 @@ internal static class KingbaseObjectSchema
         KingbaseGenerationSchema.Sequences,
         .. KingbaseRelationalSchema.All,
         .. KingbaseDirectorySchema.All,
-        .. KingbaseRoutineSchema.All
+        .. KingbaseRoutineSchema.All,
+        .. KingbaseUdtSchema.All
     ];
 
     internal static Definition? Find(string name) => All.FirstOrDefault(item => item.Name == name);
@@ -106,7 +107,8 @@ internal static class KingbaseObjectSchema
                     }
                     else if (field.Type == typeof(bool))
                         value = value is "YES" ? true : value is "NO" ? false : throw InvalidMetadata();
-                    else if (field.Required && value is string text && (text.Length == 0 || text.IndexOf('\0') >= 0))
+                    else if (field.Required && value is string text && (text.IndexOf('\0') >= 0 || text.Length == 0 &&
+                        !(definition.Name == "EnumLabels" && field.Name == "ENUM_LABEL")))
                         throw InvalidMetadata();
                     else if (value is long length &&
                         ((field.Name is "CHARACTER_MAXIMUM_LENGTH" or "CHARACTER_OCTET_LENGTH") && length < 0 ||

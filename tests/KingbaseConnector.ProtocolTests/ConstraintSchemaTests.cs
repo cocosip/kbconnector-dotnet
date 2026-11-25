@@ -18,11 +18,11 @@ public sealed class ConstraintSchemaTests
     {
         await StandardSchemaTests.Run(async (connection, token) =>
         {
-            using var directory = connection.GetSchema(); Assert.Equal(25, directory.Rows.Count);
+            using var directory = connection.GetSchema(); Assert.Equal(29, directory.Rows.Count);
             var canonical = name == "Schemata" ? "Schemas" : name == "PrimaryKey" ? "PrimaryKeys" : name;
             var entry = Assert.Single(directory.Rows.Cast<DataRow>(), row => (string)row[0] == canonical);
             Assert.Equal(count, entry[1]); Assert.Equal(parts, entry[2]);
-            using var restrictions = connection.GetSchema("Restrictions"); Assert.Equal(72, restrictions.Rows.Count);
+            using var restrictions = connection.GetSchema("Restrictions"); Assert.Equal(87, restrictions.Rows.Count);
             var rows = restrictions.Rows.Cast<DataRow>().Where(row => (string)row[0] == canonical).ToArray();
             Assert.Equal(count, rows.Length); Assert.Equal(Enumerable.Range(1, count), rows.Select(row => (int)row[3]));
             Assert.All(rows, row => Assert.Equal(DBNull.Value, row[2]));

@@ -68,8 +68,8 @@ public sealed class RoutineSchemaTests
     {
         await StandardSchemaTests.Run(async (connection, token) =>
         {
-            using var directory = connection.GetSchema(); Assert.Equal(25, directory.Rows.Count);
-            using var restrictions = connection.GetSchema("Restrictions"); Assert.Equal(72, restrictions.Rows.Count);
+            using var directory = connection.GetSchema(); Assert.Equal(29, directory.Rows.Count);
+            using var restrictions = connection.GetSchema("Restrictions"); Assert.Equal(87, restrictions.Rows.Count);
             foreach (var name in new[] { "Functions", "Procedures", "ProcedureParameters" })
             {
                 var count = name == "ProcedureParameters" ? 5 : 4;

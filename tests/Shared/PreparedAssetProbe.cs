@@ -127,6 +127,19 @@ internal static class PreparedAssetProbe
                             Count(field.Type == typeof(int) ? 4 : field.Type == typeof(long) ? 8 : -1), Int32(-1), Count(0))).ToArray())));
                     await stream.WriteAsync(Join(Frame('1'), Frame('2'), routineHeader, Row(RoutineValues(name)), Complete(), Ready()), token);
                 }
+                foreach (var name in UdtSchemaFixtures.Names)
+                {
+                    var query = await ReadFrames(stream, "PBDES", token); var sql = Encoding.UTF8.GetString(query[0]);
+                    Require(sql.Contains("pg_catalog.pg_type", StringComparison.Ordinal));
+                    Require(sql.Contains("NOT pg_catalog.pg_is_other_temp_schema(t.typnamespace)", StringComparison.Ordinal));
+                    Require(!sql.Contains("MiXeD汉%_'", StringComparison.Ordinal));
+                    Require(Encoding.UTF8.GetString(query[1]).Contains("MiXeD汉%_'", StringComparison.Ordinal));
+                    var fields = UdtSchemaFixtures.Fields(name);
+                    var udtHeader = Frame('T', Join(Count(fields.Length), Join(fields.Select(field =>
+                        Join(Encoding.UTF8.GetBytes(field.Name + '\0'), new byte[6], Int32(field.Type == typeof(int) ? 12002 : field.Type == typeof(long) ? 12003 : 12004),
+                            Count(field.Type == typeof(int) ? 4 : field.Type == typeof(long) ? 8 : -1), Int32(-1), Count(0))).ToArray())));
+                    await stream.WriteAsync(Join(Frame('1'), Frame('2'), udtHeader, Row(UdtSchemaFixtures.Values(name)), Complete(), Ready()), token);
+                }
                 Require(await stream.ReadAsync(new byte[1], token) == 0); return;
             }
             if (xml)
@@ -256,11 +269,11 @@ internal static class PreparedAssetProbe
         using var command = new KingbaseCommand("SELECT :p", connection);
         if (schema)
         {
-            using var collections = await connection.GetSchemaAsync(token); Require(collections.Rows.Count == 25);
+            using var collections = await connection.GetSchemaAsync(token); Require(collections.Rows.Count == 29);
             using var source = connection.GetSchema("DataSourceInformation");
             Require((string)source.Rows[0]["DataSourceProductVersion"] == connection.ServerVersion);
             using var restrictions = await connection.GetSchemaAsync("Restrictions", null, token);
-            Require(restrictions.Columns.Count == 4 && restrictions.Rows.Count == 72);
+            Require(restrictions.Columns.Count == 4 && restrictions.Rows.Count == 87);
             foreach (var alias in new[] { "Schemata", "PrimaryKey" })
             {
                 var count = alias == "Schemata" ? 2 : 4;
@@ -338,6 +351,21 @@ internal static class PreparedAssetProbe
                 using var objects = name == "Functions" ? connection.GetSchema(name, [null, "MiXeD汉%_'"]) :
                     await connection.GetSchemaAsync(name, [null, "MiXeD汉%_'"], token);
                 var fields = RoutineFields(name); var values = RoutineValues(name);
+                Require(objects.TableName == name && objects.Rows.Count == 1 && objects.Columns.Count == fields.Length);
+                for (var i = 0; i < fields.Length; i++)
+                {
+                    var field = fields[i]; var value = objects.Rows[0][i];
+                    Require(objects.Columns[i].ColumnName == field.Name && objects.Columns[i].DataType == field.Type);
+                    Require(values[i] is null ? value is DBNull : field.Type == typeof(int) ? (int)value == int.Parse(values[i]!, CultureInfo.InvariantCulture) :
+                        field.Type == typeof(long) ? (long)value == long.Parse(values[i]!, CultureInfo.InvariantCulture) :
+                        field.Type == typeof(bool) ? (bool)value == (values[i] == "YES") : (string)value == values[i]);
+                }
+            }
+            foreach (var name in UdtSchemaFixtures.Names)
+            {
+                using var objects = name == "EnumLabels" ? connection.GetSchema(name, [null, "MiXeD汉%_'", null, ""]) :
+                    await connection.GetSchemaAsync(name, [null, "MiXeD汉%_'"], token);
+                var fields = UdtSchemaFixtures.Fields(name); var values = UdtSchemaFixtures.Values(name);
                 Require(objects.TableName == name && objects.Rows.Count == 1 && objects.Columns.Count == fields.Length);
                 for (var i = 0; i < fields.Length; i++)
                 {
