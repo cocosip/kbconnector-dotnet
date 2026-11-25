@@ -23,6 +23,8 @@ internal static class KingbaseRelationalSchema
     const string KeyPosition = "i.indkey[pg_catalog.array_lower(i.indkey,1) OPERATOR(pg_catalog.+) k.position OPERATOR(pg_catalog.-) 1]";
     const string Key = "k.position OPERATOR(pg_catalog.<=) i.indnkeyatts";
     const string BtreeKey = "am.amname OPERATOR(pg_catalog.=) 'btree' AND " + Key;
+    static readonly string ConstraintType = Code("c.contype", [("c", "CHECK"), ("f", "FOREIGN KEY"), ("p", "PRIMARY KEY"),
+        ("u", "UNIQUE"), ("x", "EXCLUSION"), ("t", "TRIGGER"), ("n", "NOT NULL")]);
 
     internal static readonly Definition[] All =
     [
@@ -77,7 +79,25 @@ internal static class KingbaseRelationalSchema
                 "LEFT JOIN pg_catalog.pg_namespace cn ON cn.oid OPERATOR(pg_catalog.=) co.collnamespace " +
                 "LEFT JOIN pg_catalog.pg_opclass op ON op.oid OPERATOR(pg_catalog.=) i.indclass[pg_catalog.array_lower(i.indclass,1) OPERATOR(pg_catalog.+) k.position OPERATOR(pg_catalog.-) 1] " +
                 "LEFT JOIN pg_catalog.pg_namespace onsp ON onsp.oid OPERATOR(pg_catalog.=) op.opcnamespace " +
-                "WHERE " + Visible), ["index_catalog", "index_schema", "index_name", "ordinal_position"])
+                "WHERE " + Visible), ["index_catalog", "index_schema", "index_name", "ordinal_position"]),
+        new("Constraints", 4, ["Catalog", "Schema", "Table", "Constraint"], ["table_catalog", "table_schema", "table_name", "constraint_name"],
+            [Text("TABLE_CATALOG", true), Text("TABLE_SCHEMA", true), Text("TABLE_NAME", true), Text("CONSTRAINT_NAME", true),
+                Text("CONSTRAINT_TYPE_CODE", true), Text("CONSTRAINT_TYPE"), Flag("IS_DEFERRABLE"), Flag("INITIALLY_DEFERRED"),
+                Flag("IS_VALIDATED"), Flag("NO_INHERIT"), Text("DEFINITION", true)],
+            Source("SELECT " + TableIdentity + "c.conname AS constraint_name, c.contype AS constraint_type_code, " + ConstraintType + " AS constraint_type, " +
+                Yes("c.condeferrable") + " AS is_deferrable, " + Yes("c.condeferred") + " AS initially_deferred, " +
+                Yes("c.convalidated") + " AS is_validated, " + Yes("c.connoinherit") + " AS no_inherit, " +
+                "pg_catalog.pg_get_constraintdef(c.oid,true) AS definition" + ConstraintFrom + "WHERE " + Visible)),
+        new("ConstraintColumns", 5, ["Catalog", "Schema", "Table", "Constraint", "Column"], ["table_catalog", "table_schema", "table_name", "constraint_name", "column_name"],
+            [Text("TABLE_CATALOG", true), Text("TABLE_SCHEMA", true), Text("TABLE_NAME", true), Text("CONSTRAINT_NAME", true),
+                Number("ORDINAL_POSITION", true), Text("COLUMN_NAME", true), Text("CONSTRAINT_TYPE_CODE", true), Text("CONSTRAINT_TYPE")],
+            Source("SELECT " + TableIdentity + "c.conname AS constraint_name, k.position AS ordinal_position, a.attname AS column_name, " +
+                "c.contype AS constraint_type_code, " + ConstraintType + " AS constraint_type" + ConstraintFrom +
+                "CROSS JOIN pg_catalog.generate_series(1,pg_catalog.array_length(c.conkey,1)) AS k(position) " +
+                "JOIN pg_catalog.pg_attribute a ON a.attrelid OPERATOR(pg_catalog.=) c.conrelid AND " +
+                "a.attnum OPERATOR(pg_catalog.=) c.conkey[pg_catalog.array_lower(c.conkey,1) OPERATOR(pg_catalog.+) k.position OPERATOR(pg_catalog.-) 1] " +
+                "WHERE a.attnum OPERATOR(pg_catalog.>) 0 AND NOT a.attisdropped AND " + Visible),
+            ["table_catalog", "table_schema", "table_name", "constraint_name", "ordinal_position"])
     ];
 
     static Definition ConstraintColumns(string name, string kind) => new(name, 5,

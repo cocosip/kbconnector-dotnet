@@ -12,6 +12,8 @@ internal static class KingbaseSchema
 
     internal static string Resolve(string? name, string?[]? restrictions)
     {
+        if (string.Equals(name, "Schemata", StringComparison.OrdinalIgnoreCase)) name = "Schemas";
+        else if (string.Equals(name, "PrimaryKey", StringComparison.OrdinalIgnoreCase)) name = "PrimaryKeys";
         var resolved = name is null ? Names[0] : Names.FirstOrDefault(value => value.Equals(name, StringComparison.OrdinalIgnoreCase)) ??
             throw new ArgumentException("Unknown or unimplemented Kingbase schema collection.", nameof(name));
         if (restrictions is not null && restrictions.Length > (KingbaseObjectSchema.Find(resolved)?.Restrictions.Length ?? 0))

@@ -43,7 +43,7 @@ internal static class PreparedAssetProbe
                     Require(Encoding.UTF8.GetString(query[0]).Contains("FROM pg_catalog.pg_get_keywords() WHERE catcode = 'R'", StringComparison.Ordinal));
                     await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, 12004, -1), Row("select"), Row("where"), Complete(), Ready()), token);
                 }
-                foreach (var name in new[] { "schemata", "tables", "views", "columns" })
+                foreach (var name in new[] { "schemata", "tables", "views", "columns", "schemata" })
                 {
                     var query = await ReadFrames(stream, "PBDES", token);
                     var sql = Encoding.UTF8.GetString(query[0]);
@@ -229,11 +229,11 @@ internal static class PreparedAssetProbe
         using var command = new KingbaseCommand("SELECT :p", connection);
         if (schema)
         {
-            using var collections = await connection.GetSchemaAsync(token); Require(collections.Rows.Count == 16);
+            using var collections = await connection.GetSchemaAsync(token); Require(collections.Rows.Count == 18);
             using var source = connection.GetSchema("DataSourceInformation");
             Require((string)source.Rows[0]["DataSourceProductVersion"] == connection.ServerVersion);
             using var restrictions = await connection.GetSchemaAsync("Restrictions", null, token);
-            Require(restrictions.Columns.Count == 4 && restrictions.Rows.Count == 42);
+            Require(restrictions.Columns.Count == 4 && restrictions.Rows.Count == 51);
             using var types = await ((DbConnection)connection).GetSchemaAsync("DataTypes", token);
             var integer = types.Rows.Cast<System.Data.DataRow>().Single(row => (string)row["TypeName"] == "int4");
             Require((uint)integer["TypeOid"] == 12002 && (int)integer["ProviderDbType"] == (int)KingbaseDbType.Integer);
@@ -241,11 +241,12 @@ internal static class PreparedAssetProbe
             using var words = await connection.GetSchemaAsync("ReservedWords", [], token);
             Require(words.Rows.Count == 2 && (string)words.Rows[0][0] == "select");
             using var more = ((DbConnection)connection).GetSchema("ReservedWords"); Require(more.Rows.Count == 2);
-            foreach (var name in new[] { "Schemas", "Tables", "Views", "Columns" })
+            foreach (var name in new[] { "Schemas", "Tables", "Views", "Columns", "Schemata" })
             {
                 using var objects = name is "Schemas" or "Views" ? connection.GetSchema(name, [null, "MiXeD汉%_'"]) :
                     await connection.GetSchemaAsync(name, [null, "MiXeD汉%_'"], token);
                 Require(objects.Rows.Count == 1 && (string)objects.Rows[0][1] == "MiXeD汉%_'");
+                Require(objects.TableName == (name == "Schemata" ? "Schemas" : name));
                 if (name == "Columns")
                 {
                     Require(objects.Columns.Count == 34 && (int)objects.Rows[0]["ORDINAL_POSITION"] == 1 && !(bool)objects.Rows[0]["IS_NULLABLE"] && objects.Rows[0]["COLUMN_DEFAULT"] is DBNull);
@@ -274,6 +275,7 @@ internal static class PreparedAssetProbe
                     await connection.GetSchemaAsync(name, [null, "MiXeD汉%_'"], token);
                 var fields = RelationalFields(name); var values = RelationalValues(name);
                 Require(objects.Rows.Count == 1 && objects.Columns.Count == fields.Length);
+                Require(objects.TableName == (name == "PrimaryKey" ? "PrimaryKeys" : name));
                 for (var i = 0; i < fields.Length; i++)
                 {
                     Require(objects.Columns[i].ColumnName == fields[i].Name);
@@ -473,7 +475,7 @@ internal static class PreparedAssetProbe
         connection.Close(); await peer.WaitAsync(token);
     }
 
-    static readonly string[] RelationalNames = ["PrimaryKeys", "UniqueKeys", "ForeignKeys", "ForeignKeyColumns", "Indexes", "IndexColumns"];
+    static readonly string[] RelationalNames = ["PrimaryKeys", "UniqueKeys", "ForeignKeys", "ForeignKeyColumns", "Indexes", "IndexColumns", "Constraints", "ConstraintColumns", "PrimaryKey"];
     static readonly (string Name, Type Type)[] SequenceFields =
         [("SEQUENCE_CATALOG", typeof(string)), ("SEQUENCE_SCHEMA", typeof(string)), ("SEQUENCE_NAME", typeof(string)), ("DATA_TYPE", typeof(string)),
             ("NUMERIC_PRECISION", typeof(int)), ("NUMERIC_PRECISION_RADIX", typeof(int)), ("NUMERIC_SCALE", typeof(int)),
@@ -483,16 +485,20 @@ internal static class PreparedAssetProbe
         "-2147483649", "-9223372036854775808", "-1", "-2", "YES", "17"];
     static (string Name, bool Integer, bool Flag)[] RelationalFields(string name) => (name switch
     {
-        "PrimaryKeys" or "UniqueKeys" => "TABLE_CATALOG TABLE_SCHEMA TABLE_NAME CONSTRAINT_NAME COLUMN_NAME ORDINAL_POSITION IS_DEFERRABLE INITIALLY_DEFERRED",
+        "PrimaryKeys" or "UniqueKeys" or "PrimaryKey" => "TABLE_CATALOG TABLE_SCHEMA TABLE_NAME CONSTRAINT_NAME COLUMN_NAME ORDINAL_POSITION IS_DEFERRABLE INITIALLY_DEFERRED",
+        "Constraints" => "TABLE_CATALOG TABLE_SCHEMA TABLE_NAME CONSTRAINT_NAME CONSTRAINT_TYPE_CODE CONSTRAINT_TYPE IS_DEFERRABLE INITIALLY_DEFERRED IS_VALIDATED NO_INHERIT DEFINITION",
+        "ConstraintColumns" => "TABLE_CATALOG TABLE_SCHEMA TABLE_NAME CONSTRAINT_NAME ORDINAL_POSITION COLUMN_NAME CONSTRAINT_TYPE_CODE CONSTRAINT_TYPE",
         "ForeignKeys" => "TABLE_CATALOG TABLE_SCHEMA TABLE_NAME CONSTRAINT_NAME REFERENCED_TABLE_CATALOG REFERENCED_TABLE_SCHEMA REFERENCED_TABLE_NAME REFERENCED_INDEX_NAME MATCH_OPTION UPDATE_RULE DELETE_RULE IS_DEFERRABLE INITIALLY_DEFERRED IS_VALIDATED",
         "ForeignKeyColumns" => "TABLE_CATALOG TABLE_SCHEMA TABLE_NAME CONSTRAINT_NAME COLUMN_NAME ORDINAL_POSITION REFERENCED_TABLE_CATALOG REFERENCED_TABLE_SCHEMA REFERENCED_TABLE_NAME REFERENCED_COLUMN_NAME",
         "Indexes" => "INDEX_CATALOG INDEX_SCHEMA INDEX_NAME TABLE_CATALOG TABLE_SCHEMA TABLE_NAME INDEX_TYPE IS_UNIQUE IS_PRIMARY IS_VALID IS_READY IS_LIVE IS_CLUSTERED KEY_COLUMN_COUNT COLUMN_COUNT PREDICATE EXPRESSION DEFINITION",
         _ => "INDEX_CATALOG INDEX_SCHEMA INDEX_NAME ORDINAL_POSITION TABLE_CATALOG TABLE_SCHEMA TABLE_NAME COLUMN_NAME COLUMN_EXPRESSION IS_INCLUDED IS_DESCENDING NULLS_FIRST COLLATION_CATALOG COLLATION_SCHEMA COLLATION_NAME OPERATOR_CLASS_CATALOG OPERATOR_CLASS_SCHEMA OPERATOR_CLASS_NAME"
     }).Split(' ').Select(field => (field, field is "ORDINAL_POSITION" or "KEY_COLUMN_COUNT" or "COLUMN_COUNT",
-        field.StartsWith("IS_", StringComparison.Ordinal) || field is "INITIALLY_DEFERRED" or "NULLS_FIRST")).ToArray();
+        field.StartsWith("IS_", StringComparison.Ordinal) || field is "INITIALLY_DEFERRED" or "NULLS_FIRST" or "NO_INHERIT")).ToArray();
     static string?[] RelationalValues(string name) => name switch
     {
-        "PrimaryKeys" or "UniqueKeys" => ["db", "MiXeD汉%_'", "table", "key", "column", "2", "YES", "NO"],
+        "PrimaryKeys" or "UniqueKeys" or "PrimaryKey" => ["db", "MiXeD汉%_'", "table", "key", "column", "2", "YES", "NO"],
+        "Constraints" => ["db", "MiXeD汉%_'", "table", "check", "c", "CHECK", "NO", "NO", "NO", "YES", "CHECK (a > 0)"],
+        "ConstraintColumns" => ["db", "MiXeD汉%_'", "table", "check", "2", "b", "c", "CHECK"],
         "ForeignKeys" => ["db", "MiXeD汉%_'", "table", "fk", "db", "target", "parent", "unique_index", "SIMPLE", "CASCADE", "SET NULL", "YES", "NO", "YES"],
         "ForeignKeyColumns" => ["db", "MiXeD汉%_'", "table", "fk", "column", "2", "db", "target", "parent", "target_column"],
         "Indexes" => ["db", "MiXeD汉%_'", "index", "db", "MiXeD汉%_'", "table", "btree", "YES", "NO", "YES", "YES", "YES", "NO", "1", "2", "flag > 0", "lower(name)", "CREATE INDEX ..."],

@@ -14,10 +14,10 @@ public sealed class GenerationSchemaTests
     {
         await StandardSchemaTests.Run(async (connection, token) =>
         {
-            using var directory = connection.GetSchema(); Assert.Equal(16, directory.Rows.Count);
+            using var directory = connection.GetSchema(); Assert.Equal(18, directory.Rows.Count);
             var entry = Assert.Single(directory.Rows.Cast<DataRow>(), row => (string)row[0] == "Sequences");
             Assert.Equal(3, entry[1]); Assert.Equal(3, entry[2]);
-            using var restrictions = connection.GetSchema("Restrictions"); Assert.Equal(42, restrictions.Rows.Count);
+            using var restrictions = connection.GetSchema("Restrictions"); Assert.Equal(51, restrictions.Rows.Count);
             var rows = restrictions.Rows.Cast<DataRow>().Where(row => (string)row[0] == "Sequences").ToArray();
             Assert.Equal(new[] { "Catalog", "Schema", "Sequence" }, rows.Select(row => (string)row[1]));
             Assert.Equal(new[] { 1, 2, 3 }, rows.Select(row => (int)row[3])); Assert.All(rows, row => Assert.Equal(DBNull.Value, row[2]));

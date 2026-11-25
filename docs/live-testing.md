@@ -194,3 +194,13 @@ separate ordinary defaults and nextval from ALWAYS/BY DEFAULT identity and
 generated expressions, compare an independent pg_attrdef expression oracle,
 and verify transactional DDL rollback. Restricted-role and same-role
 cross-session cases cover sequence privilege and temporary-schema visibility.
+
+General table-constraint cases use temporary tables and transaction rollback.
+They cover CHECK dependencies, constant CHECK with no column rows, NO INHERIT,
+unvalidated constraints, composite PK/UNIQUE/FK, deferred FK and exclusion
+expression slots with repeated ordinary columns. Independent catalog queries
+check row counts and definitions; literal expectations check kinds and column
+positions. Schemata/PrimaryKey aliases return canonical table shapes and rows.
+Restricted-role, rollback-safe column-only grants and two-session temporary
+visibility cases exercise the owning-table visibility contract. Definitions
+are never executed, and no persistent grants or objects remain.
