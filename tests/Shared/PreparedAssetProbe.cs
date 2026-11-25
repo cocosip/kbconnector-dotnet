@@ -11,7 +11,7 @@ namespace KingbaseConnector.Tests;
 // The consumer compiles this against each exact archive asset, including both Standard DLLs.
 internal static class PreparedAssetProbe
 {
-    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false, bool schema = false, bool readerSchema = false, bool schemaOnly = false, bool keyInfo = false, bool adapter = false, bool commandBuilder = false)
+    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false, bool schema = false, bool readerSchema = false, bool schemaOnly = false, bool keyInfo = false, bool adapter = false, bool commandBuilder = false, bool adapterBatch = false)
     {
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
@@ -35,6 +35,17 @@ internal static class PreparedAssetProbe
             var rows = names.Select((name, i) => Row((12000 + i).ToString(CultureInfo.InvariantCulture), "90", "pg_catalog", name,
                 sizes[i], "b", "U", "t", "0", "0", "0", "-1")).ToArray();
             await stream.WriteAsync(Join(Description(12), Join(rows), Complete(), Ready()), token);
+            if (adapterBatch)
+            {
+                foreach (var id in new[] { 1, 2, 4, 5 })
+                {
+                    var request = await ReadFrames(stream, "PBDES", token);
+                    Require(request[1].AsSpan(request[1].Length - 7).SequenceEqual(Join(Int32(1), Encoding.UTF8.GetBytes(id.ToString(CultureInfo.InvariantCulture)), Count(0))));
+                    await stream.WriteAsync(id == 2 ? Join(Frame('1'), Frame('E', Encoding.UTF8.GetBytes("SERROR\0C23505\0Mprivate-fixture-error\0\0")), Ready()) :
+                        Join(Frame('1'), Frame('2'), Frame('n'), Frame('C', Encoding.UTF8.GetBytes("INSERT 0 1\0")), Ready()), token);
+                }
+                Require(await stream.ReadAsync(new byte[1], token) == 0); return;
+            }
             if (commandBuilder)
             {
                 var columnNames = new[] { "key alias", "value alias", "calculated" };
@@ -364,6 +375,19 @@ internal static class PreparedAssetProbe
         }.ConnectionString);
         await connection.OpenAsync(token);
         using var command = new KingbaseCommand("SELECT :p", connection);
+        if (adapterBatch)
+        {
+            command.CommandText = "INSERT INTO public.items VALUES(:id)"; command.UpdatedRowSource = System.Data.UpdateRowSource.None;
+            command.Parameters.Add(new KingbaseParameter { ParameterName = "id", DbType = System.Data.DbType.Int32, SourceColumn = "id" });
+            using var dataAdapter = new KingbaseDataAdapter { InsertCommand = command, UpdateBatchSize = 3, ContinueUpdateOnError = true };
+            using var table = new System.Data.DataTable(); table.Columns.Add("id", typeof(int)); for (var id = 1; id <= 5; id++) table.Rows.Add(id);
+            var groups = new List<int>();
+            dataAdapter.RowUpdated += (_, args) => { Require(ReferenceEquals(command, args.Command)); groups.Add(args.RowCount); if (groups.Count == 1) Require(args.Errors is KingbaseException error && error.SqlState == "23505" && args.RecordsAffected == 1); else Require(args.Errors is null && args.RecordsAffected == 2); };
+            try { Require(dataAdapter.Update(table) == 3); } catch { if (peer.IsFaulted) await peer; throw; }
+            Require(groups.SequenceEqual(new[] { 3, 2 })); Require(table.Rows[0].RowState == System.Data.DataRowState.Unchanged && table.Rows[3].RowState == System.Data.DataRowState.Unchanged && table.Rows[4].RowState == System.Data.DataRowState.Unchanged);
+            Require(table.Rows[1].HasErrors && table.Rows[1].RowState == System.Data.DataRowState.Added && table.Rows[2].RowState == System.Data.DataRowState.Added && table.Rows[2].RowError.Contains("not executed", StringComparison.Ordinal));
+            Require(connection.State == System.Data.ConnectionState.Open); connection.Close(); await peer.WaitAsync(token); return;
+        }
         if (commandBuilder)
         {
             command.CommandText = "SELECT id AS \"key alias\" FROM public.\"it\"\"ems\"";

@@ -9,6 +9,8 @@ if (args.Length != 2)
     throw new ArgumentException("Supply the expected package asset framework name and project version.");
 
 var assembly = Assembly.Load("KingbaseConnector");
+await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(adapterBatch: true);
+Console.WriteLine("PASS: DataAdapter batching snapshots, partial acknowledgments, unsent rows and continued groups");
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(commandBuilder: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(commandBuilder: true, automatic: true);
 Console.WriteLine("PASS: PG CommandBuilder quoted CRUD, catalog types, NULL flags and base-typed schema refresh");

@@ -14,6 +14,7 @@ public sealed partial class KingbaseCommand : DbCommand
     readonly KingbaseBatch? _batch;
     internal object SyncRoot => _sync;
     internal Action<IReadOnlyList<PgTextResult>, PgTypeCatalog>? ValidateResultSchema { get; set; }
+    internal (Stopwatch Elapsed, long Budget)? SharedDeadline { get; set; }
     internal KingbaseCommand(KingbaseBatch batch) => _batch = batch;
     KingbaseConnection? _connection;
     KingbaseTransaction? _transaction;
@@ -341,12 +342,14 @@ public sealed partial class KingbaseCommand : DbCommand
         void CheckCancellation()
         {
             caller.ThrowIfCancellationRequested();
+            if (SharedDeadline is { } shared && shared.Elapsed.ElapsedMilliseconds >= shared.Budget)
+                throw new TimeoutException("The Kingbase shared command deadline elapsed; execution may have reached the server.");
             if (timeout != 0 && (deadline.IsCancellationRequested || elapsed.ElapsedMilliseconds >= (long)timeout * 1000))
                 throw new TimeoutException("The Kingbase command timed out; execution may have reached the server.");
             cancel.Token.ThrowIfCancellationRequested();
         }
     }
-    static async Task WatchDeadline(long budget, Stopwatch elapsed, CancellationTokenSource deadline, CancellationToken stop)
+    internal static async Task WatchDeadline(long budget, Stopwatch elapsed, CancellationTokenSource deadline, CancellationToken stop)
     {
         try
         {

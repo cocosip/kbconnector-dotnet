@@ -4,7 +4,7 @@ using System.Data.Common;
 namespace KingbaseConnector;
 
 /// <summary>Fills and updates disconnected tables through explicitly supplied commands.</summary>
-public sealed class KingbaseDataAdapter : DbDataAdapter, IDbDataAdapter
+public sealed partial class KingbaseDataAdapter : DbDataAdapter, IDbDataAdapter
 {
     KingbaseCommand? _select;
     KingbaseCommand? _insert;
@@ -44,22 +44,47 @@ public sealed class KingbaseDataAdapter : DbDataAdapter, IDbDataAdapter
 
     static IDbCommand Buffer(IDbCommand command) => command is KingbaseCommand kingbase ? new KingbaseAdapterCommand(kingbase) : command;
     protected override RowUpdatingEventArgs CreateRowUpdatingEvent(DataRow row, IDbCommand? command,
-        StatementType statementType, DataTableMapping tableMapping) => new KingbaseRowUpdatingEventArgs(row, command, statementType, tableMapping);
+        StatementType statementType, DataTableMapping tableMapping)
+    {
+        CaptureStoppedRow(row, command);
+        return new KingbaseRowUpdatingEventArgs(row, command, statementType, tableMapping);
+    }
     protected override RowUpdatedEventArgs CreateRowUpdatedEvent(DataRow row, IDbCommand? command,
-        StatementType statementType, DataTableMapping tableMapping) => new KingbaseRowUpdatedEventArgs(row, command, statementType, tableMapping);
+        StatementType statementType, DataTableMapping tableMapping)
+    {
+        var result = new KingbaseRowUpdatedEventArgs(row, command, statementType, tableMapping);
+        if (_queued is not null) _batchEvent = result;
+        return result;
+    }
     protected override void OnRowUpdating(RowUpdatingEventArgs value)
     {
+        if (_stopBatchedRows) { RestoreStoppedRow(value.Row); value.Status = UpdateStatus.SkipAllRemainingRows; value.Errors = null; return; }
         base.OnRowUpdating(value);
         var args = new KingbaseRowUpdatingEventArgs(value.Row, value.Command, value.StatementType, value.TableMapping)
         { Status = value.Status, Errors = value.Errors };
         RowUpdating?.Invoke(this, args);
+        PrepareBatchedRow(args);
         value.Command = args.Command is { } command ? Buffer(command) : null;
         value.Status = args.Status; value.Errors = args.Errors;
     }
     protected override void OnRowUpdated(RowUpdatedEventArgs value)
     {
+        var wasError = value.Status == UpdateStatus.ErrorsOccurred;
+        var diagnostic = ReferenceEquals(value, _batchEvent) ? _batchDiagnostic : null;
+        if (diagnostic is not null) value.Status = UpdateStatus.ErrorsOccurred;
         base.OnRowUpdated(value);
         if (value is KingbaseRowUpdatedEventArgs args) RowUpdated?.Invoke(this, args);
+        if (diagnostic is not null && value.Status == UpdateStatus.ErrorsOccurred)
+        {
+            // Acknowledge confirmed writes through BCL before surfacing an unhandled batch diagnostic.
+            value.Status = UpdateStatus.Continue;
+            if (value.Errors is { } error && !ContinueUpdateOnError) { _deferredFailure = error; _stopBatchedRows = true; }
+        }
+        if (_queued is not null && !wasError && value.Status == UpdateStatus.SkipAllRemainingRows)
+        {
+            // BCL otherwise flushes this successful group again; clear normally, then stop before the next row event.
+            value.Status = UpdateStatus.SkipCurrentRow; _stopBatchedRows = true;
+        }
     }
 }
 

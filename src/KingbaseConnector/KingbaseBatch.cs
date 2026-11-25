@@ -26,6 +26,7 @@ public sealed class KingbaseBatch
     }
     internal object SyncRoot => _runner.SyncRoot;
     internal void EnsureEditable() => _runner.EnsureEditable();
+    internal void SetSharedDeadline(System.Diagnostics.Stopwatch elapsed, long budget) => _runner.SharedDeadline = (elapsed, budget);
     /// <summary>The zero-based command at which the last operation stopped, or null on success.</summary>
     public int? FailedCommandIndex { get; internal set; }
 #if NET6_0_OR_GREATER

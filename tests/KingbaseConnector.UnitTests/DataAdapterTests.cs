@@ -31,7 +31,7 @@ public sealed class DataAdapterTests
         using var byString = new KingbaseDataAdapter("SELECT 3", "Host=localhost;Database=app");
         using var ownedCommand = byString.SelectCommand!; using var ownedConnection = ownedCommand.Connection!;
         Assert.Equal("SELECT 3", ownedCommand.CommandText); Assert.Equal("app", ownedConnection.Database);
-        Assert.Throws<NotSupportedException>(() => adapter.UpdateBatchSize = 2);
+        adapter.UpdateBatchSize = 2; Assert.Equal(2, bcl.UpdateBatchSize);
     }
 
     [Theory]

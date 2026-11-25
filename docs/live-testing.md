@@ -288,8 +288,9 @@ a duplicate-key server error with ContinueUpdateOnError allows a later row after
 synchronization. Typed row events skip or replace commands and report original
 command identities/counts, including retained base event arguments. Original-NULL flags and explicit transaction rollback preserve pending DataRow changes when configured. Returned INSERT rows and accept-change policies are
 checked independently. Read-only constant queries establish adapter-owned
-connection opening/closing, including a query error. These cases do not accept
-CommandBuilder, adapter batching, streaming or other public compatibility modes.
+connection opening/closing, including a query error. CommandBuilder and batching
+have the separate acceptance scopes below; streaming and other public
+compatibility modes remain open.
 
 
 CommandBuilder acceptance covers generated quoted/aliased CRUD (including names
@@ -306,3 +307,20 @@ Alternate index collations and nondefault opclasses cannot authorize equality-ba
 write keys. Unicode identifier generation also runs with standard_conforming_strings
 off. All fixtures are temporary; the suite does not accept ONLY generation,
 additional compatibility modes, platforms/builds, native MySQL or real TLS.
+
+DataAdapter batching acceptance covers logical sizes 0/2/257, 300-row groups
+crossing the 256-command physical boundary, byte/value snapshots, explicit and
+generated mixed CRUD, original NULLs, explicit rollback and optimistic zero-row
+conflicts. Duplicate errors at the first/middle/last position verify stop/continue
+policies and that unsent writes are not retried. Connection/transaction/timeout
+mismatches reject before writes. Row-event tests cover replacement, skipping,
+reentrancy, missing/disposed commands and stopping with the next row's existing
+error and parameter values intact. Unknown affected counts retain pending rows
+and adapter-owned connection cleanup. Fixtures use temporary PG tables.
+
+Timeout/disconnect/post-ack local failure, diagnostic-handler suppression or
+replacement, and elapsed-deadline enforcement are separate loopback evidence.
+Five exact-package consumers exercise batch snapshots and per-row outcomes
+offline; LIVE uses source-built modern assets. These results do not establish
+wire pipelining, automatic retries, atomic batches, other modes/platforms or
+real-server TLS acceptance.
