@@ -544,7 +544,7 @@ public sealed class PublicExecutionTests
     };
     static byte[] Tag(string tag) => Frame('C', Encoding.ASCII.GetBytes(tag + "\0"));
     internal static byte[] Value(string value) => Join(Frame('1'), Frame('2'), Description(1, Oid("int4"), 4), Row([value]), Complete(), Ready());
-    internal static async Task Initialize(Stream stream, CancellationToken token, bool readStartup = true, string mode = "pg", byte[]? nativeCatalogResponse = null)
+    internal static async Task Initialize(Stream stream, CancellationToken token, bool readStartup = true, string mode = "pg", byte[]? nativeCatalogResponse = null, IEnumerable<PgTypeDescription>? catalogTypes = null)
     {
         if (readStartup) await ReadStartupAsync(stream, token);
         await stream.WriteAsync(Join(Frame('R', Int32(0)), Status("client_encoding", "UTF8"), Status("server_version", "14"),
@@ -552,7 +552,7 @@ public sealed class PublicExecutionTests
         Assert.Equal("SELECT pg_catalog.version();", await ReadQueryAsync(stream, token));
         await stream.WriteAsync(Scalar(Product), token);
         Assert.Contains("FROM sys_catalog.sys_type", await ReadQueryAsync(stream, token));
-        await stream.WriteAsync(Catalog(Types.Select(t => new PgTypeDescription(Oid(t.Name), 90, t.Name, t.Size, 'b', 'U', 0, 0, 0, -1))), token);
+        await stream.WriteAsync(Catalog(catalogTypes ?? Types.Select(t => new PgTypeDescription(Oid(t.Name), 90, t.Name, t.Size, 'b', 'U', 0, 0, 0, -1))), token);
         await NativeCatalogAsync(stream, mode, token, nativeCatalogResponse);
     }
     internal static async Task<byte[][]> ReadExtended(Stream stream, CancellationToken token, bool parseCodeConsumed = false)

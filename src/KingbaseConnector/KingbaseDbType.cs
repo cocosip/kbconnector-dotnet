@@ -5,5 +5,6 @@ public enum KingbaseDbType
 {
     Boolean = 1, Smallint, Integer, Bigint, Oid, Real, Double, Numeric,
     Text, Varchar, Char, Bytea, Uuid, Json, Jsonb, Date, Time, TimeTz, Timestamp, TimestampTz, Interval, Xml,
-    SignedTinyint, UnsignedTinyint, UnsignedInteger, UnsignedBigint, Int128, VarcharByte, CharByte, NChar, NVarchar, SqlServerBit
+    SignedTinyint, UnsignedTinyint, UnsignedInteger, UnsignedBigint, Int128, VarcharByte, CharByte, NChar, NVarchar, SqlServerBit,
+    Bit, Varbit
 }

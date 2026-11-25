@@ -31,10 +31,10 @@ internal static class PreparedAssetProbe
             await stream.WriteAsync(Join(Description(1), Row("KingbaseES V009R001C001B0001"), Complete(), Ready()), token);
             var catalogQuery = await ReadFrames(stream, "Q", token);
             Require(Encoding.UTF8.GetString(catalogQuery[0]).Contains("FROM sys_catalog.sys_type", StringComparison.Ordinal));
-            var names = new[] { "bool", "int2", "int4", "int8", "text", "bytea", "date", "time", "timetz", "timestamp", "timestamptz", "interval", "xml", "numeric", "varchar", "bpchar" };
-            var sizes = new[] { "1", "2", "4", "8", "-1", "-1", "4", "8", "12", "8", "8", "16", "-1", "-1", "-1", "-1" };
+            var names = new[] { "bool", "int2", "int4", "int8", "text", "bytea", "date", "time", "timetz", "timestamp", "timestamptz", "interval", "xml", "numeric", "varchar", "bpchar" }.Concat(adapterBatch ? new[] { "varbit" } : []).ToArray();
+            var sizes = new[] { "1", "2", "4", "8", "-1", "-1", "4", "8", "12", "8", "8", "16", "-1", "-1", "-1", "-1" }.Concat(adapterBatch ? new[] { "-1" } : []).ToArray();
             var rows = names.Select((name, i) => Row((12000 + i).ToString(CultureInfo.InvariantCulture), "90", "pg_catalog", name,
-                sizes[i], "b", "U", "t", "0", "0", "0", "-1")).ToArray();
+                sizes[i], "b", name == "varbit" ? "V" : "U", "t", "0", "0", "0", "-1")).ToArray();
             await stream.WriteAsync(Join(Description(12), Join(rows), Complete(), Ready()), token);
             if (mode != KingbaseCompatibilityMode.PostgreSql)
             {
@@ -46,7 +46,7 @@ internal static class PreparedAssetProbe
                 foreach (var id in new[] { 1, 2, 4, 5 })
                 {
                     var request = await ReadFrames(stream, "PBDES", token);
-                    Require(request[1].AsSpan(request[1].Length - 7).SequenceEqual(Join(Int32(1), Encoding.UTF8.GetBytes(id.ToString(CultureInfo.InvariantCulture)), Count(0))));
+                    Require(request[1].AsSpan(request[1].Length - 16).SequenceEqual(Join(Int32(1), Encoding.UTF8.GetBytes(id.ToString(CultureInfo.InvariantCulture)), Int32(5), Encoding.ASCII.GetBytes(Convert.ToString(id, 2).PadLeft(5, '0')), Count(0))));
                     await stream.WriteAsync(id == 2 ? Join(Frame('1'), Frame('E', Encoding.UTF8.GetBytes("SERROR\0C23505\0Mprivate-fixture-error\0\0")), Ready()) :
                         Join(Frame('1'), Frame('2'), Frame('n'), Frame('C', Encoding.UTF8.GetBytes("INSERT 0 1\0")), Ready()), token);
                 }
@@ -383,11 +383,14 @@ internal static class PreparedAssetProbe
         using var command = new KingbaseCommand("SELECT :p", connection);
         if (adapterBatch)
         {
-            command.CommandText = "INSERT INTO public.items VALUES(:id)"; command.UpdatedRowSource = System.Data.UpdateRowSource.None;
+            command.CommandText = "INSERT INTO public.items VALUES(:id,:bits)"; command.UpdatedRowSource = System.Data.UpdateRowSource.None;
             command.Parameters.Add(new KingbaseParameter { ParameterName = "id", DbType = System.Data.DbType.Int32, SourceColumn = "id" });
+            var sharedBits = new System.Collections.BitArray(5);
+            command.Parameters.Add(new KingbaseParameter("bits", sharedBits));
             using var dataAdapter = new KingbaseDataAdapter { InsertCommand = command, UpdateBatchSize = 3, ContinueUpdateOnError = true };
             using var table = new System.Data.DataTable(); table.Columns.Add("id", typeof(int)); for (var id = 1; id <= 5; id++) table.Rows.Add(id);
             var groups = new List<int>();
+            dataAdapter.RowUpdating += (_, args) => { var text = Convert.ToString((int)args.Row!["id"], 2).PadLeft(5, '0'); for (var i = 0; i < 5; i++) sharedBits[i] = text[i] == '1'; };
             dataAdapter.RowUpdated += (_, args) => { Require(ReferenceEquals(command, args.Command)); groups.Add(args.RowCount); if (groups.Count == 1) Require(args.Errors is KingbaseException error && error.SqlState == "23505" && args.RecordsAffected == 1); else Require(args.Errors is null && args.RecordsAffected == 2); };
             try { Require(dataAdapter.Update(table) == 3); } catch { if (peer.IsFaulted) await peer; throw; }
             Require(groups.SequenceEqual(new[] { 3, 2 })); Require(table.Rows[0].RowState == System.Data.DataRowState.Unchanged && table.Rows[3].RowState == System.Data.DataRowState.Unchanged && table.Rows[4].RowState == System.Data.DataRowState.Unchanged);

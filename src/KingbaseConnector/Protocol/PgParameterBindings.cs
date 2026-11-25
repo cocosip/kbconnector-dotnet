@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Data;
 using System.Globalization;
 using System.Numerics;
@@ -44,7 +45,10 @@ internal sealed class PgParameterBindings
         }
         // Validate all inputs and aggregate size before copying any mutable buffer.
         for (var i = 0; i < values.Length; i++)
+        {
             if (values[i].Value is byte[] bytes) values[i] = new PgQueryParameter(values[i].TypeOid, (byte[])bytes.Clone());
+            else if (values[i].Value is BitArray bits) values[i] = new PgQueryParameter(values[i].TypeOid, bits.Clone());
+        }
         return new PgParameterBindings(plan.Sql, values, plan.EndsTransaction);
     }
 

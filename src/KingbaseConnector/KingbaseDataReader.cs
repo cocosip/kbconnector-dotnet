@@ -200,6 +200,7 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
                 IsExpression = metadata.Expression; IsHidden = false; IsAliased = metadata.Column is null ? null : name != metadata.Column;
             }
             if (typeName is "varchar" or "bpchar" && modifier > 4) ColumnSize = modifier - 4;
+            if (type == typeof(System.Collections.BitArray) && typeName is "bit" or "varbit" && modifier > 0) ColumnSize = modifier;
             if (typeName == "numeric" && modifier >= 4)
             {
                 var encoded = modifier - 4;

@@ -383,3 +383,18 @@ denial, untrusted aliases, mode drift, duplicate/contradictory OIDs, fatal error
 and cancellation have separate simulated evidence. Binary formats, native
 MySQL wire, generic bit strings, complete type/profile/platform coverage and
 non-PG schema/key/routine parity remain open.
+
+PG bit-string acceptance adds eight source-built cases across all four modes.
+Prepared bit/varbit parameters exercise leading zeros, empty and non-byte-aligned
+lengths, high bits, typed NULL, provider/default/typed getters, client-bound
+rejection and subsequent reuse. Four write-opt-in cases create only temporary
+bit(5)/varbit(9) columns, compare independent expected values and declared
+bit-count metadata, and require SQLSTATE 22026 for short/long fixed values and
+22001 for an oversized varying value. The supplied Oracle profile normalizes
+empty input to NULL; the other profiles preserve empty bit strings. Independent
+read-only probes characterize that difference before changing test expectations.
+MySQL sys.bit emits byte data rather than the PG 0/1 text representation and
+remains unimplemented. SQL Server Boolean BIT stays separate. Exact-asset
+loopback probes cover both appended selectors, Varbit inference, NULL, fresh
+pooled OIDs and queued adapter BitArray mutation; they do not imply exact-package
+LIVE or native MySQL bit-string acceptance.

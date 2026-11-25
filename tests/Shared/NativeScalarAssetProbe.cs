@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections;
 using System.Data;
 using System.Globalization;
 using System.Net;
@@ -14,7 +15,7 @@ namespace KingbaseConnector.Tests;
 internal static class NativeScalarAssetProbe
 {
     sealed record Spec(string Schema, string Name, int Size, string Category, string Input = "", string Output = "");
-    sealed record Value(KingbaseDbType Provider, object Input, string Key, object Expected, string Text);
+    sealed record Value(KingbaseDbType Provider, object Input, string Key, object Expected, string? Text);
     internal static async Task RunAsync(KingbaseCompatibilityMode mode)
     {
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(20)); var token = guard.Token;
@@ -39,8 +40,8 @@ internal static class NativeScalarAssetProbe
                     var spec = definitions.Single(type => type.Schema + "." + type.Name == value.Key); var oid = Oid(spec, borrower);
                     var frames = await ReadFrames(stream, "PBDES", token);
                     Check(frames[0].SequenceEqual(Frame('P', Join([0], Encoding.UTF8.GetBytes("SELECT $1\0"), Count(1), Int32(oid)))));
-                    var text = Encoding.UTF8.GetBytes(value.Text);
-                    Check(frames[1].SequenceEqual(Frame('B', Join([0, 0], Count(0), Count(1), Int32(text.Length), text, Count(0)))));
+                    var text = value.Text is null ? [] : Encoding.UTF8.GetBytes(value.Text);
+                    Check(frames[1].SequenceEqual(Frame('B', Join([0, 0], Count(0), Count(1), Int32(value.Text is null ? -1 : text.Length), text, Count(0)))));
                     await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, oid, spec.Size), Row(value.Text), Complete(), Ready()), token);
                 }
                 await Query(stream, "DISCARD ALL"); await stream.WriteAsync(Join(Frame('C', Encoding.ASCII.GetBytes("DISCARD ALL\0")), Ready()), token);
@@ -66,7 +67,7 @@ internal static class NativeScalarAssetProbe
             {
                 Check(Enum.IsDefined(typeof(KingbaseDbType), value.Provider)); command.Parameters.Clear();
                 var parameter = new KingbaseParameter("p", value.Input);
-                if (borrower == 0 || value.Provider is not (KingbaseDbType.Int128 or KingbaseDbType.SignedTinyint or KingbaseDbType.UnsignedTinyint or KingbaseDbType.UnsignedBigint))
+                if (borrower == 0 || value.Input is DBNull || value.Provider is not (KingbaseDbType.Int128 or KingbaseDbType.SignedTinyint or KingbaseDbType.UnsignedTinyint or KingbaseDbType.UnsignedBigint or KingbaseDbType.Varbit))
                     parameter.KingbaseDbType = value.Provider;
                 if (value.Provider == KingbaseDbType.UnsignedInteger) parameter.DbType = DbType.UInt32;
                 if (value.Provider == KingbaseDbType.UnsignedBigint) parameter.DbType = DbType.UInt64;
@@ -74,14 +75,18 @@ internal static class NativeScalarAssetProbe
                 if (borrower != 0 && value.Provider == KingbaseDbType.UnsignedTinyint) parameter.DbType = DbType.Byte;
                 command.Parameters.Add(parameter);
                 using var reader = await command.ExecuteReaderAsync(token); Check(reader.Read());
-                Check(reader.GetFieldType(0) == value.Expected.GetType() && Equals(value.Expected, reader.GetValue(0)) && Equals(value.Expected, reader.GetProviderSpecificValue(0)));
+                var expectedType = value.Input is DBNull ? typeof(BitArray) : value.Expected.GetType();
+                Check(reader.GetFieldType(0) == expectedType && SameValue(value.Expected, reader.GetValue(0)) && SameValue(value.Expected, reader.GetProviderSpecificValue(0)));
+                if (value.Expected is BitArray expectedBits) Check(expectedBits.Cast<bool>().SequenceEqual(reader.GetFieldValue<BitArray>(0).Cast<bool>()));
                 if (value.Expected is BigInteger) Check(reader.GetFieldValue<BigInteger>(0) == (BigInteger)value.Expected);
                 if (value.Input is uint unsignedInteger) Check(reader.GetFieldValue<uint>(0) == unsignedInteger);
                 if (value.Input is ulong unsignedLong) Check(reader.GetFieldValue<ulong>(0) == unsignedLong);
-                Check(reader.GetSchemaTable()!.Rows[0]["DataType"].Equals(value.Expected.GetType()));
+                Check(reader.GetSchemaTable()!.Rows[0]["DataType"].Equals(expectedType));
             }
             command.Parameters.Clear(); command.Parameters.Add(new KingbaseParameter("p", BigInteger.One << 127) { KingbaseDbType = KingbaseDbType.Int128 });
             try { await command.ExecuteScalarAsync(token); throw new InvalidOperationException("Wide input overflow was not rejected."); } catch (OverflowException) { }
+            command.Parameters.Clear(); command.Parameters.Add(new KingbaseParameter("p", new BitArray(1024 * 1024 + 1)));
+            try { await command.ExecuteScalarAsync(token); throw new InvalidOperationException("Oversized bits were not rejected."); } catch (ArgumentOutOfRangeException) { }
             command.Parameters.Clear(); command.Parameters.Add(new KingbaseParameter("p", DBNull.Value) { KingbaseDbType = KingbaseDbType.UnsignedTinyint, DbType = DbType.SByte });
             try { await command.ExecuteScalarAsync(token); throw new InvalidOperationException("Conflicting NULL selectors were not rejected."); } catch (ArgumentException) { }
             await connection.CloseAsync();
@@ -113,7 +118,8 @@ internal static class NativeScalarAssetProbe
     static List<Spec> Definitions(KingbaseCompatibilityMode mode)
     {
         var result = new List<Spec> { new("pg_catalog", "bool", 1, "B"), new("pg_catalog", "int2", 2, "N"), new("pg_catalog", "int4", 4, "N"),
-            new("pg_catalog", "int8", 8, "N"), new("pg_catalog", "text", -1, "S"), new("pg_catalog", "bytea", -1, "U"), new("pg_catalog", "int16", 16, "N") };
+            new("pg_catalog", "int8", 8, "N"), new("pg_catalog", "text", -1, "S"), new("pg_catalog", "bytea", -1, "U"), new("pg_catalog", "int16", 16, "N"),
+            new("pg_catalog", "bit", -1, "V"), new("pg_catalog", "varbit", -1, "V") };
         if (mode == KingbaseCompatibilityMode.Oracle) result.Add(new("pg_catalog", "tinyint", 1, "N"));
         if (mode != KingbaseCompatibilityMode.PostgreSql)
         {
@@ -138,6 +144,9 @@ internal static class NativeScalarAssetProbe
         var result = new List<Value>(); var min = -(BigInteger.One << 127); var high = (BigInteger.One << 96) + 7;
         result.Add(new(KingbaseDbType.Int128, min, "pg_catalog.int16", min, min.ToString(CultureInfo.InvariantCulture)));
         result.Add(new(KingbaseDbType.Int128, high, "pg_catalog.int16", high, high.ToString(CultureInfo.InvariantCulture)));
+        foreach (var (provider, text) in new[] { (KingbaseDbType.Bit, "00101"), (KingbaseDbType.Varbit, ""), (KingbaseDbType.Varbit, "10000000100000001") })
+        { var bits = new BitArray(text.Select(c => c == '1').ToArray()); result.Add(new(provider, bits, "pg_catalog." + provider.ToString().ToLowerInvariant(), bits, text)); }
+        result.Add(new(KingbaseDbType.Varbit, DBNull.Value, "pg_catalog.varbit", DBNull.Value, null));
         result.Add(new(KingbaseDbType.SignedTinyint, sbyte.MinValue, mode == KingbaseCompatibilityMode.Oracle ? "pg_catalog.tinyint" : mode == KingbaseCompatibilityMode.MySql ? "sys.tinyint" : "pg_catalog.int2",
             mode is KingbaseCompatibilityMode.Oracle or KingbaseCompatibilityMode.MySql ? sbyte.MinValue : (object)(short)-128, "-128"));
         result.Add(new(KingbaseDbType.UnsignedTinyint, byte.MaxValue, mode == KingbaseCompatibilityMode.SqlServer ? "sys.tinyint" : mode == KingbaseCompatibilityMode.MySql ? "sys.uint4" : "pg_catalog.int2",
@@ -152,5 +161,6 @@ internal static class NativeScalarAssetProbe
         { result.Add(new(KingbaseDbType.SqlServerBit, true, "sys.bit", true, "1")); result.Add(new(KingbaseDbType.NChar, "nchar  ", "sys.nchar", "nchar  ", "nchar  ")); result.Add(new(KingbaseDbType.NVarchar, "nvarchar", "sys.nvarchar", "nvarchar", "nvarchar")); }
         return result;
     }
+    static bool SameValue(object expected, object actual) => expected is BitArray bits ? actual is BitArray other && bits.Cast<bool>().SequenceEqual(other.Cast<bool>()) : Equals(expected, actual);
     static void Check(bool condition) { if (!condition) throw new InvalidOperationException("Exact-asset native scalar probe failed."); }
 }

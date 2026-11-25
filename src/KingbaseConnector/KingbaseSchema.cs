@@ -103,8 +103,8 @@ internal static class KingbaseSchema
             row["CreateFormat"] = "pg_catalog.\"" + name + "\"";
             row["CreateParameters"] = "";
             row["IsBestMatch"] = false;
-            if (name != "bpchar") row["IsFixedLength"] = type.Size > 0;
-            row["IsLong"] = clr == typeof(string) || clr == typeof(byte[]);
+            if (name is not ("bpchar" or "bit")) row["IsFixedLength"] = type.Size > 0;
+            row["IsLong"] = clr == typeof(string) || clr == typeof(byte[]) || clr == typeof(System.Collections.BitArray);
             row["IsNullable"] = true;
             if (name == "oid") row["IsUnsigned"] = true;
             else if (name is "int2" or "int4" or "int8" or "int16" or "float4" or "float8" or "numeric") row["IsUnsigned"] = false;
@@ -113,7 +113,7 @@ internal static class KingbaseSchema
         // Select only from supported rows that survived catalog/layout filtering.
         foreach (var group in table.Rows.Cast<DataRow>().GroupBy(row => (string)row["DataType"]))
         {
-            var preferred = group.FirstOrDefault(row => (string)row["TypeName"] is "text" or "timestamp") ?? group.First();
+            var preferred = group.FirstOrDefault(row => (string)row["TypeName"] is "text" or "timestamp" or "varbit") ?? group.First();
             preferred["IsBestMatch"] = true;
         }
         return table;

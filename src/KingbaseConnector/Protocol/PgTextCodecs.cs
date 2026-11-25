@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Globalization;
 using System.Numerics;
 using System.Text;
@@ -35,6 +36,11 @@ internal sealed class PgTextCodecs
         {
             case "bool": return text switch { "t" => true, "f" => false, _ => throw InvalidText() };
             case "sqlserver_bit": return text switch { "1" => true, "0" => false, _ => throw InvalidText() };
+            case "bit":
+            case "varbit":
+                var bits = new BitArray(text.Length);
+                for (var i = 0; i < text.Length; i++) bits[i] = text[i] switch { '0' => false, '1' => true, _ => throw InvalidText() };
+                return bits;
             case "sbyte":
                 ValidateNumber(text, integer: true);
                 if (sbyte.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var signedByte)) return signedByte;
@@ -137,6 +143,7 @@ internal sealed class PgTextCodecs
         {
             "bool" => (bool)value ? "t" : "f",
             "sqlserver_bit" => (bool)value ? "1" : "0",
+            "bit" or "varbit" => EncodeBits((BitArray)value),
             "float4" => EncodeFloating((float)value),
             "float8" => EncodeFloating((double)value),
             "numeric" => KingbaseNumeric.FromDecimal((decimal)value).ToString(),
@@ -155,10 +162,12 @@ internal sealed class PgTextCodecs
         if (!_catalog.ByOid.TryGetValue(oid, out var type) || type.Kind != 'b' || type.BaseTypeOid != 0 || type.ElementTypeOid != 0)
             throw Unsupported();
         if (type.CodecName is "sbyte" or "byte" or "uint4" or "uint8" or "int16" && type.Category != 'N') throw Unsupported();
+        if (type.CodecName is "bit" or "varbit" && type.Category != 'V') throw Unsupported();
         var (clrType, size) = type.CodecName switch
         {
             "bool" => (typeof(bool), 1),
             "sqlserver_bit" => (typeof(bool), 1),
+            "bit" or "varbit" => (typeof(BitArray), -1),
             "sbyte" => (typeof(sbyte), 1),
             "byte" => (typeof(byte), 1),
             "int2" => (typeof(short), 2),
@@ -188,6 +197,19 @@ internal sealed class PgTextCodecs
     static void ValidateWide(BigInteger value)
     {
         if (value < -(BigInteger.One << 127) || value >= (BigInteger.One << 127)) throw OutOfRange();
+    }
+
+    static string EncodeBits(BitArray bits)
+    {
+        ValidateBitLength(bits);
+        var chars = new char[bits.Length];
+        for (var i = 0; i < chars.Length; i++) chars[i] = bits[i] ? '1' : '0';
+        return new string(chars);
+    }
+
+    internal static void ValidateBitLength(BitArray bits)
+    {
+        if (bits.Length > MaxTextBytes) throw TooLarge();
     }
 
     static void RequireIsoDateStyle(string? style)

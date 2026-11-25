@@ -87,6 +87,8 @@ public sealed partial class KingbaseDataAdapter
                 {
                     var copy = parameter.Snapshot();
                     if (copy.Value is byte[] bytes) copy.Value = (byte[])bytes.Clone();
+                    else if (copy.Value is System.Collections.BitArray bits)
+                    { Protocol.PgTextCodecs.ValidateBitLength(bits); copy.Value = bits.Clone(); }
                     snapshot.Parameters.Add(copy);
                 }
                 _preparedRow = new QueuedCommand(snapshot, source.Connection, source.Transaction, source.CommandTimeout, args.StatementType);
