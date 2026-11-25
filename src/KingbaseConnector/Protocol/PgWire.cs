@@ -9,7 +9,7 @@ internal readonly struct PgMessage(byte code, byte[] payload)
 }
 
 /// <summary>Owns one stream and at most one resumable idle frame read.</summary>
-internal sealed class PgWire : IDisposable
+internal sealed partial class PgWire : IDisposable
 {
     // Materialized control/small-result path; streaming large rows/COPY need a separate bounded reader.
     internal const int MaxMessageLength = 64 * 1024 * 1024;
@@ -51,6 +51,7 @@ internal sealed class PgWire : IDisposable
         EnterOperation();
         try
         {
+            if (_copyPayloadRemaining != 0) throw new InvalidOperationException("A streaming COPY payload has not been consumed.");
             var elapsed = Stopwatch.StartNew();
             if (_pendingRead is null)
             {

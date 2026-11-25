@@ -7,5 +7,6 @@
     <Compile Include="../Shared/PoolAssetProbe.cs" Link="PoolAssetProbe.cs" />
     <Compile Include="../Shared/NativeScalarAssetProbe.cs" Link="NativeScalarAssetProbe.cs" />
     <Compile Include="../Shared/NotificationAssetProbe.cs" Link="NotificationAssetProbe.cs" />
+    <Compile Include="../Shared/CopyAssetProbe.cs" Link="CopyAssetProbe.cs" />
   </ItemGroup>
 </Project>

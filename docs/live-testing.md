@@ -475,3 +475,38 @@ malformed fields/UTF8, identity drift, schema row-validation precedence, scalar
 overflow consistency, BEGIN cleanup, confirmed rollback and batch acknowledgment.
 Broader profile/platform, native MySQL wire, exact-package LIVE and real TLS remain
 separate acceptance gaps.
+
+COPY acceptance adds 28 cases across the four PG-wire modes. Text fixtures verify
+empty export, UTF8, NULL, backslash/tab escapes, custom CSV delimiters, quotes and
+embedded newlines. Binary fixtures preserve the independently observed KBCOPY
+signature, empty export, actual server rows/NULL and same-profile raw import/export.
+No typed binary row codec or cross-version restore is implied. Successful counts
+require COPY completion plus ReadyForQuery. Temporary fixtures distinguish MySQL's
+observed invalid-integer-to-zero conversion from the other modes' 22P02 rejection;
+all four separately reject a violated CHECK with 23514 and reuse the same PID.
+
+Text cancellation flushes a pending row, sends CopyFail, and confirms statement
+atomicity both outside and inside an explicit transaction. An outer write made
+before COPY disappears only after explicit Rollback, and the handle remains
+associated until then; a rollback attempt during COPY rejects locally. Independent
+raw probes show 57014 and Ready=E for outer-transaction cancellation in all modes.
+An unfinished export destroys the first pooled physical session, and a subsequent
+max-size-1 borrower has a different PID and executes normally. An approximately 3MiB import with
+1500 session-local trigger notices runs with CommandTimeout=0 and confirms receive
+progress during writes, exact row count and later query reuse. Fixtures and trigger
+functions are confined to the session's temporary namespace. Profiles, original
+results, signatures/catalog/frame probes and deployment identities stay outside
+the repository.
+
+Offline regressions separately verify COPY data beyond the ordinary 1MiB buffering
+limit, fragmented/truncated data, invalid formats/counts/lengths, lexer endpoint
+preflight, strict UTF8/BOM data, independent cleanup deadlines, callback precedence,
+error-before-Z ordering, early server cancellation, known receive-fault propagation,
+rejected concurrent completion/cancellation/disposal and stale-owner isolation.
+A controlled duplex stream blocks each data write until its server Notice has
+been consumed; disabling the receive path makes this test fail. Every exact package
+asset runs the four-mode text/raw stream, completion, cancellation/callback and
+same-socket two-borrower reset probe. These package checks use loopback servers,
+while LIVE remains source-built on the three modern Windows runtimes. Typed binary
+COPY, native MySQL wire, broader profiles/platforms, exact-package LIVE and real TLS
+remain separate work; real TLS is user-deferred and offline TLS tests stay required.

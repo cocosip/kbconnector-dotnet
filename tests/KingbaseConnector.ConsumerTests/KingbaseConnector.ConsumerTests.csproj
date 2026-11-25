@@ -16,6 +16,7 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Condition="'$(KingbaseAsset)' != 'netstandard2.0' And '$(KingbaseAsset)' != 'netstandard2.1'" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" VersionOverride="[10.0.0,)" Condition="'$(KingbaseAsset)' == 'netstandard2.0' Or '$(KingbaseAsset)' == 'netstandard2.1'" />
     <Compile Include="../Shared/NotificationAssetProbe.cs" Link="NotificationAssetProbe.cs" />
+    <Compile Include="../Shared/CopyAssetProbe.cs" Link="CopyAssetProbe.cs" />
     <Reference Include="KingbaseConnector">
       <HintPath>$(PkgKingbaseConnector)/lib/$(KingbaseAsset)/KingbaseConnector.dll</HintPath>
       <Private>true</Private>

@@ -355,6 +355,15 @@ public sealed partial class KingbaseConnection : DbConnection
                 _callbackFailure = null;
             }
     }
+    internal void AbortExecution(KingbaseCommand command, PgPhysicalSession session, long generation)
+    {
+        lock (_sync)
+        {
+            if (!ReferenceEquals(_session, session) || _generation != generation || !ReferenceEquals(_command, command)) return;
+            try { session.Dispose(); } catch { }
+        }
+        RetireIfBroken(session);
+    }
     internal void ReleaseReader(KingbaseDataReader reader, PgPhysicalSession session, long generation, bool closeConnection)
     {
         if (closeConnection)

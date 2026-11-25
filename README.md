@@ -25,7 +25,7 @@ await listen.ExecuteNonQueryAsync(cancellationToken);
 bool received = await listener.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
 ```
 
-`KingbaseNotificationEventArgs` exposes the sender `ProcessId`, `Channel` and `Payload`; channel/payload are server-supplied application data and are not automatically logged. There is no continuous background dispatch. Commands and explicit waits deliver notifications while owning the connection; handlers must return promptly and cannot execute commands, schema calls or another Wait on that connection. Other connections can perform independent work. Handler failures are surfaced after command acknowledgment and result/metadata validation, before a Reader is published; server errors and confirmed rollback outcomes take precedence. Already acknowledged writes are not undone. A handler failure during BEGIN triggers bounded rollback cleanup; failed cleanup closes the connection.
+`KingbaseNotificationEventArgs` exposes the sender `ProcessId`, `Channel` and `Payload`; channel/payload are server-supplied application data and are not automatically logged. There is no continuous background dispatch outside an explicit operation. Commands, waits and active COPY exchanges deliver notifications while owning the connection; handlers must return promptly and cannot reenter commands, schema calls, Wait or that COPY resource. Other connections can perform independent work. Handler failures are surfaced after command acknowledgment and result/metadata validation, before a Reader is published; server errors and confirmed rollback outcomes take precedence. Already acknowledged writes are not undone. A handler failure during BEGIN triggers bounded rollback cleanup; failed cleanup closes the connection.
 
 `Wait(int timeoutMilliseconds = -1)` and `WaitAsync(int timeoutMilliseconds = -1, CancellationToken = default)` return true for a received notification and false on timeout. TimeSpan overloads require exact milliseconds; -1ms is infinite and zero polls. Wait requires an idle connection outside a transaction and sends no SQL. Timeout and caller cancellation preserve the session, including an incomplete notification frame, for the next Wait or command. At most one bounded frame read may finish after a wait ends; it is retained without dispatch until another explicit operation consumes it. Late frames are not consumed by an expired wait. Ordinary command cancellation retains its existing physical-retirement policy. Close aborts a wait and revokes ownership; malformed messages, EOF or fatal idle errors retire the session. Wait's deadline bounds I/O waiting, not application handler execution.
 
@@ -34,6 +34,32 @@ LISTEN/NOTIFY follows server transaction semantics: rollback does not publish no
 Subscribe to `KingbaseConnection.Notice` for structured server diagnostics during commands or explicit waits. `KingbaseNoticeEventArgs.Notice` exposes `SqlState`, localized `Severity`, optional `InvariantSeverity`, `MessageText`, `Detail`, `Hint` and an immutable `Fields` dictionary keyed by protocol character. Raw fields may contain sensitive application data; the driver does not log them, and `KingbaseNotice.ToString()` includes only SQLSTATE. Startup, unowned and pool-reset notices are parsed and discarded.
 
 Notice handlers share notification ownership and reentry restrictions. The first handler exception from either event is surfaced after command synchronization and result validation, with server/protocol/schema errors and confirmed rollback taking precedence. During idle Wait, a notice alone does not return true; a Notice handler exception stops that wait immediately after its complete frame and preserves a healthy connection. Default severity handling follows the server's message settings. Complete error-tail/profile/platform acceptance remains tracked separately; the tested SQL Server profile's Error/CommandComplete/Ready tail still causes strict physical retirement.
+
+Client COPY streams support the four tested PG-wire compatibility modes:
+
+```csharp
+using (var writer = await connection.BeginTextImportAsync(
+    "COPY app_items (id, description) FROM STDIN", cancellationToken))
+{
+    await writer.WriteAsync("1\tfirst item\n2\t\\N\n");
+    ulong rows = await writer.CompleteAsync(cancellationToken);
+}
+
+using var export = await connection.BeginRawBinaryCopyAsync(
+    "COPY app_items TO STDOUT (FORMAT BINARY)", cancellationToken);
+await export.CopyToAsync(destination, 81920, cancellationToken);
+ulong? exportedRows = export.RowsCopied;
+```
+
+`BeginTextImport`/`BeginTextImportAsync` returns a `KingbaseTextCopyWriter`. Complete flushes strict UTF8 without a BOM and waits for the server's COPY count and ReadyForQuery. Dispose also completes text import. To abandon an import, call Cancel/CancelAsync before disposing; buffered text is discarded and CopyFail is acknowledged. The SQL COPY options define CSV, delimiters, quoting, escapes and NULL; the driver sends the text without translating it. `BeginTextExport`/`BeginTextExportAsync` returns a strict UTF8 TextReader that preserves BOM characters as data.
+
+`BeginRawBinaryCopy`/`BeginRawBinaryCopyAsync` returns a `KingbaseCopyStream` with server-confirmed `IsImport`, `IsBinary` and `ColumnCount`. It preserves opaque binary bytes, including the tested server's KBCOPY signature. Raw import requires explicit Complete/CompleteAsync; disposing an unfinished raw import cancels. Export completes only after all CopyData, server CopyDone, COPY count and ReadyForQuery; `RowsCopied` remains unknown until success is acknowledged. Counts already acknowledged remain available if a callback later fails. Disposing an unfinished raw or text export closes the physical session. Raw binary data requires matching source/destination formats and types; this API does not promise backup, cross-version restore or typed binary row codecs.
+
+Only a single client COPY statement with FROM STDIN or TO STDOUT is accepted. Server files/PROGRAM and known text-direction mismatches reject before sending SQL. COPY owns the connection until terminal synchronization, so commands, schema calls, transactions and waits reject while it is active. Import continuously consumes server messages under that ownership to avoid read/write backpressure deadlocks; synchronous event handlers may run while writes are pending. Handler exceptions are retained until terminal synchronization, with actual server/protocol errors taking precedence. There is no receive task after COPY ends.
+
+Command Timeout is one lifetime deadline, including application pauses; zero is unlimited. The token supplied to Begin remains applicable for that resource's lifetime. An in-flight I/O cancellation or connection Close retires the physical session; pre-canceled calls do no I/O. Explicit import cancellation uses the separate Cleanup Timeout and consumes only its own acknowledged 57014; known earlier server/receive failures remain visible. It does not roll back an enclosing transaction: the tested profiles report a failed outer transaction, which the application must explicitly roll back. Concurrent operations on the same COPY resource reject, including cancellation during unacknowledged completion; use an I/O token or connection Close to interrupt pending work.
+
+COPY data streams beyond the buffered query's 1 MiB total limit. Frames remain bounded to 64 MiB and total control/empty-message traffic to 4096 frames/1 MiB. Shared byte-array I/O and the declared modern Span/Memory overrides split data into chunks of at most 64 KiB; Span/Memory adaptation may stage one additional chunk. The netstandard2.0 asset exposes the shared byte-array contract; later host BCL adapters are outside that memory guarantee. TextReader.ReadToEnd and application destination buffers can deliberately materialize the result. Typed binary COPY, LOB APIs, broader platforms/profiles, native MySQL wire and real-server TLS remain separate acceptance work.
 
 `KingbaseNumeric` preserves high-precision numeric values without rounding:
 

@@ -6,6 +6,8 @@ namespace KingbaseConnector;
 public sealed partial class KingbaseConnection
 {
     ExceptionDispatchInfo? _callbackFailure;
+    [ThreadStatic] static KingbaseConnection? _callbackContext;
+    internal bool IsInsideCallback => ReferenceEquals(_callbackContext, this);
     public event EventHandler<KingbaseNotificationEventArgs>? Notification;
     public event EventHandler<KingbaseNoticeEventArgs>? Notice;
 
@@ -72,11 +74,13 @@ public sealed partial class KingbaseConnection
             if (!ReferenceEquals(_session, session) || _generation != generation || _command is null) return;
             ValidateCallbackSession(session);
         }
+        var previous = _callbackContext; _callbackContext = this;
         try { handler?.Invoke(this, args); }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
         {
             lock (_sync) if (ReferenceEquals(_session, session) && _generation == generation) _callbackFailure ??= ExceptionDispatchInfo.Capture(error);
         }
+        finally { _callbackContext = previous; }
     }
 
     internal bool HasCallbackFailure(PgPhysicalSession session, long generation)

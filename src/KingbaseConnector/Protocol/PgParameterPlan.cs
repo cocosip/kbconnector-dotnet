@@ -8,19 +8,23 @@ internal sealed class PgParameterPlan
     const int MaxBytes = 1024 * 1024;
     const int MaxParameters = 1024;
 
-    PgParameterPlan(string sql, List<int> indexes, bool endsTransaction)
+    PgParameterPlan(string sql, List<int> indexes, bool endsTransaction, string? firstKeyword, bool? copyIsImport)
     {
         Sql = sql;
         ParameterIndexes = indexes.AsReadOnly();
         EndsTransaction = endsTransaction;
+        FirstKeyword = firstKeyword;
+        CopyIsImport = copyIsImport;
     }
 
     internal string Sql { get; }
     internal IReadOnlyList<int> ParameterIndexes { get; }
     internal bool EndsTransaction { get; }
+    internal string? FirstKeyword { get; }
+    internal bool? CopyIsImport { get; }
 
     internal static PgParameterPlan Create(string sql, IReadOnlyList<string?> parameterNames,
-        KingbaseCompatibilityMode mode, bool? standardConformingStrings)
+        KingbaseCompatibilityMode mode, bool? standardConformingStrings, bool clientCopy = false)
     {
         if (sql is null) throw new ArgumentNullException(nameof(sql));
         if (parameterNames is null) throw new ArgumentNullException(nameof(parameterNames));
@@ -44,6 +48,7 @@ internal sealed class PgParameterPlan
         var copied = 0;
         var leadingWords = new List<string>(5);
         var leading = true;
+        var copy = clientCopy ? new PgCopyTarget() : null;
         for (var i = 0; i < sql.Length;)
         {
             var c = sql[i];
@@ -84,6 +89,7 @@ internal sealed class PgParameterPlan
             }
             if (c == '\'')
             {
+                copy?.Literal();
                 var escapes = previousStringEscapes.HasValue && gapNewline ? previousStringEscapes.Value : !standardConformingStrings.Value;
                 i = mode == KingbaseCompatibilityMode.MySql ? SkipMysqlQuote(sql, i, '\'') : SkipQuote(sql, i, '\'', escapes);
                 previousStringEscapes = escapes;
@@ -96,15 +102,17 @@ internal sealed class PgParameterPlan
                 ((c is 'q' or 'Q' && At(sql, i + 1, '\'')) ||
                  (c is 'n' or 'N' && i + 2 < sql.Length && sql[i + 1] is 'q' or 'Q' && sql[i + 2] == '\'')))
             {
+                copy?.Literal();
                 i = SkipOracleQuote(sql, i + (c is 'q' or 'Q' ? 1 : 2));
                 continue;
             }
-            if (mode == KingbaseCompatibilityMode.SqlServer && c == '[') { i = SkipQuote(sql, i, ']', false); continue; }
-            if (mode == KingbaseCompatibilityMode.MySql && c == '`') { i = SkipMysqlQuote(sql, i, '`'); continue; }
-            if (mode == KingbaseCompatibilityMode.MySql && c == '"') { i = SkipMysqlQuote(sql, i, '"'); continue; }
-            if (c == '"') { i = SkipQuote(sql, i, '"', false); continue; }
+            if (mode == KingbaseCompatibilityMode.SqlServer && c == '[') { copy?.Identifier(); i = SkipQuote(sql, i, ']', false); continue; }
+            if (mode == KingbaseCompatibilityMode.MySql && c == '`') { copy?.Identifier(); i = SkipMysqlQuote(sql, i, '`'); continue; }
+            if (mode == KingbaseCompatibilityMode.MySql && c == '"') { copy?.Identifier(); i = SkipMysqlQuote(sql, i, '"'); continue; }
+            if (c == '"') { copy?.Identifier(); i = SkipQuote(sql, i, '"', false); continue; }
             if ((c is 'E' or 'e' or 'B' or 'b' or 'X' or 'x' or 'N' or 'n') && At(sql, i + 1, '\''))
             {
+                copy?.Literal();
                 var escapes = c is 'E' or 'e' || (c is 'N' or 'n' && !standardConformingStrings.Value);
                 i = mode == KingbaseCompatibilityMode.MySql ? SkipMysqlQuote(sql, i + 1, '\'') : SkipQuote(sql, i + 1, '\'', escapes);
                 previousStringEscapes = escapes;
@@ -113,6 +121,7 @@ internal sealed class PgParameterPlan
             if (c is 'U' or 'u' && At(sql, i + 1, '&') && i + 2 < sql.Length && sql[i + 2] is '\'' or '"')
             {
                 var quote = sql[i + 2];
+                if (quote == '"') copy?.Identifier(); else copy?.Literal();
                 i = mode == KingbaseCompatibilityMode.MySql ? SkipMysqlQuote(sql, i + 2, quote) : SkipQuote(sql, i + 2, quote, false);
                 if (quote == '\'') previousStringEscapes = false;
                 continue;
@@ -121,6 +130,7 @@ internal sealed class PgParameterPlan
             {
                 var start = i;
                 do { i++; } while (i < sql.Length && IdentifierPart(sql[i]));
+                copy?.Word(sql.Substring(start, i - start).ToUpperInvariant());
                 if (leading && leadingWords.Count < 5) leadingWords.Add(sql.Substring(start, i - start).ToUpperInvariant());
                 continue;
             }
@@ -146,6 +156,7 @@ internal sealed class PgParameterPlan
                     do { end++; } while (end < sql.Length && (IdentifierStart(sql[end]) || Digit(sql[end])));
                 if (At(sql, end, '$'))
                 {
+                    copy?.Literal();
                     var delimiter = sql.Substring(i, end - i + 1);
                     var closing = sql.IndexOf(delimiter, end + 1, StringComparison.Ordinal);
                     if (closing < 0) throw InvalidPlan();
@@ -194,6 +205,7 @@ internal sealed class PgParameterPlan
                 copied = i;
                 continue;
             }
+            copy?.Symbol(c);
             i++;
         }
         if (used.Any(value => !value)) throw InvalidPlan();
@@ -206,7 +218,7 @@ internal sealed class PgParameterPlan
             controlWords[1] == "AND" && controlWords[2] == "CHAIN";
         if (endsTransaction && mode != KingbaseCompatibilityMode.PostgreSql)
             throw new NotSupportedException("Transaction chaining for this compatibility mode is not implemented.");
-        return new PgParameterPlan(planned, indexes, endsTransaction);
+        return new PgParameterPlan(planned, indexes, endsTransaction, leadingWords.FirstOrDefault(), copy?.IsImport);
     }
 
     static Dictionary<string, int> IndexNames(string?[] names)
