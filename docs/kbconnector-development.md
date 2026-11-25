@@ -159,7 +159,13 @@ When a failure occurs, classify it as client defect, confirmed server/version/de
 
 ## 6. Definition of complete
 
-The feature matrix owns the contract; the tracker owns its status. Use these meanings consistently:
+The feature matrix owns the contract; the tracker owns its status. Report three separate dimensions inside the single tracker: (1) concrete implemented/delivered subfeatures, (2) database mode and wire-backend coverage, and (3) verification/profile/platform acceptance. A parent requirement can stay open while a named PG subfeature has been implemented, reviewed and accepted. Do not summarize development as a Complete-parent/total-parent percentage: matrix rows are unequal-sized requirements, not test projects.
+
+For every open item, distinguish missing code from missing tests/environments and record both when applicable. Use Implemented for an existing intended code/API path whose local checks pass but applicable acceptance is outstanding; use In progress when required implementation still remains. Keep release compatibility gates separate from implementation milestones. Test execution totals repeated over runtimes are evidence, not counts of distinct features. Status reports lead with delivered behavior and the largest actual gaps, then identify the committed baseline and uncommitted work.
+
+Reconcile summary classifications and feature-row descriptions with source and evidence after each functional increment; do not leave obsolete "public path pending" or blanket "LIVE Not run" descriptions after a bounded subset has passed. Report that bounded scope explicitly. Publication is excluded by the user's current authorization; packaging/provenance/licensing readiness stays tracked without treating an intentionally unperformed push/tag/publication as missing runtime code.
+
+Use these status meanings consistently:
 
 | Status | Meaning | Completion checkbox |
 | --- | --- | --- |

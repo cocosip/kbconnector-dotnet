@@ -1,12 +1,12 @@
 # KingbaseConnector Feature and Version Difference Matrix
 
-Baseline date: 2026-11-23. Last updated: 2026-11-24. Status: documentation baseline ready to guide development; specific proposals remain subject to confirmation. Repository: `D:/Code/dotnet/kbconnector-dotnet`.
+Baseline date: 2026-11-23. Last updated: 2026-11-25. Status: requirements baseline; current implementation and acceptance are maintained in the progress tracker. Repository: `kbconnector-dotnet`.
 
 Related documents: [unified driver design](kbconnector-design.md), [official DLL evidence inventory](reference/official-driver-inventory.json), [developer guide](kbconnector-development.md), and [development progress](kbconnector-development-progress.md). Complete V9 before extending support to V8; this matrix does not claim that V8 is supported.
 
 ## 1. Reading Rules and Scope
 
-**At the 2026-11-23 baseline, no product functionality had been implemented or accepted, and no tests had run against a real server.** The tables describe evidence from official materials, proposed contracts for the new driver, and acceptance requirements. They are not a list of implemented features. The [development progress document](kbconnector-development-progress.md) is the single source of current implementation, simulation, and live-validation status; this matrix retains the baseline and requirements.
+**At the 2026-11-23 baseline, no product functionality had been implemented or accepted, and no tests had run against a real server.** The tables describe evidence from official materials, proposed contracts for the new driver, and acceptance requirements. They are not a list of implemented features or test projects. The 122 IDs are broad requirements (85 V9 R, 26 V9 C, 7 later L, 4 V8), not equally weighted development tasks; do not use closed parent rows as an overall implementation percentage. The [development progress document](kbconnector-development-progress.md) is the single source of current implementation, simulation, and live-validation status; this matrix retains the baseline and requirements.
 
 | Dimension | Values and meaning |
 | --- | --- |

@@ -2,7 +2,7 @@
 
 Independent managed ADO.NET driver for KingbaseES, developed against the [design and feature matrix](docs/README.md). V9 is the first target; V8 and EF Core providers follow later.
 
-This is an early development build. Package identity and licensing are provisional. Bounded live bootstrap and PG execution results are recorded in the [progress tracker](docs/kbconnector-development-progress.md); complete server compatibility and release readiness remain pending.
+This is an early development build. Package identity and licensing are provisional. Bounded live bootstrap and PG execution results are recorded in the [progress tracker](docs/kbconnector-development-progress.md); complete server compatibility and release readiness remain pending. The tracker reports delivered subfeatures, mode/backend coverage and acceptance separately; its parent-requirement closure inventory is not an implementation percentage.
 
 The core targets `netstandard2.0`, `netstandard2.1`, `net8.0`, `net9.0`, and `net10.0`. Install an SDK that supports `net10.0` and `.slnx`, plus the .NET 8/9/10 runtimes, then run:
 
@@ -23,7 +23,7 @@ var value = KingbaseNumeric.Parse("123456789012345678901234567890.00100");
 Console.WriteLine(value); // Preserves the coefficient and scale, including trailing zeros.
 ```
 
-`ToDecimal()` converts exactly or throws `OverflowException`, including when conversion would round a nonzero digit. The value representation currently bounds coefficient precision and nonnegative scale to 16,384 each; these are client resource limits. Numeric binary formats and real-server acceptance remain in progress.
+`ToDecimal()` converts exactly or throws `OverflowException`, including when conversion would round a nonzero digit. The value representation currently bounds coefficient precision and nonnegative scale to 16,384 each; these are client resource limits. Bounded PG numeric LIVE evidence exists; complete server bounds, other modes and binary formats remain open.
 
 The public input model includes `KingbaseParameter`, `KingbaseDbType` and `KingbaseParameterCollection`:
 
@@ -156,7 +156,7 @@ Use `Save(name)`, `Rollback(name)` and `Release(name)` or their asynchronous cou
 
 `KingbaseDataSourceBuilder.Build()` snapshots validated configuration. Its source creates independent connections with immutable configuration and redacted connection strings. Disposing the source rejects new opens and reopening, cancels pending opens, and lets already-open connections and Readers finish. Modern assets derive from `DbDataSource`; Standard assets expose typed creation/open methods.
 
-Ordinary PG pooling now gives each DataSource a private pool; direct connections share pools with normalized configuration. Maximum Pool Size counts opening, leased, resetting and retiring sessions. One Open timeout covers FIFO waiting, initialization and idle validation. Close/CloseAsync revokes children, rolls back unfinished local transactions, issues DISCARD ALL, restores bound settings and verifies identity/catalog/state within Cleanup Timeout; failed cleanup retires the socket. Active interrupted commands retire their sessions. Clear with `KingbaseConnection.ClearPool(connection)`, `KingbaseConnection.ClearAllPools()` or `source.ClearPool()`; active leases finish and retire on return. Idle/total lifetime expiry and a lazy minimum are implemented. These paths have loopback evidence only; real resource cleanup, reusable profiles, transaction reservations and other backends remain unaccepted.
+Ordinary PG pooling now gives each DataSource a private pool; direct connections share pools with normalized configuration. Maximum Pool Size counts opening, leased, resetting and retiring sessions. One Open timeout covers FIFO waiting, initialization and idle validation. Close/CloseAsync revokes children, rolls back unfinished local transactions, issues DISCARD ALL, restores bound settings and verifies identity/catalog/state within Cleanup Timeout; failed cleanup retires the socket. Active interrupted commands retire their sessions. Clear with `KingbaseConnection.ClearPool(connection)`, `KingbaseConnection.ClearAllPools()` or `source.ClearPool()`; active leases finish and retire on return. Idle/total lifetime expiry and a lazy minimum are implemented. These paths have loopback coverage and bounded PG same-session/settings-restoration LIVE evidence. Complete resource cleanup/load, transaction reservations and other backends remain open.
 
 A DataSource can obtain fresh credentials through `builder.PasswordProvider`, a `Task<string>` delegate receiving immutable endpoint metadata and a cancellation token. Configure it without an explicit Password; Build and DI resolution remain lazy. Each new physical initialization invokes it under the Open budget, while idle reuse and ordinary reset do not. Clear the pool to retire existing sessions and fetch a new password on replacement. Concurrent callbacks must be supported; cancelled external work may finish later, but cannot open a socket or publish a lease. Provider failures use safe `KingbasePasswordProviderException` text without retaining the original exception. The existing DI builder configuration callback accepts this property too.
 The separate `KingbaseConnector.DependencyInjection` package provides closed transient connections and lazy singleton DataSources:
