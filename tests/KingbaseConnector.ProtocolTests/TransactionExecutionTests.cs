@@ -10,6 +10,30 @@ namespace KingbaseConnector.ProtocolTests;
 
 public sealed class TransactionExecutionTests
 {
+    [Theory]
+    [InlineData("ROLLBACK TRANSACTION nested_savepoint", "ROLLBACK")]
+    [InlineData("COMMIT TRANSACTION nested", "COMMIT")]
+    public async Task TextControlWithActiveReadyRetainsTransactionOwnership(string sql, string tag)
+    {
+        using var listener = Listen(); using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var connection = new KingbaseConnection(Settings(listener).ConnectionString);
+        var peer = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync(guard.Token);
+            using var stream = client.GetStream(); await Initialize(stream, guard.Token);
+            await Expect(stream, "BEGIN ISOLATION LEVEL READ COMMITTED", Result("BEGIN", 'T'), guard.Token);
+            await Expect(stream, sql, Result(tag, 'T'), guard.Token);
+            await Expect(stream, "ROLLBACK", Result("ROLLBACK", 'I'), guard.Token);
+        }, guard.Token);
+        await connection.OpenAsync(guard.Token);
+        using var transaction = await connection.BeginTransactionAsync(guard.Token);
+        using var command = new KingbaseCommand(sql, connection) { Transaction = transaction };
+        await command.ExecuteNonQueryAsync(guard.Token);
+        Assert.Same(connection, transaction.Connection);
+        await transaction.RollbackAsync(guard.Token);
+        await peer.WaitAsync(guard.Token);
+    }
+
     static async Task Initialize(NetworkStream stream, CancellationToken token)
     {
         await PublicExecutionTests.Initialize(stream, token);

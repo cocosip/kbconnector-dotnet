@@ -11,11 +11,12 @@ namespace KingbaseConnector.Tests;
 // The consumer compiles this against each exact archive asset, including both Standard DLLs.
 internal static class PreparedAssetProbe
 {
-    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false, bool schema = false, bool readerSchema = false, bool schemaOnly = false, bool keyInfo = false, bool adapter = false, bool commandBuilder = false, bool adapterBatch = false)
+    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false, bool schema = false, bool readerSchema = false, bool schemaOnly = false, bool keyInfo = false, bool adapter = false, bool commandBuilder = false, bool adapterBatch = false, KingbaseCompatibilityMode mode = KingbaseCompatibilityMode.PostgreSql)
     {
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
         var token = guard.Token;
+        var wireMode = mode switch { KingbaseCompatibilityMode.Oracle => "oracle", KingbaseCompatibilityMode.MySql => "mysql", KingbaseCompatibilityMode.SqlServer => "sqlserver", _ => "pg" };
         var peer = Task.Run(async () =>
         {
             using var socket = await listener.AcceptTcpClientAsync(token); using var stream = socket.GetStream();
@@ -24,7 +25,7 @@ internal static class PreparedAssetProbe
             Require(startupLength is >= 8 and <= 4096);
             await stream.ReadExactlyAsync(new byte[startupLength - 4], token);
             await stream.WriteAsync(Join(Frame('R', Int32(0)), Status("client_encoding", "UTF8"), Status("server_version", "14"),
-                Status("database_mode", "pg"), Status("standard_conforming_strings", "on"), Status("DateStyle", "ISO, MDY"), Frame('K', Join(Int32(1), Int32(2))), Ready()), token);
+                Status("database_mode", wireMode), Status("standard_conforming_strings", "on"), Status("DateStyle", "ISO, MDY"), Frame('K', Join(Int32(1), Int32(2))), Ready()), token);
             var identity = await ReadFrames(stream, "Q", token);
             Require(Encoding.UTF8.GetString(identity[0].AsSpan(5)) == "SELECT pg_catalog.version();\0");
             await stream.WriteAsync(Join(Description(1), Row("KingbaseES V009R001C001B0001"), Complete(), Ready()), token);
@@ -370,7 +371,7 @@ internal static class PreparedAssetProbe
         using var connection = new KingbaseConnection(new KingbaseConnectionStringBuilder
         {
             Host = "127.0.0.1", Port = ((IPEndPoint)listener.LocalEndpoint).Port, Database = "db", Username = "user",
-            Pooling = false, SslMode = KingbaseSslMode.Disable,
+            Pooling = false, SslMode = KingbaseSslMode.Disable, CompatibilityMode = mode,
             MaxAutoPrepare = automatic ? 1 : 0, AutoPrepareMinUsages = 2
         }.ConnectionString);
         await connection.OpenAsync(token);

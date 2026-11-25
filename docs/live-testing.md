@@ -324,3 +324,23 @@ Five exact-package consumers exercise batch snapshots and per-row outcomes
 offline; LIVE uses source-built modern assets. These results do not establish
 wire pipelining, automatic retries, atomic batches, other modes/platforms or
 real-server TLS acceptance.
+
+Four-mode public PG-wire execution acceptance uses Pooling=false and both
+explicit mode selection and detected-mode connections. Scalar cases cover actual
+catalog integer/text/NULL/binary/numeric bindings, explicit preparation with new
+values, buffered Reader ownership, SchemaOnly and synchronized error recovery.
+Mode-specific cases keep Oracle q strings, MySQL backtick/hash bodies and SQL
+Server brackets out of parameter binding. Temporary-table batches independently
+check stored updates and rollback; SQL Server additionally rolls back to a
+savepoint through ROLLBACK TRANSACTION name and keeps its provider transaction.
+Cached PG-generated writes reject after reopening the same connection in each
+other mode, through direct, per-row and batched adapter paths, before changing
+the target fixture.
+
+Independent internal probes confirm all three non-PG string-escape settings and
+the tested quote syntax. MySQL-mode division by zero returns NULL on this profile;
+SQL Server count(*) reports Int32, and uncast string-literal output can have an
+unsupported type. Explicit pg_catalog.text avoids that unimplemented type family
+in the lexer case. Exact-asset loopback probes exercise explicit/automatic
+preparation in each non-PG mode. Pool reset, non-PG schema/key metadata, full type
+families, routines, deployment/platform parity and native MySQL remain open.

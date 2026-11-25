@@ -23,7 +23,7 @@ public sealed class KingbaseDataSourceBuilder
         settings.Validate();
         if (settings.WireProtocol != KingbaseWireProtocol.PostgreSql)
             throw new NotSupportedException("The public execution slice requires PostgreSql wire protocol.");
-        if (settings.CompatibilityMode is not KingbaseCompatibilityMode.Auto and not KingbaseCompatibilityMode.PostgreSql)
-            throw new NotSupportedException("The public execution slice requires PostgreSql compatibility mode.");
+        if (settings.Pooling && settings.CompatibilityMode is not KingbaseCompatibilityMode.Auto and not KingbaseCompatibilityMode.PostgreSql)
+            throw new NotSupportedException("Pooling for this compatibility mode is not implemented; use Pooling=false.");
     }
 }

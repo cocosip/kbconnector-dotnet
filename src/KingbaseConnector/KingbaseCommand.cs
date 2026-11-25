@@ -15,6 +15,7 @@ public sealed partial class KingbaseCommand : DbCommand
     internal object SyncRoot => _sync;
     internal Action<IReadOnlyList<PgTextResult>, PgTypeCatalog>? ValidateResultSchema { get; set; }
     internal (Stopwatch Elapsed, long Budget)? SharedDeadline { get; set; }
+    internal bool RequiresPgMetadata { get; set; }
     internal KingbaseCommand(KingbaseBatch batch) => _batch = batch;
     KingbaseConnection? _connection;
     KingbaseTransaction? _transaction;
@@ -193,6 +194,10 @@ public sealed partial class KingbaseCommand : DbCommand
             queries = session.Queries;
             writeAttempts = queries.WriteAttempts;
             CheckMode();
+            if (RequiresPgMetadata && session.Identity.EffectiveMode != KingbaseCompatibilityMode.PostgreSql)
+                throw new NotSupportedException("PG-generated commands require PostgreSql compatibility mode.");
+            if ((behavior & CommandBehavior.KeyInfo) != 0 && session.Identity.EffectiveMode != KingbaseCompatibilityMode.PostgreSql)
+                throw new NotSupportedException("KeyInfo for this compatibility mode is not implemented.");
             if (batchCommands is not null)
             {
                 reader = await ExecuteBatchOwnedAsync(batchCommands, operation, behavior, connection, session, generation,

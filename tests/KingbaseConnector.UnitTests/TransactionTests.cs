@@ -9,8 +9,8 @@ public sealed class TransactionTests
     [InlineData("commit and chain", true)]
     [InlineData("\vCOMMIT AND CHAIN", true)]
     [InlineData("ROLLBACK\vTO SAVEPOINT s", false)]
-    [InlineData("-- x\n END WORK", true)]
-    [InlineData("/* a /* b */ c */ ABORT", true)]
+    [InlineData("-- x\n END WORK", false)]
+    [InlineData("/* a /* b */ c */ ABORT", false)]
     [InlineData("ROLLBACK TRANSACTION /* x */ AND CHAIN", true)]
     [InlineData("rollback /* x */ to savepoint s", false)]
     [InlineData("rollback work to s", false)]
@@ -19,7 +19,7 @@ public sealed class TransactionTests
     [InlineData("SELECT $$ROLLBACK$$", false)]
     [InlineData("SELECT \"COMMIT\"", false)]
     [InlineData("SELECT 1; -- COMMIT", false)]
-    public void TransactionBoundaryUsesTheValidatedLeadingWords(string sql, bool endsTransaction) =>
+    public void ActiveTransactionReplacementRequiresExplicitChaining(string sql, bool endsTransaction) =>
         Assert.Equal(endsTransaction, PgParameterPlan.Create(sql, [], KingbaseCompatibilityMode.PostgreSql, true).EndsTransaction);
 
     [Fact]

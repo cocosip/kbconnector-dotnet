@@ -24,8 +24,8 @@ internal sealed class PgParameterPlan
     {
         if (sql is null) throw new ArgumentNullException(nameof(sql));
         if (parameterNames is null) throw new ArgumentNullException(nameof(parameterNames));
-        if (mode != KingbaseCompatibilityMode.PostgreSql)
-            throw new NotSupportedException("PG parameter planning currently requires PostgreSql compatibility mode.");
+        if (mode is not (KingbaseCompatibilityMode.PostgreSql or KingbaseCompatibilityMode.Oracle or KingbaseCompatibilityMode.MySql or KingbaseCompatibilityMode.SqlServer))
+            throw new NotSupportedException("PG parameter planning requires a confirmed compatibility mode.");
         if (standardConformingStrings is null)
             throw new InvalidOperationException("PG parameter planning requires confirmed standard_conforming_strings.");
         if (sql.Length >= MaxBytes || PgFrontendMessages.CStringLength(sql) > MaxBytes || parameterNames.Count > MaxParameters)
@@ -42,7 +42,7 @@ internal sealed class PgParameterPlan
         var gapNewline = false;
         var output = new StringBuilder();
         var copied = 0;
-        var leadingWords = new List<string>(3);
+        var leadingWords = new List<string>(5);
         var leading = true;
         for (var i = 0; i < sql.Length;)
         {
@@ -61,10 +61,17 @@ internal sealed class PgParameterPlan
             }
             if (c == '/' && At(sql, i + 1, '*'))
             {
+                if (mode == KingbaseCompatibilityMode.MySql && (At(sql, i + 2, '!') || (i + 3 < sql.Length && sql[i + 2] is 'm' or 'M' && sql[i + 3] == '!')))
+                    throw InvalidPlan();
                 i = SkipComment(sql, i);
                 // PG quote continuation admits line comments, but not block comments.
                 previousStringEscapes = null;
                 gapNewline = false;
+                continue;
+            }
+            if (mode == KingbaseCompatibilityMode.MySql && c == '#')
+            {
+                while (i < sql.Length && sql[i] is not ('\r' or '\n')) i++;
                 continue;
             }
             if (terminated) throw InvalidPlan();
@@ -78,25 +85,35 @@ internal sealed class PgParameterPlan
             if (c == '\'')
             {
                 var escapes = previousStringEscapes.HasValue && gapNewline ? previousStringEscapes.Value : !standardConformingStrings.Value;
-                i = SkipQuote(sql, i, '\'', escapes);
+                i = mode == KingbaseCompatibilityMode.MySql ? SkipMysqlQuote(sql, i, '\'') : SkipQuote(sql, i, '\'', escapes);
                 previousStringEscapes = escapes;
                 gapNewline = false;
                 continue;
             }
             previousStringEscapes = null;
             gapNewline = false;
+            if (mode == KingbaseCompatibilityMode.Oracle &&
+                ((c is 'q' or 'Q' && At(sql, i + 1, '\'')) ||
+                 (c is 'n' or 'N' && i + 2 < sql.Length && sql[i + 1] is 'q' or 'Q' && sql[i + 2] == '\'')))
+            {
+                i = SkipOracleQuote(sql, i + (c is 'q' or 'Q' ? 1 : 2));
+                continue;
+            }
+            if (mode == KingbaseCompatibilityMode.SqlServer && c == '[') { i = SkipQuote(sql, i, ']', false); continue; }
+            if (mode == KingbaseCompatibilityMode.MySql && c == '`') { i = SkipMysqlQuote(sql, i, '`'); continue; }
+            if (mode == KingbaseCompatibilityMode.MySql && c == '"') { i = SkipMysqlQuote(sql, i, '"'); continue; }
             if (c == '"') { i = SkipQuote(sql, i, '"', false); continue; }
             if ((c is 'E' or 'e' or 'B' or 'b' or 'X' or 'x' or 'N' or 'n') && At(sql, i + 1, '\''))
             {
                 var escapes = c is 'E' or 'e' || (c is 'N' or 'n' && !standardConformingStrings.Value);
-                i = SkipQuote(sql, i + 1, '\'', escapes);
+                i = mode == KingbaseCompatibilityMode.MySql ? SkipMysqlQuote(sql, i + 1, '\'') : SkipQuote(sql, i + 1, '\'', escapes);
                 previousStringEscapes = escapes;
                 continue;
             }
             if (c is 'U' or 'u' && At(sql, i + 1, '&') && i + 2 < sql.Length && sql[i + 2] is '\'' or '"')
             {
                 var quote = sql[i + 2];
-                i = SkipQuote(sql, i + 2, quote, false);
+                i = mode == KingbaseCompatibilityMode.MySql ? SkipMysqlQuote(sql, i + 2, quote) : SkipQuote(sql, i + 2, quote, false);
                 if (quote == '\'') previousStringEscapes = false;
                 continue;
             }
@@ -104,7 +121,7 @@ internal sealed class PgParameterPlan
             {
                 var start = i;
                 do { i++; } while (i < sql.Length && IdentifierPart(sql[i]));
-                if (leading && leadingWords.Count < 3) leadingWords.Add(sql.Substring(start, i - start).ToUpperInvariant());
+                if (leading && leadingWords.Count < 5) leadingWords.Add(sql.Substring(start, i - start).ToUpperInvariant());
                 continue;
             }
             if (c == '$')
@@ -141,10 +158,15 @@ internal sealed class PgParameterPlan
                 i += 2;
                 continue;
             }
-            if ((c == '<' && At(sql, i + 1, '@')) || (c == '@' && i + 1 < sql.Length && Operator(sql[i + 1])))
+            if (mode == KingbaseCompatibilityMode.MySql && c == '@' && i + 1 < sql.Length && sql[i + 1] is '`' or '\'' or '"')
+            {
+                i = SkipMysqlQuote(sql, i + 1, sql[i + 1]);
+                continue;
+            }
+            if ((c == '<' && At(sql, i + 1, '@')) || (c == '@' && i + 1 < sql.Length && Operator(sql[i + 1], mode)))
             {
                 i++;
-                while (i < sql.Length && Operator(sql[i]))
+                while (i < sql.Length && Operator(sql[i], mode))
                 {
                     if ((sql[i] == '/' && At(sql, i + 1, '*')) || (sql[i] == '-' && At(sql, i + 1, '-'))) break;
                     i++;
@@ -179,8 +201,11 @@ internal sealed class PgParameterPlan
         output.Append(sql, copied, sql.Length - copied);
         var planned = output.ToString();
         if (planned.Length >= MaxBytes || PgFrontendMessages.CStringLength(planned) > MaxBytes) throw InvalidPlan();
-        var endsTransaction = leadingWords.Count > 0 && (leadingWords[0] is "COMMIT" or "END" or "ABORT" ||
-            (leadingWords[0] == "ROLLBACK" && !leadingWords.Skip(1).Contains("TO")));
+        var controlWords = leadingWords.Where(word => word is not ("WORK" or "TRANSACTION")).ToArray();
+        var endsTransaction = controlWords.Length == 3 && controlWords[0] is "COMMIT" or "END" or "ABORT" or "ROLLBACK" &&
+            controlWords[1] == "AND" && controlWords[2] == "CHAIN";
+        if (endsTransaction && mode != KingbaseCompatibilityMode.PostgreSql)
+            throw new NotSupportedException("Transaction chaining for this compatibility mode is not implemented.");
         return new PgParameterPlan(planned, indexes, endsTransaction);
     }
 
@@ -211,6 +236,25 @@ internal sealed class PgParameterPlan
         throw InvalidPlan();
     }
 
+    static int SkipOracleQuote(string sql, int quote)
+    {
+        if (quote + 1 >= sql.Length) throw InvalidPlan();
+        var delimiter = sql[quote + 1];
+        if (char.IsWhiteSpace(delimiter) || char.IsControl(delimiter) || char.IsSurrogate(delimiter) || delimiter == '\'') throw InvalidPlan();
+        var closing = delimiter switch { '[' => ']', '{' => '}', '(' => ')', '<' => '>', _ => delimiter };
+        for (var i = quote + 2; i + 1 < sql.Length; i++)
+            if (sql[i] == closing && sql[i + 1] == '\'') return i + 2;
+        throw InvalidPlan();
+    }
+
+    static int SkipMysqlQuote(string sql, int start, char quote)
+    {
+        var end = SkipQuote(sql, start, quote, false);
+        // Backslash behavior also depends on unconfirmed MySQL SQL-mode flags.
+        for (var i = start + 1; i < end; i++) if (sql[i] == '\\') throw InvalidPlan();
+        return end;
+    }
+
     static int SkipComment(string sql, int start)
     {
         var depth = 1;
@@ -228,6 +272,7 @@ internal sealed class PgParameterPlan
     static bool NamePart(char c) => NameStart(c) || Digit(c);
     static bool IdentifierStart(char c) => NameStart(c) || c >= 128;
     static bool IdentifierPart(char c) => IdentifierStart(c) || Digit(c) || c == '$';
-    static bool Operator(char c) => "+-*/<>=~!@#%^&|`?".IndexOf(c) >= 0;
+    static bool Operator(char c, KingbaseCompatibilityMode mode) => "+-*/<>=~!@#%^&|`?".IndexOf(c) >= 0 &&
+        (mode != KingbaseCompatibilityMode.MySql || c is not ('`' or '#'));
     static ArgumentException InvalidPlan() => new("Invalid, unsupported or oversized PG SQL/parameter plan.");
 }

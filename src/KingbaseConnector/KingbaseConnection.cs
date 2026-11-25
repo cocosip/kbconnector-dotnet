@@ -101,8 +101,6 @@ public sealed partial class KingbaseConnection : DbConnection
                 physical = lease.Session;
             }
             else physical = await PgPhysicalSession.OpenAsync(connectionString, opening.Token, passwordProvider: _owner?.PasswordProvider).ConfigureAwait(false);
-            if (physical.Identity.EffectiveMode != KingbaseCompatibilityMode.PostgreSql)
-                throw new NotSupportedException("The first public execution slice requires PostgreSql compatibility mode.");
             if (!physical.Queries.Parameters.TryGetValue("client_encoding", out var encoding) || encoding != "UTF8")
                 throw new NotSupportedException("The Kingbase session no longer reports UTF8 encoding.");
             if (_owner is null) Publish(); else _owner.PublishOpen(Publish);

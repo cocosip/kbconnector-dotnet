@@ -35,6 +35,8 @@ public sealed partial class KingbaseConnection
         {
             var session = OpenSession();
             if (_command is not null || _reader is not null) throw ActiveOperation();
+            if (session.Identity.EffectiveMode != KingbaseCompatibilityMode.PostgreSql)
+                throw new NotSupportedException("Schema collections for this compatibility mode are not implemented.");
             if (name != "ReservedWords" && definition is null) return KingbaseSchema.Create(name, session.Identity.Version, session.Catalog);
             command = definition is null ? new KingbaseCommand(KingbaseSchema.KeywordsSql, this) { Transaction = _transaction } :
                 KingbaseObjectSchema.Command(definition, restrictionValues, this, _transaction);

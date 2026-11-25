@@ -19,6 +19,7 @@ public sealed class KingbaseBatchCommand
     internal KingbaseBatchCommandCollection? Owner { get; set; }
     internal PgPreparedStatement? Prepared { get; set; }
     internal long PreparedGeneration { get; set; }
+    internal bool RequiresPgMetadata { get; set; }
     internal int Affected = -1;
     public KingbaseBatchCommand() { }
     public KingbaseBatchCommand(string? commandText) => _text = commandText ?? "";

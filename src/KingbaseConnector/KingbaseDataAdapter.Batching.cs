@@ -82,7 +82,7 @@ public sealed partial class KingbaseDataAdapter
                 source.EnsureEditable();
                 if ((source.UpdatedRowSource & UpdateRowSource.FirstReturnedRecord) != 0)
                     throw new NotSupportedException("FirstReturnedRecord is not supported for batched adapter updates.");
-                var snapshot = new KingbaseBatchCommand(source.CommandText) { CommandType = source.CommandType };
+                var snapshot = new KingbaseBatchCommand(source.CommandText) { CommandType = source.CommandType, RequiresPgMetadata = source.RequiresPgMetadata };
                 foreach (var parameter in source.Parameters.Cast<KingbaseParameter>())
                 {
                     var copy = parameter.Snapshot();

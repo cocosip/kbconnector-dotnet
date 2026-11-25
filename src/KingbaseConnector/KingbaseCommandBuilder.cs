@@ -76,6 +76,7 @@ public sealed class KingbaseCommandBuilder : DbCommandBuilder
     protected override DbCommand InitializeCommand(DbCommand? command)
     {
         var result = base.InitializeCommand(command);
+        ((KingbaseCommand)result).RequiresPgMetadata = true;
         // BCL regeneration can rename parameters in an order that temporarily duplicates existing names.
         result.Parameters.Clear();
         return result;

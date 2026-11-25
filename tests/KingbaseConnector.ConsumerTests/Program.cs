@@ -226,6 +226,12 @@ catch (ObjectDisposedException) { }
 await KingbaseConnector.Tests.TlsAssetProbe.RunAsync();
 Console.WriteLine($"PASS: {actual} custom CA/name/expiry/EKU/intermediate/IP TLS policy on .NET {Environment.Version}");
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync();
+foreach (var mode in new[] { KingbaseCompatibilityMode.Oracle, KingbaseCompatibilityMode.MySql, KingbaseCompatibilityMode.SqlServer })
+{
+    await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(mode: mode);
+    await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(mode: mode, automatic: true);
+}
+Console.WriteLine("PASS: Oracle/MySQL/SQL Server mode PG-wire unpooled explicit/automatic preparation");
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(automatic: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(date: true);
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(time: true);

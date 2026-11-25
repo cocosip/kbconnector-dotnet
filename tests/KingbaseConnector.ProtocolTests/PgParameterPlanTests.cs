@@ -130,11 +130,8 @@ public sealed class PgParameterPlanTests
 
     [Theory]
     [InlineData(KingbaseCompatibilityMode.Auto)]
-    [InlineData(KingbaseCompatibilityMode.Oracle)]
-    [InlineData(KingbaseCompatibilityMode.MySql)]
-    [InlineData(KingbaseCompatibilityMode.SqlServer)]
     [InlineData((KingbaseCompatibilityMode)99)]
-    public void OtherModesRequireTheirOwnLexicalContract(KingbaseCompatibilityMode mode) =>
+    public void UnknownModesRequireAConfirmedLexicalContract(KingbaseCompatibilityMode mode) =>
         Assert.Throws<NotSupportedException>(() => Plan("SELECT :p", ["p"], mode: mode));
 
     [Fact]

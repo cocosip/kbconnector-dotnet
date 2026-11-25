@@ -23,6 +23,8 @@ public sealed partial class KingbaseCommand
             try
             {
                 checkCancellation(); checkMode();
+                if (command.RequiresPgMetadata && session.Identity.EffectiveMode != KingbaseCompatibilityMode.PostgreSql)
+                    throw new NotSupportedException("PG-generated commands require PostgreSql compatibility mode.");
                 if (transaction is not null && !connection.OwnsTransaction(transaction))
                     throw new InvalidOperationException("The batch transaction is no longer active on this connection.");
                 if (command.CommandType != CommandType.Text) throw new NotSupportedException("Only Text batch commands are implemented.");
