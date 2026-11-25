@@ -50,7 +50,18 @@ The default TLS mode verifies the server certificate and hostname using platform
 
 The PG authentication path supports server-requested password/MD5 and SCRAM-SHA-256. SCRAM verifies the extended nonce and server signature before accepting authentication, applies the PG SASLprep/raw-password profile, and bounds server iterations to 1..1,000,000, SASL payloads to 16 KiB and salt to 1 KiB. SCRAM-SHA-256-PLUS/channel binding and SM3 algorithms remain pending; a PLUS-only offer rejects. Standard protocol vectors and loopback logins do not establish real Kingbase password-policy compatibility.
 
-`KingbaseDataReader` buffers completed PG results with exact typed/provider numeric access, binary/text slices and basic column metadata. A connection owns its returned Reader until close. Default, CloseConnection, SingleRow and SingleResult behaviors are supported. Unknown schema facts remain unset; raw PG identities are available in `GetSchemaTable` provider columns. Streaming/SequentialAccess, system transactions and retained preparation remain pending.
+`KingbaseDataReader` buffers completed PG results with exact typed/provider numeric access, binary/text slices and basic column metadata. A connection owns its returned Reader until close. Default, CloseConnection, SingleRow and SingleResult behaviors are supported. Unknown schema facts remain unset; raw PG identities are available in `GetSchemaTable` provider columns. Streaming/SequentialAccess and system transactions remain pending.
+
+PG commands support `Prepare()` / `PrepareAsync(token)` and `Unprepare()` / `UnprepareAsync(token)`:
+
+```csharp
+await command.PrepareAsync();
+command.Parameters[0].Value = 2.50m;
+var nextAmount = await command.ExecuteScalarAsync();
+await command.UnprepareAsync();
+```
+
+Preparation validates current SQL and catalog-bound input types; typed NULL is supported. Value changes reuse the statement. SQL/type/lexical changes, eviction, pool reset or reconnection detach stale handles before execution; execution then uses ordinary parameter binding until explicitly prepared again. Unprepare closes the attached shared physical handle, so another command using it also detaches. Edits/disposal detach without network I/O; cached server resources stay within the physical session's 64-statement/1 MiB limit. Controls use CommandTimeout, caller cancellation and Cancel, and reject an active Reader. Server preparation/schema errors are returned without replay; call Prepare again explicitly after handling an invalid plan. Automatic preparation and batch APIs remain pending. The live suite records bounded PG schema-error and transaction-recovery evidence; other modes and platforms remain unaccepted.
 
 Local `KingbaseTransaction` supports synchronous/asynchronous Begin, Commit, Rollback and savepoints on the initial PG path:
 

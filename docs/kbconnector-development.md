@@ -17,6 +17,8 @@ The initial documentation baseline had no product projects. DP01 now provides th
 
 The design and matrix are the development baseline. Their explicit proposals remain proposals; settle an API or default before implementing its affected contract and update the owning document in the same change. Unknown server facts U01-U07 remain discovery tasks, with the impact already described in design section 13. They do not block unrelated engineering, framing, or codec work.
 
+DP11 now exposes the bounded explicit PG Prepare/Unprepare slice through the existing command pipeline. Follow design section 7.2 for shared-handle ownership, invalidation and no-replay semantics. Public synchronous/asynchronous controls and named execution are exercised by the five exact-archive consumers; Standard 2.0 provides a typed PrepareAsync counterpart. The private LIVE suite adds bounded schema/transaction recovery cases on modern source-built assets. Automatic preparation, batch APIs, other modes/backends and broader schema/platform acceptance remain open in the progress tracker.
+
 ## 2. Repository setup
 
 The intended layout is:

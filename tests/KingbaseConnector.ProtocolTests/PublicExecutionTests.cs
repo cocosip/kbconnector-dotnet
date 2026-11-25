@@ -44,7 +44,7 @@ public sealed class PublicExecutionTests
         Assert.Throws<ArgumentOutOfRangeException>(() => command.CommandTimeout = -1);
         Assert.Throws<ArgumentOutOfRangeException>(() => command.CommandType = (CommandType)999);
         Assert.Throws<InvalidOperationException>(() => command.ExecuteScalar());
-        Assert.Throws<NotSupportedException>(() => command.Prepare());
+        Assert.Throws<InvalidOperationException>(() => command.Prepare());
         command.Cancel();
         connection.Close();
         connection.Dispose();

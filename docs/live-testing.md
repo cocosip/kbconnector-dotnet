@@ -46,7 +46,10 @@ identity in the progress table.
 
 Current cases cover four-mode bootstrap/catalog/scalar discovery and PG public
 scalar parameters, typed NULL, server-error synchronization, internal named
-statement execution/Close, same-physical-session pool setting restoration,
-and local commit/rollback/savepoint requests at three isolation levels. They
+statement execution/Close, public Prepare/Unprepare with value changes, shared
+closure and logical reopen, same-physical-session pool setting restoration,
+and local commit/rollback/savepoint requests at three isolation levels. The write
+opt-in also enables prepared temporary-table schema invalidation (0A000), explicit
+repreparation and failed-transaction Unprepare/rollback recovery. These cases
 do not prove concurrent isolation semantics, full dirty-session cleanup,
 non-PG public APIs, native MySQL, TLS policy or release readiness.

@@ -268,6 +268,12 @@ public sealed class KingbaseConnection : DbConnection
     protected override DbCommand CreateDbCommand() { lock (_sync) { ThrowIfDisposed(); return new KingbaseCommand("", this); } }
     public new KingbaseCommand CreateCommand() => (KingbaseCommand)CreateDbCommand();
 
+    internal bool OwnsPreparedStatement(PgQuerySession owner, long generation)
+    {
+        lock (_sync) return _state == ConnectionState.Open && _generation == generation &&
+            _session is not null && ReferenceEquals(_session.Queries, owner);
+    }
+
     internal (PgPhysicalSession Session, long Generation) BeginExecution(KingbaseCommand command, CancellationTokenSource operationCancel,
         KingbaseTransaction? transaction = null, KingbaseTransactionOperation operation = KingbaseTransactionOperation.None)
     {

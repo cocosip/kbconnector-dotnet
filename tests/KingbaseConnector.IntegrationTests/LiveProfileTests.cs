@@ -80,6 +80,60 @@ public sealed class LiveProfileTests
     });
 
     [LiveFact]
+    public Task PgPublicPrepareValuesSharedUnprepareAndLogicalReopen() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        using var connection = new KingbaseConnection(settings.ConnectionString);
+        await connection.OpenAsync(token);
+        using var first = new KingbaseCommand("SELECT @p", connection);
+        first.Parameters.AddWithValue("p", 42);
+        using var second = new KingbaseCommand("SELECT @p", connection);
+        second.Parameters.AddWithValue("p", 43);
+        first.Prepare(); await second.PrepareAsync(token);
+        Assert.Equal(42, first.ExecuteScalar());
+        first.Parameters[0].Value = 44;
+        Assert.Equal(44, await first.ExecuteScalarAsync(token));
+        await first.UnprepareAsync(token);
+        Assert.Equal(43, await second.ExecuteScalarAsync(token));
+        await second.PrepareAsync(token);
+        second.Unprepare(); second.Unprepare();
+        first.Parameters[0].Value = DBNull.Value;
+        first.Parameters[0].KingbaseDbType = KingbaseDbType.Integer;
+        await first.PrepareAsync(token);
+        Assert.Same(DBNull.Value, await first.ExecuteScalarAsync(token));
+        connection.Close(); await connection.OpenAsync(token);
+        first.Parameters[0].Value = 45;
+        Assert.Equal(45, await first.ExecuteScalarAsync(token));
+        await first.UnprepareAsync(token);
+    });
+
+    [LiveFact(writes: true)]
+    public Task PgPublicPreparedSchemaErrorAndTransactionRecovery() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        using var connection = new KingbaseConnection(settings.ConnectionString);
+        await connection.OpenAsync(token);
+        await Scalar(connection, "CREATE TEMP TABLE kb_live_prepared (id int)", token);
+        using var command = new KingbaseCommand("SELECT id FROM kb_live_prepared", connection);
+        await command.PrepareAsync(token);
+        Assert.Null(await command.ExecuteScalarAsync(token));
+        await Scalar(connection, "ALTER TABLE kb_live_prepared ALTER COLUMN id TYPE bigint", token);
+        var schemaError = await Assert.ThrowsAsync<KingbaseException>(() => command.ExecuteScalarAsync(token));
+        Assert.Equal("0A000", schemaError.SqlState);
+        // Recovery is an explicit caller action; the failed Execute is never replayed.
+        await command.PrepareAsync(token);
+        using (var reader = await command.ExecuteReaderAsync(token)) Assert.Equal(typeof(long), reader.GetFieldType(0));
+        await command.UnprepareAsync(token);
+        using var transaction = await connection.BeginTransactionAsync(token);
+        command.CommandText = "SELECT 1/0"; command.Transaction = transaction;
+        await command.PrepareAsync(token);
+        var error = await Assert.ThrowsAsync<KingbaseException>(() => command.ExecuteScalarAsync(token));
+        Assert.Equal("22012", error.SqlState);
+        Assert.Same(connection, transaction.Connection);
+        await command.UnprepareAsync(token);
+        await transaction.RollbackAsync(token);
+        Assert.Equal(42, await Scalar(connection, "SELECT 42", token));
+    });
+
+    [LiveFact]
     public Task PgPoolReusesPhysicalSessionAndRestoresSettings() => LiveProfile.RunPg(async (settings, token) =>
     {
         settings.Pooling = true;

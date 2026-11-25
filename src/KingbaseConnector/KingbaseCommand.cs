@@ -22,6 +22,9 @@ public sealed class KingbaseCommand : DbCommand
     bool _executing;
     bool _disposed;
     CancellationTokenSource? _cancel;
+    PgPreparedStatement? _prepared;
+    long _preparedGeneration;
+    enum Operation { Execute, Prepare, Unprepare }
     public KingbaseCommand() { }
     public KingbaseCommand(string? text, KingbaseConnection? connection) { CommandText = text!; Connection = connection; }
     internal KingbaseCommand(string text, KingbaseConnection connection, KingbaseTransaction transaction, KingbaseTransactionOperation operation)
@@ -29,7 +32,7 @@ public sealed class KingbaseCommand : DbCommand
 #if !NETSTANDARD2_0
     [AllowNull]
 #endif
-    public override string CommandText { get { lock (_sync) return _text; } set { lock (_sync) { EnsureEditable(); _text = value ?? ""; } } }
+    public override string CommandText { get { lock (_sync) return _text; } set { lock (_sync) { EnsureEditable(); if (_text != (value ?? "")) _prepared = null; _text = value ?? ""; } } }
     public override int CommandTimeout
     {
         get { lock (_sync) return _timeout ?? _connection?.DefaultCommandTimeout ?? 30; }
@@ -38,7 +41,7 @@ public sealed class KingbaseCommand : DbCommand
     public override CommandType CommandType
     {
         get { lock (_sync) return _type; }
-        set { lock (_sync) { EnsureEditable(); if (!Enum.IsDefined(typeof(CommandType), value)) throw new ArgumentOutOfRangeException(nameof(value)); _type = value; } }
+        set { lock (_sync) { EnsureEditable(); if (!Enum.IsDefined(typeof(CommandType), value)) throw new ArgumentOutOfRangeException(nameof(value)); if (_type != value) _prepared = null; _type = value; } }
     }
     public override UpdateRowSource UpdatedRowSource
     {
@@ -55,6 +58,7 @@ public sealed class KingbaseCommand : DbCommand
             {
                 EnsureEditable();
                 if (value is not null and not KingbaseConnection) throw new ArgumentException("A Kingbase command requires a Kingbase connection.");
+                if (!ReferenceEquals(_connection, value)) _prepared = null;
                 _connection = (KingbaseConnection?)value;
             }
         }
@@ -69,7 +73,16 @@ public sealed class KingbaseCommand : DbCommand
     protected override DbParameterCollection DbParameterCollection => _parameters;
     public new KingbaseParameterCollection Parameters => (KingbaseParameterCollection)DbParameterCollection;
     public override void Cancel() { lock (_sync) _cancel?.Cancel(); }
-    public override void Prepare() => throw new NotSupportedException("Retained prepared statements are not yet implemented.");
+    public override void Prepare() => PrepareAsync(CancellationToken.None).GetAwaiter().GetResult();
+#if !NETSTANDARD2_0
+    public override Task PrepareAsync(CancellationToken cancellationToken = default) => OperationCoreAsync(Operation.Prepare, CommandBehavior.Default, cancellationToken);
+#else
+    public Task PrepareAsync(CancellationToken cancellationToken = default) => OperationCoreAsync(Operation.Prepare, CommandBehavior.Default, cancellationToken);
+#endif
+    /// <summary>Closes this command's attached shared physical statement, if any.</summary>
+    public void Unprepare() => UnprepareAsync(CancellationToken.None).GetAwaiter().GetResult();
+    /// <summary>Closes this command's attached shared physical statement, if any.</summary>
+    public Task UnprepareAsync(CancellationToken cancellationToken = default) => OperationCoreAsync(Operation.Unprepare, CommandBehavior.Default, cancellationToken);
     public override int ExecuteNonQuery() { using var reader = ExecuteReader(); return reader.RecordsAffected; }
     public override object? ExecuteScalar() { using var reader = ExecuteReader(); return Scalar(reader); }
     public override async Task<int> ExecuteNonQueryAsync(CancellationToken cancellationToken)
@@ -99,7 +112,10 @@ public sealed class KingbaseCommand : DbCommand
     public new Task<KingbaseDataReader> ExecuteReaderAsync(CommandBehavior behavior) => ExecuteCoreAsync(behavior, CancellationToken.None);
     public new Task<KingbaseDataReader> ExecuteReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken) => ExecuteCoreAsync(behavior, cancellationToken);
 
-    async Task<KingbaseDataReader> ExecuteCoreAsync(CommandBehavior behavior, CancellationToken caller)
+    async Task<KingbaseDataReader> ExecuteCoreAsync(CommandBehavior behavior, CancellationToken caller) =>
+        (await OperationCoreAsync(Operation.Execute, behavior, caller).ConfigureAwait(false))!;
+
+    async Task<KingbaseDataReader?> OperationCoreAsync(Operation operation, CommandBehavior behavior, CancellationToken caller)
     {
         caller.ThrowIfCancellationRequested();
         KingbaseConnection connection;
@@ -107,20 +123,33 @@ public sealed class KingbaseCommand : DbCommand
         string text;
         int timeout;
         CancellationTokenSource cancel;
+        PgPreparedStatement? prepared;
+        long preparedGeneration;
         lock (_sync)
         {
             EnsureEditable();
+            if (operation == Operation.Unprepare && (_prepared is null || _connection is null ||
+                !_connection.OwnsPreparedStatement(_prepared.Owner, _preparedGeneration)))
+            {
+                _prepared = null;
+                return null;
+            }
             const CommandBehavior known = CommandBehavior.SingleResult | CommandBehavior.SchemaOnly | CommandBehavior.KeyInfo |
                 CommandBehavior.SingleRow | CommandBehavior.SequentialAccess | CommandBehavior.CloseConnection;
             if ((behavior & ~known) != 0) throw new ArgumentOutOfRangeException(nameof(behavior));
             if ((behavior & (CommandBehavior.SchemaOnly | CommandBehavior.KeyInfo | CommandBehavior.SequentialAccess)) != 0)
                 throw new NotSupportedException("This CommandBehavior requires an unimplemented execution contract.");
-            if (_type != CommandType.Text) throw new NotSupportedException("Only Text commands are implemented.");
-            if (string.IsNullOrWhiteSpace(_text)) throw new InvalidOperationException("Kingbase CommandText is empty.");
+            if (operation != Operation.Unprepare)
+            {
+                if (_type != CommandType.Text) throw new NotSupportedException("Only Text commands are implemented.");
+                if (string.IsNullOrWhiteSpace(_text)) throw new InvalidOperationException("Kingbase CommandText is empty.");
+            }
             connection = _connection ?? throw new InvalidOperationException("The Kingbase command has no connection.");
             transaction = _transaction;
             text = _text;
             timeout = _timeout ?? connection.DefaultCommandTimeout;
+            prepared = _prepared;
+            preparedGeneration = _preparedGeneration;
             cancel = new CancellationTokenSource();
             _cancel = cancel;
             _executing = true;
@@ -142,6 +171,18 @@ public sealed class KingbaseCommand : DbCommand
             queries = session.Queries;
             writeAttempts = queries.WriteAttempts;
             CheckMode();
+            if (operation == Operation.Unprepare)
+            {
+                lock (_sync) _prepared = null;
+                CheckCancellation();
+                if (prepared is not null && ReferenceEquals(prepared.Owner, queries) && preparedGeneration == generation)
+                    await queries.UnprepareAsync(prepared, linked.Token).ConfigureAwait(false);
+                CheckMode();
+                connection.ObserveTransaction(this, session, generation, _transactionOperation, true, queries.TransactionStatus, false);
+                acknowledged = true;
+                CheckCancellation();
+                return null;
+            }
             if (_transactionOperation == KingbaseTransactionOperation.Begin)
                 transaction!.SavepointNameByteLimit = await session.GetMaxIdentifierLengthAsync(linked.Token).ConfigureAwait(false);
             bool? conforming = queries.Parameters.TryGetValue("standard_conforming_strings", out var status)
@@ -149,7 +190,25 @@ public sealed class KingbaseCommand : DbCommand
             CheckMode();
             var bindings = PgParameterBindings.Create(text, _parameters, session.Catalog, session.Identity.EffectiveMode, conforming);
             CheckCancellation();
-            var results = await queries.ExecuteExtendedAsync(bindings.Sql, session.Catalog, bindings.Parameters, linked.Token).ConfigureAwait(false);
+            if (operation == Operation.Prepare)
+            {
+                lock (_sync) _prepared = null;
+                var statement = await queries.PrepareAsync(bindings.Sql, session.Catalog,
+                    bindings.Parameters.Select(p => p.TypeOid).ToArray(), linked.Token).ConfigureAwait(false);
+                CheckMode();
+                connection.ObserveTransaction(this, session, generation, _transactionOperation, true, queries.TransactionStatus, false);
+                acknowledged = true;
+                CheckCancellation();
+                lock (_sync) if (!_disposed) { _prepared = statement; _preparedGeneration = generation; }
+                return null;
+            }
+            var usePrepared = prepared is not null && prepared.IsValid && ReferenceEquals(prepared.Owner, queries) &&
+                preparedGeneration == generation && prepared.Sql == bindings.Sql && prepared.LexicalStatus == status &&
+                prepared.TypeOids.SequenceEqual(bindings.Parameters.Select(p => p.TypeOid));
+            if (!usePrepared) lock (_sync) _prepared = null;
+            var results = usePrepared
+                ? await queries.ExecutePreparedAsync(prepared!, session.Catalog, bindings.Parameters, linked.Token).ConfigureAwait(false)
+                : await queries.ExecuteExtendedAsync(bindings.Sql, session.Catalog, bindings.Parameters, linked.Token).ConfigureAwait(false);
             var rolledBack = false;
             if (_transactionOperation != KingbaseTransactionOperation.None)
             {
@@ -249,7 +308,7 @@ public sealed class KingbaseCommand : DbCommand
     }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) lock (_sync) { _disposed = true; _cancel?.Cancel(); }
+        if (disposing) lock (_sync) { _disposed = true; _prepared = null; _cancel?.Cancel(); }
         base.Dispose(disposing);
     }
 }

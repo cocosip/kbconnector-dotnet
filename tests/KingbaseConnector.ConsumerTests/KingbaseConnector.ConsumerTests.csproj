@@ -7,6 +7,7 @@
   <ItemGroup>
     <Compile Include="../Shared/TlsTestCertificates.cs" Link="TlsTestCertificates.cs" />
     <Compile Include="../Shared/TlsAssetProbe.cs" Link="TlsAssetProbe.cs" />
+    <Compile Include="../Shared/PreparedAssetProbe.cs" Link="PreparedAssetProbe.cs" />
     <PackageReference Include="KingbaseConnector" GeneratePathProperty="true" ExcludeAssets="compile;runtime" />
     <PackageReference Include="KingbaseConnector.DependencyInjection" GeneratePathProperty="true" ExcludeAssets="compile;runtime" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Condition="'$(KingbaseAsset)' != 'netstandard2.0' And '$(KingbaseAsset)' != 'netstandard2.1'" />
