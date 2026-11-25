@@ -15,13 +15,16 @@ internal sealed class PgColumnDescription(string name, uint tableOid, short attr
 }
 
 internal sealed class PgTextResult(IReadOnlyList<PgColumnDescription> columns,
-    IReadOnlyList<IReadOnlyList<string?>> rows, string? commandTag, string? dateStyle = null, string? intervalStyle = null)
+    IReadOnlyList<IReadOnlyList<string?>> rows, string? commandTag, string? dateStyle = null, string? intervalStyle = null,
+    IReadOnlyList<PgColumnMetadata?>? metadata = null, IReadOnlyDictionary<uint, string>? metadataVersions = null)
 {
     internal IReadOnlyList<PgColumnDescription> Columns { get; } = columns;
     internal IReadOnlyList<IReadOnlyList<string?>> Rows { get; } = rows;
     internal string? CommandTag { get; } = commandTag;
     internal string? DateStyle { get; } = dateStyle;
     internal string? IntervalStyle { get; } = intervalStyle;
+    internal IReadOnlyList<PgColumnMetadata?>? Metadata { get; } = metadata;
+    internal IReadOnlyDictionary<uint, string> MetadataVersions { get; } = metadataVersions ?? new Dictionary<uint, string>();
 }
 
 internal sealed class PgQueryException(PgServerError error)

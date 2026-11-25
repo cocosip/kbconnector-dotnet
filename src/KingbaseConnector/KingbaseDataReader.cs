@@ -176,17 +176,24 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     {
         var schema = new List<DbColumn>(FieldCount);
         for (var i = 0; i < FieldCount; i++)
-            schema.Add(new ResultColumn(GetName(i), i, GetFieldType(i), GetDataTypeName(i), Column(i).TypeModifier));
+            schema.Add(new ResultColumn(GetName(i), i, GetFieldType(i), GetDataTypeName(i), Column(i).TypeModifier, Current!.Metadata?[i]));
         return schema.AsReadOnly();
     }
     sealed class ResultColumn : DbColumn
     {
-        internal ResultColumn(string name, int ordinal, Type type, string typeName, int modifier)
+        internal ResultColumn(string name, int ordinal, Type type, string typeName, int modifier, PgColumnMetadata? metadata)
         {
             ColumnName = name;
             ColumnOrdinal = ordinal;
             DataType = type;
             DataTypeName = typeName;
+            if (metadata is not null)
+            {
+                BaseCatalogName = metadata.Catalog; BaseSchemaName = metadata.Schema; BaseTableName = metadata.Table; BaseColumnName = metadata.Column;
+                AllowDBNull = metadata.AllowNull; IsKey = metadata.Key; IsUnique = metadata.Unique;
+                IsAutoIncrement = metadata.AutoIncrement; IsIdentity = metadata.Identity; IsReadOnly = metadata.ReadOnly;
+                IsExpression = metadata.Expression; IsHidden = false; IsAliased = metadata.Column is null ? null : name != metadata.Column;
+            }
             if (typeName is "varchar" or "bpchar" && modifier > 4) ColumnSize = modifier - 4;
             if (typeName == "numeric" && modifier >= 4)
             {
@@ -211,6 +218,9 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
             (SchemaTableColumn.NumericScale, typeof(short)), (SchemaTableColumn.DataType, typeof(Type)),
             ("ProviderSpecificDataType", typeof(Type)), (SchemaTableColumn.AllowDBNull, typeof(bool)),
             (SchemaTableColumn.IsKey, typeof(bool)), (SchemaTableColumn.IsUnique, typeof(bool)),
+            (SchemaTableColumn.BaseSchemaName, typeof(string)), (SchemaTableOptionalColumn.BaseCatalogName, typeof(string)),
+            (SchemaTableOptionalColumn.IsAutoIncrement, typeof(bool)), (SchemaTableOptionalColumn.IsReadOnly, typeof(bool)),
+            ("IsIdentity", typeof(bool)), (SchemaTableColumn.IsAliased, typeof(bool)), (SchemaTableColumn.IsExpression, typeof(bool)), (SchemaTableOptionalColumn.IsHidden, typeof(bool)),
             (SchemaTableColumn.BaseTableName, typeof(string)), (SchemaTableColumn.BaseColumnName, typeof(string)),
             ("DataTypeName", typeof(string)), ("DataTypeOID", typeof(uint)), ("BaseTableOID", typeof(uint)),
             ("ColumnAttributeNumber", typeof(short)), ("TypeModifier", typeof(int)) }) table.Columns.Add(name, type);
@@ -231,6 +241,20 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
             if (schema[i].ColumnSize is { } size) row[SchemaTableColumn.ColumnSize] = size;
             if (schema[i].NumericPrecision is { } precision) row[SchemaTableColumn.NumericPrecision] = (short)precision;
             if (schema[i].NumericScale is { } scale) row[SchemaTableColumn.NumericScale] = (short)scale;
+            var known = schema[i];
+            row[SchemaTableOptionalColumn.BaseCatalogName] = (object?)known.BaseCatalogName ?? DBNull.Value;
+            row[SchemaTableColumn.BaseSchemaName] = (object?)known.BaseSchemaName ?? DBNull.Value;
+            row[SchemaTableColumn.BaseTableName] = (object?)known.BaseTableName ?? DBNull.Value;
+            row[SchemaTableColumn.BaseColumnName] = (object?)known.BaseColumnName ?? DBNull.Value;
+            row[SchemaTableColumn.AllowDBNull] = (object?)known.AllowDBNull ?? DBNull.Value;
+            row[SchemaTableColumn.IsKey] = (object?)known.IsKey ?? DBNull.Value;
+            row[SchemaTableColumn.IsUnique] = (object?)known.IsUnique ?? DBNull.Value;
+            row[SchemaTableOptionalColumn.IsAutoIncrement] = (object?)known.IsAutoIncrement ?? DBNull.Value;
+            row[SchemaTableOptionalColumn.IsReadOnly] = (object?)known.IsReadOnly ?? DBNull.Value;
+            row["IsIdentity"] = (object?)known.IsIdentity ?? DBNull.Value;
+            row[SchemaTableColumn.IsAliased] = (object?)known.IsAliased ?? DBNull.Value;
+            row[SchemaTableColumn.IsExpression] = (object?)known.IsExpression ?? DBNull.Value;
+            row[SchemaTableOptionalColumn.IsHidden] = (object?)known.IsHidden ?? DBNull.Value;
             table.Rows.Add(row);
         }
         return table;

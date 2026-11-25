@@ -154,7 +154,7 @@ public sealed partial class KingbaseCommand : DbCommand
             const CommandBehavior known = CommandBehavior.SingleResult | CommandBehavior.SchemaOnly | CommandBehavior.KeyInfo |
                 CommandBehavior.SingleRow | CommandBehavior.SequentialAccess | CommandBehavior.CloseConnection;
             if ((behavior & ~known) != 0) throw new ArgumentOutOfRangeException(nameof(behavior));
-            if ((behavior & (CommandBehavior.KeyInfo | CommandBehavior.SequentialAccess)) != 0)
+            if ((behavior & CommandBehavior.SequentialAccess) != 0)
                 throw new NotSupportedException("This CommandBehavior requires an unimplemented execution contract.");
             if (operation != Operation.Unprepare && _batch is null)
             {
@@ -234,6 +234,13 @@ public sealed partial class KingbaseCommand : DbCommand
                 preparedGeneration == generation && prepared.Sql == bindings.Sql && prepared.LexicalStatus == status &&
                 prepared.TypeOids.SequenceEqual(bindings.Parameters.Select(p => p.TypeOid));
             var schemaOnly = (behavior & CommandBehavior.SchemaOnly) != 0;
+            IReadOnlyList<PgTextResult>? metadataBefore = null;
+            if ((behavior & CommandBehavior.KeyInfo) != 0)
+            {
+                var discovery = await queries.DescribeAsync(bindings.Sql, session.Catalog, bindings.Parameters.Select(p => p.TypeOid).ToArray(), linked.Token).ConfigureAwait(false);
+                metadataBefore = await EnrichMetadataAsync(connection, session, generation, discovery, bindings.Sql, linked.Token, CheckMode).ConfigureAwait(false);
+                CheckCancellation();
+            }
             if (!schemaOnly && !usePrepared) lock (_sync) _prepared = null;
             IReadOnlyList<PgTextResult> results;
             if (schemaOnly)
@@ -265,6 +272,12 @@ public sealed partial class KingbaseCommand : DbCommand
                 return new KingbaseDataReader(results, session.Catalog);
             if (_transactionOperation == KingbaseTransactionOperation.None) CheckCancellation();
             ValidateResultSchema?.Invoke(results, session.Catalog);
+            if ((behavior & CommandBehavior.KeyInfo) != 0)
+            {
+                results = await EnrichMetadataAsync(connection, session, generation, results, bindings.Sql, linked.Token, CheckMode).ConfigureAwait(false);
+                PgColumnMetadata.VerifyStable(metadataBefore!, results);
+                CheckCancellation();
+            }
             var capturedSession = session;
             reader = new KingbaseDataReader(results, session.Catalog, behavior,
                 r => connection.ReleaseReader(r, capturedSession, generation, (behavior & CommandBehavior.CloseConnection) != 0));

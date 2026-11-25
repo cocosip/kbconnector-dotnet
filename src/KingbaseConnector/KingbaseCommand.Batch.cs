@@ -19,6 +19,7 @@ public sealed partial class KingbaseCommand
             var command = commands[index];
             _batch!.FailedCommandIndex = index;
             var writes = queries.ExecutionWriteAttempts;
+            var originalStarted = false;
             try
             {
                 checkCancellation(); checkMode();
@@ -43,10 +44,19 @@ public sealed partial class KingbaseCommand
                     continue;
                 }
                 var statement = command.Prepared;
+                IReadOnlyList<PgTextResult>? metadataBefore = null;
+                if ((behavior & CommandBehavior.KeyInfo) != 0)
+                {
+                    var discovery = await queries.DescribeAsync(bindings.Sql, session.Catalog, bindings.Parameters.Select(p => p.TypeOid).ToArray(), token).ConfigureAwait(false);
+                    metadataBefore = await EnrichMetadataAsync(connection, session, generation, discovery, bindings.Sql, token, checkMode).ConfigureAwait(false);
+                    checkCancellation();
+                }
                 var usePrepared = statement is not null && statement.IsValid && ReferenceEquals(statement.Owner, queries) &&
                     command.PreparedGeneration == generation && statement.Sql == bindings.Sql && statement.LexicalStatus == lexicalStatus &&
                     statement.TypeOids.SequenceEqual(bindings.Parameters.Select(p => p.TypeOid));
                 IReadOnlyList<PgTextResult> results;
+                originalStarted = true;
+                writes = queries.ExecutionWriteAttempts;
                 if (schemaOnly)
                     results = await queries.DescribeAsync(bindings.Sql, session.Catalog, bindings.Parameters.Select(p => p.TypeOid).ToArray(), token).ConfigureAwait(false);
                 else if (usePrepared)
@@ -66,6 +76,11 @@ public sealed partial class KingbaseCommand
                 connection.ObserveTransaction(this, session, generation, KingbaseTransactionOperation.None, true,
                     queries.TransactionStatus, !schemaOnly && bindings.EndsTransaction);
                 checkMode();
+                if ((behavior & CommandBehavior.KeyInfo) != 0)
+                {
+                    results = await EnrichMetadataAsync(connection, session, generation, results, bindings.Sql, token, checkMode).ConfigureAwait(false);
+                    PgColumnMetadata.VerifyStable(metadataBefore!, results);
+                }
                 using (var validation = new KingbaseDataReader(results, session.Catalog))
                 {
                     if (scalar && !scalarSelected)
@@ -81,6 +96,7 @@ public sealed partial class KingbaseCommand
                 if (totalAffected > int.MaxValue) throw new OverflowException("Kingbase batch affected row count exceeds Int32.");
                 foreach (var result in results)
                 {
+                    totalBytes += PgColumnMetadata.RetainedBytes(result);
                     totalRows += result.Rows.Count; totalColumns += result.Columns.Count;
                     foreach (var column in result.Columns) totalBytes += PgBinary.Utf8.GetByteCount(column.Name) + 32;
                     foreach (var row in result.Rows)
@@ -94,7 +110,8 @@ public sealed partial class KingbaseCommand
             }
             catch
             {
-                if (operation == Operation.Execute && !schemaOnly && command.ExecutionStatus == KingbaseBatchCommandStatus.NotExecuted)
+                if (operation == Operation.Execute && !schemaOnly && command.ExecutionStatus == KingbaseBatchCommandStatus.NotExecuted &&
+                    ((behavior & CommandBehavior.KeyInfo) == 0 || originalStarted))
                     command.ExecutionStatus = queries.ExecutionWriteAttempts != writes && (!session.IsUsable || queries.UncertainError is not null)
                         ? KingbaseBatchCommandStatus.OutcomeUnknown : KingbaseBatchCommandStatus.Failed;
                 throw;

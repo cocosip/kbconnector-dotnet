@@ -251,7 +251,7 @@ Unicode aliases, typed NULL and empty results. Literal expected modifiers and
 facets are checked against both BCL schema APIs without per-row catalog queries.
 The currently supplied PG profile rejects negative scale and scale greater than
 precision with 22023; these decoder boundaries have SIM coverage only. Base
-names, keys and nullability remain unknown. The user temporarily deferred LIVE
+names, keys and nullability require the separate KeyInfo contract below. The user temporarily deferred LIVE
 TLS because the supplied endpoints do not support it; offline TLS remains required.
 
 SchemaOnly cases create session-owned temporary tables/sequences and verify
@@ -261,5 +261,20 @@ stored-value, sequence-is_called and to_regclass checks establish absence of
 effects; rollback after a described COMMIT preserves the original value.
 Prepared sequential batches expose all descriptions with NotExecuted statuses,
 then execute normally when explicitly requested. Missing-column errors recover
-on the same session. All fixtures disappear with session cleanup; other modes,
-KeyInfo and complete Reader metadata acceptance remain open.
+on the same session. All fixtures disappear with session cleanup; other modes
+and complete Reader metadata acceptance remain open.
+
+KeyInfo acceptance covers direct table keys/nullability, identity/generated fields,
+composite and nullable/deferred/INCLUDE/repeated-slot indexes, prepared commands,
+SchemaOnly and batches. Owned serial defaults, removed defaults, noncanonical
+currval and a same-named application nextval function/type verify conservative
+identity handling. Restricted column grants use rollback. Inherited tables,
+joins, views and computed-field SRFs (including ORDER BY aliases/arithmetic)
+retain unknown result guarantees. Two sessions establish Repeatable Read or
+Serializable snapshots before a column rename and verify that stale base names
+are suppressed. These two-session and computed-function cases create unique
+synthetic schemas and drop them in finally; remaining fixtures are temporary or
+transactionally rolled back. Catalog drift between phases is also simulated in
+protocol tests; no unconditional concurrent-DDL consistency claim is made.
+Exact-package consumers exercise KeyInfo offline on all five assets; LIVE uses
+source-built modern assets. Other modes/platforms and full M06/Q16 stay open.

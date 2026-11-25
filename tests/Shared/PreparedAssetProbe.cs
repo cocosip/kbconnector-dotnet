@@ -11,7 +11,7 @@ namespace KingbaseConnector.Tests;
 // The consumer compiles this against each exact archive asset, including both Standard DLLs.
 internal static class PreparedAssetProbe
 {
-    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false, bool schema = false, bool readerSchema = false, bool schemaOnly = false)
+    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false, bool schema = false, bool readerSchema = false, bool schemaOnly = false, bool keyInfo = false)
     {
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
@@ -35,6 +35,30 @@ internal static class PreparedAssetProbe
             var rows = names.Select((name, i) => Row((12000 + i).ToString(CultureInfo.InvariantCulture), "90", "pg_catalog", name,
                 sizes[i], "b", "U", "t", "0", "0", "0", "-1")).ToArray();
             await stream.WriteAsync(Join(Description(12), Join(rows), Complete(), Ready()), token);
+            if (keyInfo)
+            {
+                await ReadFrames(stream, "PS", token); await stream.WriteAsync(Join(Frame('1'), Ready()), token);
+                for (var index = 0; index < 2; index++)
+                {
+                    for (var phase = 0; phase < 2; phase++)
+                    {
+                        await ReadFrames(stream, phase == 0 || index != 0 ? "PDS" : "BDES", token);
+                        var origin = Frame('T', Join(Count(1), Encoding.UTF8.GetBytes("alias\0"), Int32(1234), Count(1), Int32(12002), Count(4), Int32(-1), Count(0)));
+                        await stream.WriteAsync(phase != 0 && index == 0 ? Join(Frame('2'), origin, Row("7"), Complete(), Ready()) :
+                            Join(Frame('1'), Frame('t', Count(0)), origin, Ready()), token);
+                        var lookup = await ReadFrames(stream, "PBDES", token);
+                        Require(Encoding.UTF8.GetString(lookup[0]).Contains("json_to_recordset", StringComparison.Ordinal));
+                        Require(!Encoding.UTF8.GetString(lookup[0]).Contains("1234", StringComparison.Ordinal));
+                        Require(Encoding.UTF8.GetString(lookup[1]).Contains("1234", StringComparison.Ordinal));
+                        var fields = new[] { "table_oid", "attribute_number", "type_oid", "type_modifier", "catalog_name", "schema_name", "table_name", "column_name", "not_null", "identity_kind", "generated_kind", "relation_kind", "has_subclasses", "auto_increment", "key_columns", "single_unique", "attribute_version", "table_version", "isolation_level" };
+                        var metadataHeader = Frame('T', Join(Count(fields.Length), Join(fields.Select(field => Join(Encoding.UTF8.GetBytes(field + '\0'), new byte[6], Int32(12004), Count(-1), Int32(-1), Count(0))).ToArray())));
+                        await stream.WriteAsync(Join(Frame('1'), Frame('2'), metadataHeader,
+                            Row("1234", "1", "12002", "-1", "app", "public", "items", "id", "true", "a", "", "r", "false", "true", "1", "true", "attribute-version", "table-version", "read committed"), Complete(), Ready()), token);
+                    }
+                }
+                await ReadFrames(stream, "CS", token); await stream.WriteAsync(Join(Frame('3'), Ready()), token);
+                Require(await stream.ReadAsync(new byte[1], token) == 0); return;
+            }
             if (schemaOnly)
             {
                 var first = await ReadFrames(stream, "PDS", token);
@@ -303,6 +327,21 @@ internal static class PreparedAssetProbe
         }.ConnectionString);
         await connection.OpenAsync(token);
         using var command = new KingbaseCommand("SELECT :p", connection);
+        if (keyInfo)
+        {
+            command.CommandText = "SELECT id AS alias FROM public.items"; await command.PrepareAsync(token);
+            foreach (var only in new[] { false, true })
+            {
+                using var reader = await command.ExecuteReaderAsync(System.Data.CommandBehavior.KeyInfo | (only ? System.Data.CommandBehavior.SchemaOnly : 0), token);
+                var column = ((IDbColumnSchemaGenerator)reader).GetColumnSchema().Single();
+                Require(column.BaseCatalogName == "app" && column.BaseSchemaName == "public" && column.BaseTableName == "items" && column.BaseColumnName == "id");
+                Require(column.IsKey == true && column.IsUnique == true && column.IsIdentity == true && column.IsAutoIncrement == true && column.AllowDBNull == false && column.IsAliased == true);
+                using var table = reader.GetSchemaTable()!;
+                Require(Equals(table.Rows[0]["BaseColumnName"], "id") && Equals(table.Rows[0]["IsKey"], true) && Equals(table.Rows[0]["AllowDBNull"], false));
+                Require(reader.Read() == !only); if (!only) Require(reader.GetInt32(0) == 7);
+            }
+            await command.UnprepareAsync(token); connection.Close(); await peer.WaitAsync(token); return;
+        }
         if (schemaOnly)
         {
             command.Parameters.AddWithValue("p", 42);
