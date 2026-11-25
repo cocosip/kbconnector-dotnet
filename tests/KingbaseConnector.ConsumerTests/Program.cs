@@ -214,5 +214,6 @@ catch (ObjectDisposedException) { }
 await KingbaseConnector.Tests.TlsAssetProbe.RunAsync();
 Console.WriteLine($"PASS: {actual} custom CA/name/expiry/EKU/intermediate/IP TLS policy on .NET {Environment.Version}");
 await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync();
-Console.WriteLine($"PASS: {actual} public Prepare/Unprepare and named parameter execution on .NET {Environment.Version}");
+await KingbaseConnector.Tests.PreparedAssetProbe.RunAsync(automatic: true);
+Console.WriteLine($"PASS: {actual} explicit/automatic preparation, Unprepare and named execution on .NET {Environment.Version}");
 Console.WriteLine($"PASS: {actual} on .NET {Environment.Version}; {assembly.Location}");

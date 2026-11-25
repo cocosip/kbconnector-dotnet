@@ -28,6 +28,8 @@ public sealed class KingbaseConnectionStringBuilder : DbConnectionStringBuilder
         ["Maximum Pool Size"] = 100,
         ["Timeout"] = 15,
         ["Command Timeout"] = 30,
+        ["Max Auto Prepare"] = 0,
+        ["Auto Prepare Min Usages"] = 5,
         ["Cleanup Timeout"] = 5,
         ["Connection Idle Lifetime"] = 300,
         ["Connection Pruning Interval"] = 10,
@@ -78,6 +80,8 @@ public sealed class KingbaseConnectionStringBuilder : DbConnectionStringBuilder
     public int MaxPoolSize { get => (int)this["Maximum Pool Size"]; set => this["Maximum Pool Size"] = value; }
     public int Timeout { get => (int)this["Timeout"]; set => this["Timeout"] = value; }
     public int CommandTimeout { get => (int)this["Command Timeout"]; set => this["Command Timeout"] = value; }
+    public int MaxAutoPrepare { get => (int)this["Max Auto Prepare"]; set => this["Max Auto Prepare"] = value; }
+    public int AutoPrepareMinUsages { get => (int)this["Auto Prepare Min Usages"]; set => this["Auto Prepare Min Usages"] = value; }
     public int CleanupTimeout { get => (int)this["Cleanup Timeout"]; set => this["Cleanup Timeout"] = value; }
     public int ConnectionIdleLifetime { get => (int)this["Connection Idle Lifetime"]; set => this["Connection Idle Lifetime"] = value; }
     public int ConnectionPruningInterval { get => (int)this["Connection Pruning Interval"]; set => this["Connection Pruning Interval"] = value; }
@@ -187,8 +191,8 @@ public sealed class KingbaseConnectionStringBuilder : DbConnectionStringBuilder
                 !int.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Integer,
                     CultureInfo.InvariantCulture, out var number))
                 throw InvalidValue(keyword);
-            var minimum = keyword is "Port" or "Maximum Pool Size" or "Cleanup Timeout" or "Connection Pruning Interval" ? 1 : 0;
-            if (number < minimum || (keyword == "Port" && number > 65535))
+            var minimum = keyword is "Port" or "Maximum Pool Size" or "Cleanup Timeout" or "Connection Pruning Interval" or "Auto Prepare Min Usages" ? 1 : 0;
+            if (number < minimum || (keyword == "Port" && number > 65535) || (keyword == "Max Auto Prepare" && number > 64))
                 throw InvalidValue(keyword);
             return number;
         }

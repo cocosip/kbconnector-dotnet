@@ -11,7 +11,7 @@ namespace KingbaseConnector.Tests;
 // The consumer compiles this against each exact archive asset, including both Standard DLLs.
 internal static class PreparedAssetProbe
 {
-    internal static async Task RunAsync()
+    internal static async Task RunAsync(bool automatic = false)
     {
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
@@ -35,6 +35,11 @@ internal static class PreparedAssetProbe
             var rows = names.Select((name, i) => Row((12000 + i).ToString(CultureInfo.InvariantCulture), "90", "pg_catalog", name,
                 sizes[i], "b", "U", "t", "0", "0", "0", "-1")).ToArray();
             await stream.WriteAsync(Join(Description(12), Join(rows), Complete(), Ready()), token);
+            if (automatic)
+            {
+                await ReadFrames(stream, "PBDES", token);
+                await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, 12002, 4), Row("41"), Complete(), Ready()), token);
+            }
             var prepare = await ReadFrames(stream, "PS", token);
             Require(prepare[0].SequenceEqual(Frame('P', Join(Encoding.UTF8.GetBytes("kbp_1\0SELECT $1\0"), Count(1), Int32(12002)))));
             await stream.WriteAsync(Join(Frame('1'), Ready()), token);
@@ -55,13 +60,23 @@ internal static class PreparedAssetProbe
         using var connection = new KingbaseConnection(new KingbaseConnectionStringBuilder
         {
             Host = "127.0.0.1", Port = ((IPEndPoint)listener.LocalEndpoint).Port, Database = "db", Username = "user",
-            Pooling = false, SslMode = KingbaseSslMode.Disable
+            Pooling = false, SslMode = KingbaseSslMode.Disable,
+            MaxAutoPrepare = automatic ? 1 : 0, AutoPrepareMinUsages = 2
         }.ConnectionString);
         await connection.OpenAsync(token);
         using var command = new KingbaseCommand("SELECT :p", connection);
         command.Parameters.AddWithValue("p", 42);
-        ((DbCommand)command).Prepare();
-        await command.PrepareAsync(token); // Typed async counterpart also exists on Standard 2.0.
+        if (automatic)
+        {
+            command.Parameters[0].Value = 41;
+            Require(Equals(await command.ExecuteScalarAsync(token), 41));
+            command.Parameters[0].Value = 42;
+        }
+        else
+        {
+            ((DbCommand)command).Prepare();
+            await command.PrepareAsync(token); // Typed async counterpart also exists on Standard 2.0.
+        }
         Require(Equals(await command.ExecuteScalarAsync(token), 42));
         command.Parameters[0].Value = 43;
         Require(Equals(command.ExecuteScalar(), 43));

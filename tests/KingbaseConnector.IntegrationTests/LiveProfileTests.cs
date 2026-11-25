@@ -134,6 +134,75 @@ public sealed class LiveProfileTests
     });
 
     [LiveFact]
+    public Task PgAutomaticThresholdUnprepareAndPoolReset() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        settings.Pooling = true; settings.MaxPoolSize = 1;
+        settings.MaxAutoPrepare = 1; settings.AutoPrepareMinUsages = 3;
+        using var source = new KingbaseDataSourceBuilder(settings.ConnectionString).Build();
+        using var connection = await source.OpenConnectionAsync(token);
+        using var count = new KingbaseCommand("SELECT count(*) FROM pg_catalog.pg_prepared_statements WHERE statement = 'SELECT $1'", connection);
+        await count.PrepareAsync(token); // Explicit ownership keeps this observer outside the automatic capacity.
+        var pid = await Scalar(connection, "SELECT pg_catalog.pg_backend_pid()", token);
+        using var command = new KingbaseCommand("SELECT @p", connection); command.Parameters.AddWithValue("p", 42);
+        Assert.Equal(0L, await count.ExecuteScalarAsync(token));
+        for (var i = 1; i <= 4; i++)
+        {
+            command.Parameters[0].Value = i;
+            Assert.Equal(i, await command.ExecuteScalarAsync(token));
+            Assert.Equal(i < 3 ? 0L : 1L, await count.ExecuteScalarAsync(token));
+        }
+        await command.UnprepareAsync(token); Assert.Equal(0L, await count.ExecuteScalarAsync(token));
+        for (var i = 0; i < 2; i++) Assert.Equal(4, await command.ExecuteScalarAsync(token));
+        Assert.Equal(0L, await count.ExecuteScalarAsync(token));
+        await connection.CloseAsync(); await connection.OpenAsync(token);
+        Assert.Equal(pid, await Scalar(connection, "SELECT pg_catalog.pg_backend_pid()", token));
+        await count.PrepareAsync(token);
+        for (var i = 1; i <= 3; i++)
+        {
+            Assert.Equal(4, await command.ExecuteScalarAsync(token));
+            Assert.Equal(i < 3 ? 0L : 1L, await count.ExecuteScalarAsync(token));
+        }
+    });
+
+    [LiveFact(writes: true)]
+    public Task PgAutomaticSchemaInvalidationAndFailedTransactionRecovery() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        settings.MaxAutoPrepare = 1; settings.AutoPrepareMinUsages = 2;
+        using var connection = new KingbaseConnection(settings.ConnectionString);
+        await connection.OpenAsync(token);
+        await Scalar(connection, "CREATE TEMP TABLE kb_live_auto_prepared (id int)", token);
+        using var command = new KingbaseCommand("SELECT id FROM kb_live_auto_prepared", connection);
+        Assert.Null(await command.ExecuteScalarAsync(token));
+        Assert.Null(await command.ExecuteScalarAsync(token));
+        await Scalar(connection, "ALTER TABLE kb_live_auto_prepared ALTER COLUMN id TYPE bigint", token);
+        Assert.Equal("0A000", (await Assert.ThrowsAsync<KingbaseException>(() => command.ExecuteScalarAsync(token))).SqlState);
+        for (var i = 0; i < 2; i++)
+        {
+            using var reader = await command.ExecuteReaderAsync(token);
+            Assert.Equal(typeof(long), reader.GetFieldType(0));
+        }
+        await command.UnprepareAsync(token);
+        using var count = new KingbaseCommand("SELECT count(*) FROM pg_catalog.pg_prepared_statements WHERE statement = 'SELECT 10/$1'", connection);
+        await count.PrepareAsync(token);
+        command.CommandText = "SELECT 10/@p";
+        command.Parameters.AddWithValue("p", 2);
+        Assert.Equal(5, await command.ExecuteScalarAsync(token));
+        command.Parameters[0].Value = 0;
+        Assert.Equal("22012", (await Assert.ThrowsAsync<KingbaseException>(() => command.ExecuteScalarAsync(token))).SqlState);
+        Assert.Equal(1L, await count.ExecuteScalarAsync(token));
+        await command.UnprepareAsync(token);
+        Assert.Equal(0L, await count.ExecuteScalarAsync(token));
+        using var transaction = await connection.BeginTransactionAsync(token);
+        command.Transaction = transaction; command.Parameters[0].Value = 2;
+        Assert.Equal(5, await command.ExecuteScalarAsync(token));
+        command.Parameters[0].Value = 0;
+        Assert.Equal("22012", (await Assert.ThrowsAsync<KingbaseException>(() => command.ExecuteScalarAsync(token))).SqlState);
+        await command.UnprepareAsync(token); Assert.Same(connection, transaction.Connection);
+        await transaction.RollbackAsync(token);
+        Assert.Equal(42, await Scalar(connection, "SELECT 42", token));
+    });
+
+    [LiveFact]
     public Task PgPoolReusesPhysicalSessionAndRestoresSettings() => LiveProfile.RunPg(async (settings, token) =>
     {
         settings.Pooling = true;

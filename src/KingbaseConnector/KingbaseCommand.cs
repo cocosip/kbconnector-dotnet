@@ -194,7 +194,7 @@ public sealed class KingbaseCommand : DbCommand
             {
                 lock (_sync) _prepared = null;
                 var statement = await queries.PrepareAsync(bindings.Sql, session.Catalog,
-                    bindings.Parameters.Select(p => p.TypeOid).ToArray(), linked.Token).ConfigureAwait(false);
+                    bindings.Parameters.Select(p => p.TypeOid).ToArray(), linked.Token, CheckMode).ConfigureAwait(false);
                 CheckMode();
                 connection.ObserveTransaction(this, session, generation, _transactionOperation, true, queries.TransactionStatus, false);
                 acknowledged = true;
@@ -206,9 +206,19 @@ public sealed class KingbaseCommand : DbCommand
                 preparedGeneration == generation && prepared.Sql == bindings.Sql && prepared.LexicalStatus == status &&
                 prepared.TypeOids.SequenceEqual(bindings.Parameters.Select(p => p.TypeOid));
             if (!usePrepared) lock (_sync) _prepared = null;
-            var results = usePrepared
-                ? await queries.ExecutePreparedAsync(prepared!, session.Catalog, bindings.Parameters, linked.Token).ConfigureAwait(false)
-                : await queries.ExecuteExtendedAsync(bindings.Sql, session.Catalog, bindings.Parameters, linked.Token).ConfigureAwait(false);
+            IReadOnlyList<PgTextResult> results;
+            if (usePrepared)
+                results = await queries.ExecutePreparedAsync(prepared!, session.Catalog, bindings.Parameters, linked.Token).ConfigureAwait(false);
+            else if (_transactionOperation == KingbaseTransactionOperation.None)
+            {
+                var automatic = await queries.ExecuteAutoPreparedAsync(bindings.Sql, session.Catalog, bindings.Parameters, linked.Token, CheckMode,
+                    statement =>
+                    {
+                        lock (_sync) if (!_disposed) { _prepared = statement; _preparedGeneration = generation; }
+                    }).ConfigureAwait(false);
+                results = automatic.Results;
+            }
+            else results = await queries.ExecuteExtendedAsync(bindings.Sql, session.Catalog, bindings.Parameters, linked.Token).ConfigureAwait(false);
             var rolledBack = false;
             if (_transactionOperation != KingbaseTransactionOperation.None)
             {

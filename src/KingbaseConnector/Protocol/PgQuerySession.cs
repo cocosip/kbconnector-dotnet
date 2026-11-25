@@ -44,10 +44,14 @@ internal sealed partial class PgQuerySession : IDisposable
     int _busy;
     int _disposed;
 
-    internal PgQuerySession(PgWire wire, PgStartupResult startup)
+    internal PgQuerySession(PgWire wire, PgStartupResult startup, int maxAutoPrepare = 0, int autoPrepareMinUsages = 5)
     {
         if (wire is null) throw new ArgumentNullException(nameof(wire));
         if (startup is null) throw new ArgumentNullException(nameof(startup));
+        if (maxAutoPrepare is < 0 or > MaxPreparedStatements) throw new ArgumentOutOfRangeException(nameof(maxAutoPrepare));
+        if (autoPrepareMinUsages < 1) throw new ArgumentOutOfRangeException(nameof(autoPrepareMinUsages));
+        _maxAutoPrepare = maxAutoPrepare;
+        _autoPrepareMinUsages = autoPrepareMinUsages;
         if (!startup.Parameters.TryGetValue("client_encoding", out var encoding) || encoding != "UTF8")
             throw new ArgumentException("PG text queries require confirmed UTF8 startup.", nameof(startup));
         _parameters = new Dictionary<string, string>(StringComparer.Ordinal);

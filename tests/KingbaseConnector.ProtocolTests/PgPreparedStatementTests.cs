@@ -9,7 +9,7 @@ public sealed class PgPreparedStatementTests
 {
     const uint IntOid = uint.MaxValue;
     const uint TextOid = 7104;
-    static readonly Task<PgTypeCatalog> Types = LoadTypes();
+    internal static readonly Task<PgTypeCatalog> Types = LoadTypes();
     static byte[] Prepared() => Join(Frame('1'), Ready());
     static byte[] Closed() => Join(Frame('3'), Ready());
     static byte[] Value(string value = "42") => Join(Frame('2'), Description(1, IntOid, 4), Row([value]), Complete(), Ready());

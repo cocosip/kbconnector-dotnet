@@ -5,6 +5,27 @@ namespace KingbaseConnector.UnitTests;
 public class ConnectionStringBuilderTests
 {
     [Fact]
+    public void AutomaticPreparationSettingsNormalizeAliasesAndPoolIdentity()
+    {
+        var defaults = new KingbaseConnectionStringBuilder();
+        Assert.Equal(0, defaults["Max Auto Prepare"]);
+        Assert.Equal(5, defaults["Auto Prepare Min Usages"]);
+        var settings = new KingbaseConnectionStringBuilder("Host=h;Database=d;Username=u;MaxAutoPrepare=2;AutoPrepareMinUsages=3");
+        settings.Validate();
+        Assert.Equal(2, settings["Max Auto Prepare"]);
+        Assert.Equal(3, settings["Auto Prepare Min Usages"]);
+        Assert.Contains("Max Auto Prepare=2", settings.ConnectionString);
+        var different = new KingbaseConnectionStringBuilder(settings.ConnectionString);
+        different["Auto Prepare Min Usages"] = 4;
+        Assert.NotEqual(settings.GetPoolKey(), different.GetPoolKey());
+        different.AutoPrepareMinUsages = 3;
+        different.MaxAutoPrepare = 0;
+        Assert.NotEqual(settings.GetPoolKey(), different.GetPoolKey());
+        different.MaxAutoPrepare = 64; different.AutoPrepareMinUsages = int.MaxValue; different.Validate();
+        Assert.Equal(64, different.MaxAutoPrepare); Assert.Equal(int.MaxValue, different.AutoPrepareMinUsages);
+    }
+
+    [Fact]
     public void DefaultsAreExplicitAndDoNotPopulateTheConnectionString()
     {
         var builder = new KingbaseConnectionStringBuilder();
@@ -94,6 +115,11 @@ public class ConnectionStringBuilderTests
     [InlineData("Port", "65536")]
     [InlineData("Timeout", "-1")]
     [InlineData("Command Timeout", "-1")]
+    [InlineData("Max Auto Prepare", "-1")]
+    [InlineData("Max Auto Prepare", "65")]
+    [InlineData("Auto Prepare Min Usages", "0")]
+    [InlineData("Auto Prepare Min Usages", "-1")]
+    [InlineData("Auto Prepare Min Usages", "2147483648")]
     [InlineData("Cleanup Timeout", "0")]
     [InlineData("Minimum Pool Size", "-1")]
     [InlineData("Maximum Pool Size", "0")]

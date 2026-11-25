@@ -113,7 +113,7 @@ internal sealed class PgPhysicalSession : IDisposable
             wire = new PgWire(transport.Stream);
             var startup = await PgStartup.RunAsync(wire, startupMessage, settings.Username, password, linked.Token).ConfigureAwait(false);
             CheckDeadline();
-            queries = new PgQuerySession(wire, startup);
+            queries = new PgQuerySession(wire, startup, settings.MaxAutoPrepare, settings.AutoPrepareMinUsages);
             var identity = await PgIdentityProbe.RunAsync(queries, settings.CompatibilityMode, linked.Token).ConfigureAwait(false);
             CheckDeadline();
             var catalog = await PgTypeCatalog.LoadAsync(queries, identity, linked.Token).ConfigureAwait(false);

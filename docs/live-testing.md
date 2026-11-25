@@ -51,5 +51,8 @@ closure and logical reopen, same-physical-session pool setting restoration,
 and local commit/rollback/savepoint requests at three isolation levels. The write
 opt-in also enables prepared temporary-table schema invalidation (0A000), explicit
 repreparation and failed-transaction Unprepare/rollback recovery. These cases
+also exercise opt-in automatic preparation with server-side prepared-statement
+counts, shared Unprepare, same-physical-session pool reset and fresh thresholds,
+plus automatic schema-error and failed-transaction recovery under the write opt-in. First named-execution errors retain an attached handle; server counts confirm Unprepare releases it before a new threshold. They
 do not prove concurrent isolation semantics, full dirty-session cleanup,
 non-PG public APIs, native MySQL, TLS policy or release readiness.

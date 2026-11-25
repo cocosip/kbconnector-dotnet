@@ -12,6 +12,7 @@ internal sealed class PgPreparedStatement(PgQuerySession owner, string name, str
     internal IReadOnlyList<uint> TypeOids { get; } = Array.AsReadOnly(oids);
     internal string? LexicalStatus { get; } = lexicalStatus;
     internal int RetainedBytes { get; } = retainedBytes;
+    internal bool IsAutomatic { get; set; }
     internal bool IsValid => Volatile.Read(ref _invalid) == 0 && !Owner.IsDisposed;
     internal void Invalidate() => Volatile.Write(ref _invalid, 1);
 }
@@ -25,76 +26,96 @@ internal sealed partial class PgQuerySession
     ulong _statementSequence;
 
     internal Task<PgPreparedStatement> PrepareAsync(string sql, PgTypeCatalog catalog, IReadOnlyList<uint> typeOids,
-        CancellationToken token = default) => OwnAsync(async () =>
+        CancellationToken token = default, Action? validateSession = null) =>
+        OwnAsync(() => PrepareOwnedAsync(sql, catalog, typeOids, false, token, validateSession), token);
+
+    async Task<PgPreparedStatement> PrepareOwnedAsync(string sql, PgTypeCatalog catalog, IReadOnlyList<uint> typeOids,
+        bool automatic, CancellationToken token, Action? validateSession)
+    {
+        if (typeOids is null) throw new ArgumentNullException(nameof(typeOids));
+        var codecs = new PgTextCodecs(catalog);
+        if (typeOids.Count > 1024) throw InvalidSignature();
+        var snapshot = typeOids.Take(1025).ToArray();
+        if (snapshot.Length > 1024 || snapshot.Length != typeOids.Count) throw InvalidSignature();
+        foreach (var oid in snapshot) codecs.Encode(oid, null);
+        PgFrontendMessages.CStringLength(sql);
+        var lexical = LexicalStatus;
+        lock (_preparedStatements)
         {
-            if (typeOids is null) throw new ArgumentNullException(nameof(typeOids));
-            var codecs = new PgTextCodecs(catalog);
-            if (typeOids.Count > 1024) throw InvalidSignature();
-            var snapshot = typeOids.Take(1025).ToArray();
-            if (snapshot.Length > 1024 || snapshot.Length != typeOids.Count) throw InvalidSignature();
-            foreach (var oid in snapshot) codecs.Encode(oid, null);
-            PgFrontendMessages.CStringLength(sql);
-            var lexical = LexicalStatus;
-            lock (_preparedStatements)
+            var cached = _preparedStatements.FirstOrDefault(s => s.IsValid && s.Sql == sql &&
+                s.LexicalStatus == lexical && s.TypeOids.SequenceEqual(snapshot));
+            if (cached is not null)
             {
-                var cached = _preparedStatements.FirstOrDefault(s => s.IsValid && s.Sql == sql &&
-                    s.LexicalStatus == lexical && s.TypeOids.SequenceEqual(snapshot));
-                if (cached is not null) { Touch(cached); return cached; }
+                if (!automatic) cached.IsAutomatic = false;
+                RemoveAutoCandidate(sql, snapshot, lexical);
+                Touch(cached);
+                return cached;
             }
-            if (_statementSequence == ulong.MaxValue) throw new InvalidOperationException("PG statement identity space is exhausted.");
-            var name = "kbp_" + (++_statementSequence).ToString(CultureInfo.InvariantCulture);
-            var frames = PgExtendedQuery.EncodePrepare(sql, snapshot, name);
-            try
+        }
+        if (_statementSequence == ulong.MaxValue) throw new InvalidOperationException("PG statement identity space is exhausted.");
+        var name = "kbp_" + (++_statementSequence).ToString(CultureInfo.InvariantCulture);
+        var frames = PgExtendedQuery.EncodePrepare(sql, snapshot, name);
+        try
+        {
+            var bytes = frames[0].Length;
+            PgPreparedStatement? eviction;
+            while (true)
             {
-                var bytes = frames[0].Length;
-                PgPreparedStatement? eviction;
-                while (true)
-                {
-                    lock (_preparedStatements)
-                    {
-                        eviction = _preparedStatements.FirstOrDefault(s => !s.IsValid);
-                        if (eviction is null && (_preparedStatements.Count >= MaxPreparedStatements || _preparedBytes + bytes > MaxPreparedBytes))
-                            eviction = _preparedStatements.Last!.Value;
-                    }
-                    if (eviction is null) break;
-                    await CloseOwnedAsync(eviction, token).ConfigureAwait(false);
-                }
-                await ExchangeAsync(() => frames, PgQueryExchange.Prepare, token).ConfigureAwait(false);
-                var statement = new PgPreparedStatement(this, name, sql, snapshot, lexical, bytes);
                 lock (_preparedStatements)
                 {
-                    ThrowIfDisposed();
-                    _preparedStatements.AddFirst(statement);
-                    _preparedBytes += bytes;
+                    eviction = _preparedStatements.FirstOrDefault(s => !s.IsValid);
+                    if (eviction is null && automatic && _preparedStatements.Count(s => s.IsAutomatic) >= _maxAutoPrepare)
+                        eviction = _preparedStatements.LastOrDefault(s => s.IsAutomatic);
+                    if (eviction is null && (_preparedStatements.Count >= MaxPreparedStatements || _preparedBytes + bytes > MaxPreparedBytes))
+                        eviction = _preparedStatements.Last!.Value;
                 }
-                return statement;
+                if (eviction is null) break;
+                await CloseOwnedAsync(eviction, token).ConfigureAwait(false);
+                validateSession?.Invoke();
             }
-            finally { foreach (var frame in frames) Array.Clear(frame, 0, frame.Length); }
-        }, token);
+            await ExchangeAsync(() => frames, PgQueryExchange.Prepare, token).ConfigureAwait(false);
+            validateSession?.Invoke();
+            var statement = new PgPreparedStatement(this, name, sql, snapshot, lexical, bytes) { IsAutomatic = automatic };
+            lock (_preparedStatements)
+            {
+                ThrowIfDisposed();
+                _preparedStatements.AddFirst(statement);
+                _preparedBytes += bytes;
+                RemoveAutoCandidate(sql, snapshot, lexical);
+            }
+            return statement;
+        }
+        finally { foreach (var frame in frames) Array.Clear(frame, 0, frame.Length); }
+    }
 
     internal Task<IReadOnlyList<PgTextResult>> ExecutePreparedAsync(PgPreparedStatement statement, PgTypeCatalog catalog,
-        IReadOnlyList<PgQueryParameter> parameters, CancellationToken token = default) => OwnAsync(async () =>
+        IReadOnlyList<PgQueryParameter> parameters, CancellationToken token = default) =>
+        OwnAsync(() => ExecutePreparedOwnedAsync(statement, catalog, parameters, token), token);
+
+    async Task<IReadOnlyList<PgTextResult>> ExecutePreparedOwnedAsync(PgPreparedStatement statement, PgTypeCatalog catalog,
+        IReadOnlyList<PgQueryParameter> parameters, CancellationToken token)
+    {
+        CheckOwner(statement);
+        if (parameters is null) throw new ArgumentNullException(nameof(parameters));
+        if (!statement.IsValid || statement.LexicalStatus != LexicalStatus)
+            throw new InvalidOperationException("The PG prepared statement is no longer usable.");
+        if (parameters.Count != statement.TypeOids.Count) throw InvalidSignature();
+        var snapshot = parameters.Take(1025).ToArray();
+        if (snapshot.Length != statement.TypeOids.Count || snapshot.Where((p, i) => p is null || p.TypeOid != statement.TypeOids[i]).Any())
+            throw InvalidSignature();
+        lock (_preparedStatements) { ThrowIfDisposed(); Touch(statement); }
+        try
         {
-            CheckOwner(statement);
-            if (parameters is null) throw new ArgumentNullException(nameof(parameters));
-            if (!statement.IsValid || statement.LexicalStatus != LexicalStatus)
-                throw new InvalidOperationException("The PG prepared statement is no longer usable.");
-            if (parameters.Count != statement.TypeOids.Count) throw InvalidSignature();
-            var snapshot = parameters.Take(1025).ToArray();
-            if (snapshot.Length != statement.TypeOids.Count || snapshot.Where((p, i) => p is null || p.TypeOid != statement.TypeOids[i]).Any())
-                throw InvalidSignature();
-            lock (_preparedStatements) { ThrowIfDisposed(); Touch(statement); }
-            try
-            {
-                return await ExchangeAsync(() => PgExtendedQuery.EncodePrepared(statement.Name, catalog, snapshot),
-                    PgQueryExchange.PreparedExecution, token).ConfigureAwait(false);
-            }
-            catch (PgQueryException error) when (error.ServerError.SqlState is "26000" or "0A000")
-            {
-                statement.Invalidate();
-                throw;
-            }
-        }, token);
+            return await ExchangeAsync(() => PgExtendedQuery.EncodePrepared(statement.Name, catalog, snapshot),
+                PgQueryExchange.PreparedExecution, token).ConfigureAwait(false);
+        }
+        catch (PgQueryException error) when (error.ServerError.SqlState is "26000" or "0A000")
+        {
+            statement.Invalidate();
+            lock (_preparedStatements) RemoveAutoCandidate(statement.Sql, statement.TypeOids, statement.LexicalStatus);
+            throw;
+        }
+    }
 
     internal Task UnprepareAsync(PgPreparedStatement statement, CancellationToken token = default) => OwnAsync(async () =>
         {
@@ -109,6 +130,8 @@ internal sealed partial class PgQuerySession
         lock (_preparedStatements)
         {
             foreach (var statement in _preparedStatements) statement.Invalidate();
+            _autoCandidates.Clear();
+            _autoCandidateBytes = 0;
             // A single DEALLOCATE tag omits the name; other server handles still need Close.
             if (forget) { _preparedStatements.Clear(); _preparedBytes = 0; }
         }
@@ -130,6 +153,7 @@ internal sealed partial class PgQuerySession
         {
             statement.Invalidate();
             if (_preparedStatements.Remove(statement)) _preparedBytes -= statement.RetainedBytes;
+            RemoveAutoCandidate(statement.Sql, statement.TypeOids, statement.LexicalStatus);
         }
     }
 
