@@ -19,6 +19,8 @@ The design and matrix are the development baseline. Their explicit proposals rem
 
 DP11 now exposes bounded explicit and opt-in automatic PG preparation through the existing command pipeline. Follow design section 7.2 for thresholds, candidate/handle bounds, shared ownership, invalidation and no-replay semantics. Public synchronous/asynchronous controls, automatic thresholds and named execution are exercised by the five exact-archive consumers; Standard 2.0 provides a typed PrepareAsync counterpart. The private LIVE suite adds bounded count/reset/schema/transaction cases on modern source-built assets. Batch APIs, other modes/backends and broader schema/platform acceptance remain open in the progress tracker.
 
+DP05 now supports the PG DATE text slice through actual catalog OIDs, explicit DATE binding and KingbaseDate inference. Follow design section 8 for ISO result-format snapshots, exact DateTime/modern DateOnly conversion and lossless BC/out-of-range/infinity provider access. Test dates independently of the machine timezone/culture and never infer timestamp semantics from DATE. TIME/TIMESTAMP/TZ/INTERVAL and other compatibility-mode date types remain pending.
+
 ## 2. Repository setup
 
 The intended layout is:

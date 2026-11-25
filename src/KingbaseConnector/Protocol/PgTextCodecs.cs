@@ -10,16 +10,19 @@ internal sealed class PgTextCodecs
 
     internal PgTextCodecs(PgTypeCatalog catalog) => _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
     internal Type GetFieldType(uint oid) => Resolve(oid).ClrType;
-    internal Type GetProviderSpecificFieldType(uint oid) => Resolve(oid).Name == "numeric" ? typeof(KingbaseNumeric) : GetFieldType(oid);
-    internal object DecodeProviderSpecific(uint oid, string? text)
+    internal Type GetProviderSpecificFieldType(uint oid) => Resolve(oid).Name switch
+    { "numeric" => typeof(KingbaseNumeric), "date" => typeof(KingbaseDate), _ => GetFieldType(oid) };
+    internal object DecodeProviderSpecific(uint oid, string? text, string? dateStyle = null)
     {
-        if (Resolve(oid).Name != "numeric") return Decode(oid, text);
+        var name = Resolve(oid).Name;
+        if (name is not ("numeric" or "date")) return Decode(oid, text, dateStyle);
         if (text is null) return DBNull.Value;
         ValidateText(text);
+        if (name == "date") { RequireIsoDateStyle(dateStyle); return KingbaseDate.Parse(text); }
         return KingbaseNumeric.Parse(text);
     }
 
-    internal object Decode(uint oid, string? text)
+    internal object Decode(uint oid, string? text, string? dateStyle = null)
     {
         var (name, _) = Resolve(oid);
         if (text is null) return DBNull.Value;
@@ -47,6 +50,7 @@ internal sealed class PgTextCodecs
             case "float4": return DecodeFloating(text, single: true);
             case "float8": return DecodeFloating(text, single: false);
             case "numeric": return KingbaseNumeric.Parse(text).ToDecimal();
+            case "date": RequireIsoDateStyle(dateStyle); return KingbaseDate.Parse(text).ToDateTime();
             case "uuid":
                 if (text.Length == 36 && Guid.TryParseExact(text, "D", out var uuid)) return uuid;
                 throw InvalidText();
@@ -60,6 +64,15 @@ internal sealed class PgTextCodecs
         var (name, clrType) = Resolve(oid);
         if (value is null || value is DBNull) return null;
         if (name == "numeric" && value is KingbaseNumeric numeric) return numeric.ToString();
+        if (name == "date") return value switch
+        {
+            KingbaseDate date => date.ToString(),
+            DateTime date => KingbaseDate.FromDateTime(date).ToString(),
+#if NET6_0_OR_GREATER
+            DateOnly date => KingbaseDate.FromDateOnly(date).ToString(),
+#endif
+            _ => throw new InvalidCastException("PG DATE input requires an exact calendar date value.")
+        };
         if (value.GetType() != clrType) throw new InvalidCastException("PG scalar input requires its exact mapped CLR type.");
         var text = name switch
         {
@@ -90,6 +103,7 @@ internal sealed class PgTextCodecs
             "float4" => (typeof(float), 4),
             "float8" => (typeof(double), 8),
             "numeric" => (typeof(decimal), -1),
+            "date" => (typeof(DateTime), 4),
             "uuid" => (typeof(Guid), 16),
             "bytea" => (typeof(byte[]), -1),
             "text" or "varchar" or "bpchar" or "json" or "jsonb" => (typeof(string), -1),
@@ -97,6 +111,12 @@ internal sealed class PgTextCodecs
         };
         if (type.Size != size) throw Unsupported();
         return (type.Name, clrType);
+    }
+
+    static void RequireIsoDateStyle(string? style)
+    {
+        if (style is not ("ISO, MDY" or "ISO, DMY" or "ISO, YMD"))
+            throw new NotSupportedException("PG DATE results require a confirmed ISO DateStyle.");
     }
 
     static void ValidateText(string text)

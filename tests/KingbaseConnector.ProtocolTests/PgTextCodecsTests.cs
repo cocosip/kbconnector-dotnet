@@ -43,7 +43,7 @@ public sealed class PgTextCodecsTests
     public async Task NullAndEmptyAreDistinctAndFieldTypesDoNotChange()
     {
         var codecs = new PgTextCodecs(await Catalog);
-        foreach (var (name, _) in Types.Where(item => item.Name != "date"))
+        foreach (var (name, _) in Types)
         {
             var type = codecs.GetFieldType(Oid(name));
             Assert.Same(DBNull.Value, codecs.Decode(Oid(name), null));
@@ -208,7 +208,7 @@ public sealed class PgTextCodecsTests
     public async Task UnknownAndDeferredTypesAreRejectedEvenForNull()
     {
         var codecs = new PgTextCodecs(await Catalog);
-        foreach (var oid in new[] { 16U, uint.MaxValue, Oid("date") })
+        foreach (var oid in new[] { 16U, uint.MaxValue })
         {
             Assert.Throws<NotSupportedException>(() => codecs.GetFieldType(oid));
             Assert.Throws<NotSupportedException>(() => codecs.Decode(oid, null));
@@ -312,7 +312,7 @@ public sealed class PgTextCodecsTests
     }
     static IEnumerable<PgTypeDescription> Descriptions(uint first) => Types.Select((type, i) =>
         new PgTypeDescription(first + (uint)i, 90, type.Name, type.Size, 'b', 'U', 0, 0, 0, -1));
-    static async Task<PgTypeCatalog> LoadCatalog(uint first = 7000, Func<PgTypeDescription, PgTypeDescription>? change = null)
+    internal static async Task<PgTypeCatalog> LoadCatalog(uint first = 7000, Func<PgTypeDescription, PgTypeDescription>? change = null)
     {
         using var session = Session(new QueryStream(PgTestPeer.Catalog(Descriptions(first).Select(type => change?.Invoke(type) ?? type))));
         return await PgTypeCatalog.LoadAsync(session, Identity());

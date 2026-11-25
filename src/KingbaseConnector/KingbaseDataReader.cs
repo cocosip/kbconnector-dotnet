@@ -93,10 +93,15 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     public override string GetDataTypeName(int ordinal) => _catalog.ByOid[Column(ordinal).TypeOid].Name;
     public override Type GetFieldType(int ordinal) => _codecs.GetFieldType(Column(ordinal).TypeOid);
     public override Type GetProviderSpecificFieldType(int ordinal) => _codecs.GetProviderSpecificFieldType(Column(ordinal).TypeOid);
-    public override object GetValue(int ordinal) => _codecs.Decode(Column(ordinal).TypeOid, RawValue(ordinal));
-    public override object GetProviderSpecificValue(int ordinal) => _codecs.DecodeProviderSpecific(Column(ordinal).TypeOid, RawValue(ordinal));
-    public override T GetFieldValue<T>(int ordinal) =>
-        (T)(typeof(T) == typeof(KingbaseNumeric) ? GetProviderSpecificValue(ordinal) : GetValue(ordinal));
+    public override object GetValue(int ordinal) => _codecs.Decode(Column(ordinal).TypeOid, RawValue(ordinal), Current!.DateStyle);
+    public override object GetProviderSpecificValue(int ordinal) => _codecs.DecodeProviderSpecific(Column(ordinal).TypeOid, RawValue(ordinal), Current!.DateStyle);
+    public override T GetFieldValue<T>(int ordinal)
+    {
+#if NET6_0_OR_GREATER
+        if (typeof(T) == typeof(DateOnly)) return (T)(object)GetFieldValue<KingbaseDate>(ordinal).ToDateOnly();
+#endif
+        return (T)(typeof(T) == typeof(KingbaseNumeric) || typeof(T) == typeof(KingbaseDate) ? GetProviderSpecificValue(ordinal) : GetValue(ordinal));
+    }
     public override int GetValues(object[] values) => CopyValues(values, provider: false);
     public override int GetProviderSpecificValues(object[] values) => CopyValues(values, provider: true);
     int CopyValues(object[] values, bool provider)

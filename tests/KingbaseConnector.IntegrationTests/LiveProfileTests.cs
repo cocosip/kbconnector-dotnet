@@ -203,6 +203,70 @@ public sealed class LiveProfileTests
     });
 
     [LiveFact]
+    public Task PgDateCalendarValuesPreparedBindingAndIsoStyleRecovery() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        using var connection = new KingbaseConnection(settings.ConnectionString);
+        await connection.OpenAsync(token);
+        await Scalar(connection, "SELECT pg_catalog.set_config('DateStyle','ISO, DMY',false)", token);
+        using var command = new KingbaseCommand("SELECT @d, CAST(@d AS text)", connection);
+        command.Parameters.Add(new KingbaseParameter("d", DBNull.Value) { KingbaseDbType = KingbaseDbType.Date });
+        using (var reader = await command.ExecuteReaderAsync(token))
+        {
+            Assert.True(reader.Read()); Assert.True(reader.IsDBNull(0));
+            Assert.Equal(typeof(DateTime), reader.GetFieldType(0)); Assert.Equal(typeof(KingbaseDate), reader.GetProviderSpecificFieldType(0));
+        }
+        foreach (var text in new[] { "0001-01-01", "1582-10-10", "2000-02-29", "9999-12-31", "10000-01-01",
+            "5874897-12-31", "0001-02-29 BC", "4714-11-24 BC", "infinity", "-infinity" })
+        {
+            command.Parameters[0].Value = KingbaseDate.Parse(text);
+            using var reader = await command.ExecuteReaderAsync(token);
+            Assert.True(reader.Read()); Assert.Equal(text, reader.GetString(1));
+            Assert.Equal(text, reader.GetFieldValue<KingbaseDate>(0).ToString());
+            var date = Assert.IsType<KingbaseDate>(command.Parameters[0].Value);
+            if (date.IsFinite && date.Year is >= 1 and <= 9999)
+            {
+                Assert.Equal(date.ToDateTime(), reader.GetDateTime(0)); Assert.Equal(DateTimeKind.Unspecified, reader.GetDateTime(0).Kind);
+                Assert.Equal(date.ToDateOnly(), reader.GetFieldValue<DateOnly>(0));
+            }
+            else Assert.Throws<OverflowException>(() => reader.GetDateTime(0));
+        }
+        command.Parameters[0].Value = new DateOnly(2024, 2, 29);
+        await command.PrepareAsync(token);
+        using (var reader = await command.ExecuteReaderAsync(token))
+        {
+            Assert.True(reader.Read()); Assert.Equal(new DateTime(2024, 2, 29), reader.GetDateTime(0));
+        }
+        await Scalar(connection, "SELECT pg_catalog.set_config('DateStyle','SQL, DMY',false)", token);
+        command.Parameters[0].Value = new DateOnly(2024, 2, 3);
+        using (var reader = await command.ExecuteReaderAsync(token))
+        {
+            // ISO input remains unambiguous when display order differs; compare server text independently.
+            Assert.True(reader.Read()); Assert.Equal("03/02/2024", reader.GetString(1));
+            Assert.Throws<NotSupportedException>(() => reader.GetValue(0));
+            Assert.Throws<NotSupportedException>(() => reader.GetProviderSpecificValue(0));
+        }
+        await Scalar(connection, "SELECT pg_catalog.set_config('DateStyle','ISO, MDY',false)", token);
+        Assert.Equal(new DateTime(2024, 2, 3), await command.ExecuteScalarAsync(token));
+        await command.UnprepareAsync(token);
+    });
+
+    [LiveFact]
+    public Task PgDatePoolRestoresDisplayFormat() => LiveProfile.RunPg(async (settings, token) =>
+    {
+        settings.Pooling = true; settings.MaxPoolSize = 1;
+        using var source = new KingbaseDataSourceBuilder(settings.ConnectionString).Build();
+        using var connection = await source.OpenConnectionAsync(token);
+        var baseline = await Scalar(connection, "SHOW DateStyle", token);
+        var pid = await Scalar(connection, "SELECT pg_catalog.pg_backend_pid()", token);
+        await Scalar(connection, "SELECT pg_catalog.set_config('DateStyle','German, DMY',false)", token);
+        await connection.CloseAsync(); await connection.OpenAsync(token);
+        Assert.Equal(pid, await Scalar(connection, "SELECT pg_catalog.pg_backend_pid()", token));
+        Assert.Equal(baseline, await Scalar(connection, "SHOW DateStyle", token));
+        await Scalar(connection, "SELECT pg_catalog.set_config('DateStyle','ISO, YMD',false)", token);
+        Assert.Equal(new DateTime(2024, 2, 29), await Scalar(connection, "SELECT DATE '2024-02-29'", token));
+    });
+
+    [LiveFact]
     public Task PgPoolReusesPhysicalSessionAndRestoresSettings() => LiveProfile.RunPg(async (settings, token) =>
     {
         settings.Pooling = true;

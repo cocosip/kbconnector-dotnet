@@ -9,7 +9,12 @@ internal static class KingbaseParameterTypes
         bool => KingbaseDbType.Boolean, short => KingbaseDbType.Smallint, int => KingbaseDbType.Integer,
         long => KingbaseDbType.Bigint, uint => KingbaseDbType.Oid, float => KingbaseDbType.Real,
         double => KingbaseDbType.Double, decimal or KingbaseNumeric => KingbaseDbType.Numeric,
-        string => KingbaseDbType.Text, byte[] => KingbaseDbType.Bytea, Guid => KingbaseDbType.Uuid, _ => null
+        string => KingbaseDbType.Text, byte[] => KingbaseDbType.Bytea, Guid => KingbaseDbType.Uuid,
+        KingbaseDate => KingbaseDbType.Date,
+#if NET6_0_OR_GREATER
+        DateOnly => KingbaseDbType.Date,
+#endif
+        _ => null
     };
 
     internal static string Name(KingbaseDbType type) => type switch
@@ -18,7 +23,8 @@ internal static class KingbaseParameterTypes
         KingbaseDbType.Bigint => "int8", KingbaseDbType.Oid => "oid", KingbaseDbType.Real => "float4",
         KingbaseDbType.Double => "float8", KingbaseDbType.Numeric => "numeric", KingbaseDbType.Text => "text",
         KingbaseDbType.Varchar => "varchar", KingbaseDbType.Char => "bpchar", KingbaseDbType.Bytea => "bytea",
-        KingbaseDbType.Uuid => "uuid", KingbaseDbType.Json => "json", KingbaseDbType.Jsonb => "jsonb", _ => throw Unsupported()
+        KingbaseDbType.Uuid => "uuid", KingbaseDbType.Json => "json", KingbaseDbType.Jsonb => "jsonb",
+        KingbaseDbType.Date => "date", _ => throw Unsupported()
     };
 
     internal static DbType ToDbType(KingbaseDbType type) => type switch
@@ -26,7 +32,7 @@ internal static class KingbaseParameterTypes
         KingbaseDbType.Boolean => DbType.Boolean, KingbaseDbType.Smallint => DbType.Int16, KingbaseDbType.Integer => DbType.Int32,
         KingbaseDbType.Bigint => DbType.Int64, KingbaseDbType.Oid => DbType.UInt32, KingbaseDbType.Real => DbType.Single,
         KingbaseDbType.Double => DbType.Double, KingbaseDbType.Numeric => DbType.Decimal, KingbaseDbType.Bytea => DbType.Binary,
-        KingbaseDbType.Uuid => DbType.Guid, KingbaseDbType.Char => DbType.StringFixedLength,
+        KingbaseDbType.Uuid => DbType.Guid, KingbaseDbType.Char => DbType.StringFixedLength, KingbaseDbType.Date => DbType.Date,
         KingbaseDbType.Text or KingbaseDbType.Varchar or KingbaseDbType.Json or KingbaseDbType.Jsonb => DbType.String, _ => throw Unsupported()
     };
 
@@ -36,7 +42,7 @@ internal static class KingbaseParameterTypes
         DbType.Int64 => KingbaseDbType.Bigint, DbType.UInt32 => KingbaseDbType.Oid, DbType.Single => KingbaseDbType.Real,
         DbType.Double => KingbaseDbType.Double, DbType.Decimal or DbType.VarNumeric => KingbaseDbType.Numeric,
         DbType.String => KingbaseDbType.Text, DbType.StringFixedLength => KingbaseDbType.Char,
-        DbType.Binary => KingbaseDbType.Bytea, DbType.Guid => KingbaseDbType.Uuid, _ => throw Unsupported()
+        DbType.Binary => KingbaseDbType.Bytea, DbType.Guid => KingbaseDbType.Uuid, DbType.Date => KingbaseDbType.Date, _ => throw Unsupported()
     };
 
     internal static bool Compatible(DbType constraint, KingbaseDbType selected) => constraint switch

@@ -52,6 +52,10 @@ The PG authentication path supports server-requested password/MD5 and SCRAM-SHA-
 
 `KingbaseDataReader` buffers completed PG results with exact typed/provider numeric access, binary/text slices and basic column metadata. A connection owns its returned Reader until close. Default, CloseConnection, SingleRow and SingleResult behaviors are supported. Unknown schema facts remain unset; raw PG identities are available in `GetSchemaTable` provider columns. Streaming/SequentialAccess and system transactions remain pending.
 
+PG DATE maps to an Unspecified midnight `DateTime`. Use `KingbaseDbType.Date`, `DbType.Date` or `DataTypeName="pg_catalog.date"` for explicit binding; DateTime input must have no time component and Kind Unspecified. `KingbaseDate` is inferred as DATE on every asset; modern assets also infer `DateOnly` and support `GetFieldValue<DateOnly>`. DateTime inference remains pending until timestamp mappings are defined. DATE results require confirmed ISO DateStyle (`ISO, MDY`, `ISO, DMY` or `ISO, YMD`); unsupported or unknown output styles reject conversion. Use application SQL to select a supported style when necessary.
+
+`reader.GetFieldValue<KingbaseDate>(ordinal)` or `GetProviderSpecificValue` preserves BC dates, years outside the CLR range and explicit `infinity` / `-infinity`. Default DateTime/DateOnly conversion throws OverflowException for these values. For example, `KingbaseDate.Parse("0001-02-29 BC")` preserves a leap day in 1 BC; negative constructor years mean BC, with no year zero. The immutable value uses the proleptic Gregorian calendar, defaults to 0001-01-01 and accepts absolute years up to seven digits; each server still enforces its own range. No timezone conversion, date truncation or MinValue/MaxValue infinity substitution occurs. TIME, TIMESTAMP, TZ and INTERVAL mappings remain pending.
+
 PG commands support `Prepare()` / `PrepareAsync(token)` and `Unprepare()` / `UnprepareAsync(token)`:
 
 ```csharp

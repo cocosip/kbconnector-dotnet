@@ -56,3 +56,10 @@ counts, shared Unprepare, same-physical-session pool reset and fresh thresholds,
 plus automatic schema-error and failed-transaction recovery under the write opt-in. First named-execution errors retain an attached handle; server counts confirm Unprepare releases it before a new threshold. They
 do not prove concurrent isolation semantics, full dirty-session cleanup,
 non-PG public APIs, native MySQL, TLS policy or release readiness.
+
+PG DATE cases cover typed NULL, ISO display orders, actual date metadata and text
+binding, finite CLR and larger years, BC leap days, calendar boundaries and both
+infinities through KingbaseDate. They compare server-cast text with literal expected
+values, exercise explicit preparation and DateOnly, reject unsupported display styles,
+restore ISO and verify same-backend pool DateStyle reset. These cases alter only
+session settings; TIME/TIMESTAMP/TZ/INTERVAL and other mode date types remain pending.
