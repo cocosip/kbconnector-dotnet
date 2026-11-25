@@ -10,10 +10,13 @@ public sealed class KingbaseFactory : DbProviderFactory
     public override DbConnectionStringBuilder CreateConnectionStringBuilder() => new KingbaseConnectionStringBuilder();
 #if NETSTANDARD2_0
     public bool CanCreateDataAdapter => true;
+    public bool CanCreateCommandBuilder => true;
 #else
     public override bool CanCreateDataAdapter => true;
+    public override bool CanCreateCommandBuilder => true;
 #endif
     public override DbDataAdapter CreateDataAdapter() => new KingbaseDataAdapter();
+    public override DbCommandBuilder CreateCommandBuilder() => new KingbaseCommandBuilder();
 #if NET6_0_OR_GREATER
     public override bool CanCreateBatch => true;
     public override KingbaseBatch CreateBatch() => new();

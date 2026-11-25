@@ -11,7 +11,7 @@ namespace KingbaseConnector.Tests;
 // The consumer compiles this against each exact archive asset, including both Standard DLLs.
 internal static class PreparedAssetProbe
 {
-    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false, bool schema = false, bool readerSchema = false, bool schemaOnly = false, bool keyInfo = false, bool adapter = false)
+    internal static async Task RunAsync(bool automatic = false, bool date = false, bool time = false, bool timestamp = false, bool interval = false, bool batch = false, bool xml = false, bool schema = false, bool readerSchema = false, bool schemaOnly = false, bool keyInfo = false, bool adapter = false, bool commandBuilder = false)
     {
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
@@ -35,6 +35,31 @@ internal static class PreparedAssetProbe
             var rows = names.Select((name, i) => Row((12000 + i).ToString(CultureInfo.InvariantCulture), "90", "pg_catalog", name,
                 sizes[i], "b", "U", "t", "0", "0", "0", "-1")).ToArray();
             await stream.WriteAsync(Join(Description(12), Join(rows), Complete(), Ready()), token);
+            if (commandBuilder)
+            {
+                var columnNames = new[] { "key alias", "value alias", "calculated" };
+                for (var phase = 0; phase < 4; phase++)
+                {
+                    var width = phase < 2 ? 1 : 3;
+                    var origins = Frame('T', Join(Count(width), Join(columnNames.Take(width).Select((name, i) => Join(Encoding.UTF8.GetBytes(name + '\0'), Int32(1234), Count(i + 1), Int32(i == 1 ? 12004 : 12002), Count(i == 1 ? -1 : 4), Int32(-1), Count(0))).ToArray())));
+                    await ReadFrames(stream, "PDS", token); await stream.WriteAsync(Join(Frame('1'), Frame('t', Count(0)), origins, Ready()), token);
+                    await ReadFrames(stream, "PBDES", token);
+                    var namesForFacts = new[] { "id", "value", "calc" };
+                    var factsFields = new[] { "table_oid", "attribute_number", "type_oid", "type_modifier", "catalog_name", "schema_name", "table_name", "column_name", "not_null", "identity_kind", "generated_kind", "relation_kind", "has_subclasses", "auto_increment", "key_columns", "single_unique", "attribute_version", "table_version", "isolation_level" };
+                    var factsHeader = Frame('T', Join(Count(factsFields.Length), Join(factsFields.Select(field => Join(Encoding.UTF8.GetBytes(field + '\0'), new byte[6], Int32(12004), Count(-1), Int32(-1), Count(0))).ToArray())));
+                    var factsRows = namesForFacts.Take(width).Select((name, i) => Row("1234", (i + 1).ToString(CultureInfo.InvariantCulture), i == 1 ? "12004" : "12002", "-1", "app", "public", "it\"ems", name, i == 1 ? "false" : "true", "", i == 2 ? "s" : "", "r", "false", "false", "1", i == 0 ? "true" : "false", "attribute-version", i == 0 ? "table-version" : null, "read committed")).ToArray();
+                    await stream.WriteAsync(Join(Frame('1'), Frame('2'), factsHeader, Join(factsRows), Frame('C', Encoding.UTF8.GetBytes("SELECT " + width.ToString(CultureInfo.InvariantCulture) + '\0')), Ready()), token);
+                }
+                for (var phase = 0; phase < 3; phase++)
+                {
+                    var request = await ReadFrames(stream, "PBDES", token);
+                    var generatedSql = Encoding.UTF8.GetString(request[0]);
+                    Require(generatedSql.Contains("U&\"public\".U&\"it\\0022ems\"", StringComparison.Ordinal));
+                    Require(!generatedSql.Split(" WHERE ")[0].Contains("\"calc\" =", StringComparison.Ordinal));
+                    await stream.WriteAsync(Join(Frame('1'), Frame('2'), Frame('n'), Frame('C', Encoding.UTF8.GetBytes((phase == 0 ? "UPDATE 1" : phase == 1 ? "DELETE 1" : "INSERT 0 1") + '\0')), Ready()), token);
+                }
+                Require(await stream.ReadAsync(new byte[1], token) == 0); return;
+            }
             if (adapter)
             {
                 for (var phase = 0; phase < 3; phase++)
@@ -339,6 +364,25 @@ internal static class PreparedAssetProbe
         }.ConnectionString);
         await connection.OpenAsync(token);
         using var command = new KingbaseCommand("SELECT :p", connection);
+        if (commandBuilder)
+        {
+            command.CommandText = "SELECT id AS \"key alias\" FROM public.\"it\"\"ems\"";
+            using var dataAdapter = new KingbaseDataAdapter(command);
+            Require(KingbaseFactory.Instance.CanCreateCommandBuilder);
+            using var sqlBuilder = (KingbaseCommandBuilder)KingbaseFactory.Instance.CreateCommandBuilder(); sqlBuilder.DataAdapter = dataAdapter;
+            sqlBuilder.GetInsertCommand(true);
+            command.CommandText = "SELECT id AS \"key alias\",value AS \"value alias\",calc AS calculated FROM public.\"it\"\"ems\"";
+            ((DbCommandBuilder)sqlBuilder).RefreshSchema();
+            var update = sqlBuilder.GetUpdateCommand(automatic); var insert = sqlBuilder.GetInsertCommand(automatic); var delete = sqlBuilder.GetDeleteCommand(automatic);
+            Require(insert.CommandText.Contains("\"id\"", StringComparison.Ordinal) && !insert.CommandText.Contains("\"calc\"", StringComparison.Ordinal));
+            Require(update.Parameters.Cast<KingbaseParameter>().Any(p => p.SourceColumnNullMapping && p.DbType == System.Data.DbType.Int32));
+            using var table = new System.Data.DataTable(); table.Columns.Add("key alias", typeof(int)); table.Columns.Add("value alias", typeof(string)); table.Columns.Add("calculated", typeof(int));
+            table.Rows.Add(1, "old", 2); table.Rows.Add(2, "delete", 3); table.AcceptChanges();
+            table.Rows[0]["value alias"] = DBNull.Value; table.Rows[1].Delete(); table.Rows.Add(3, "new", DBNull.Value);
+            try { Require(dataAdapter.Update(table) == 3 && table.Rows.Count == 2 && table.Rows[0].RowState == System.Data.DataRowState.Unchanged); }
+            catch { if (peer.IsFaulted) await peer; throw; }
+            connection.Close(); await peer.WaitAsync(token); return;
+        }
         if (adapter)
         {
             Require(KingbaseFactory.Instance.CanCreateDataAdapter);

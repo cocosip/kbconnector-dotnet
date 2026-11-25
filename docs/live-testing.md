@@ -290,3 +290,19 @@ command identities/counts, including retained base event arguments. Original-NUL
 checked independently. Read-only constant queries establish adapter-owned
 connection opening/closing, including a query error. These cases do not accept
 CommandBuilder, adapter batching, streaming or other public compatibility modes.
+
+
+CommandBuilder acceptance covers generated quoted/aliased CRUD (including names
+containing quotes, Unicode, backslashes, punctuation and case-distinct columns),
+original NULL flags, composite keys, identity/generated exclusions and explicit
+transaction rollback. Scalar type tests establish numeric/text/binary/UUID and
+calendar/clock/interval/XML/JSON/JSONB bindings; TIMESTAMPTZ DataColumns use UTC
+DateTimeMode, and JSONB expectations use canonical server text. XML/JSON are not
+used in equality concurrency predicates. Further cases verify optimistic conflicts,
+RefreshSchema after type/projection changes through BCL references, fallback
+parameter aliases, attachment/disposal, unchanged caller-authored SQL after failed
+generation, and rejection of ONLY/repeated/complex/no-key update projections.
+Alternate index collations and nondefault opclasses cannot authorize equality-based
+write keys. Unicode identifier generation also runs with standard_conforming_strings
+off. All fixtures are temporary; the suite does not accept ONLY generation,
+additional compatibility modes, platforms/builds, native MySQL or real TLS.

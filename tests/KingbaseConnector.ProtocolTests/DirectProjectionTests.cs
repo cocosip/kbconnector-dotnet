@@ -6,6 +6,7 @@ public sealed class DirectProjectionTests
 {
     [Theory]
     [InlineData("SELECT id, name AS label FROM public.items", "public", "items", false)]
+    [InlineData("SELECT U&\"i\\0064\" FROM U&\"pub\\006cic\".U&\"it\\0022ems\"", "public", "it\"ems", false)]
     [InlineData("SELECT t.* FROM ONLY public.items AS t WHERE id=$1 ORDER BY t.id DESC LIMIT 5;", "public", "items", true)]
     [InlineData("SELECT \"from\" AS \"join\" FROM \"汉\".\"MiXeD\" WHERE \"from\"='UNION ( join'", "汉", "MiXeD", false)]
     [InlineData("/* nested /* x */ y */SELECT DISTINCT id FROM app.public.items i -- tail\n WHERE id>0", "public", "items", false)]

@@ -125,19 +125,27 @@ internal sealed class PgDirectProjection(string[] relation, bool only, (string N
                 if (depth != 0) return null;
                 continue;
             }
+            var unicodeIdentifier = c is 'u' or 'U' && i + 2 < sql.Length && sql[i + 1] == '&' && sql[i + 2] == '"';
+            if (unicodeIdentifier) { i += 2; c = '"'; }
             if (c is '\'' or '"')
             {
                 i++; var value = new StringBuilder(); var closed = false;
                 while (i < sql.Length)
                 {
                     var next = sql[i++];
-                    if (next == '\\') return null;
+                    if (next == '\\' && !unicodeIdentifier) return null;
                     if (next != c) { value.Append(next); continue; }
                     if (i < sql.Length && sql[i] == c) { value.Append(c); i++; continue; }
                     closed = true; break;
                 }
                 if (!closed) return null;
-                result.Add(new Token(c == '"' ? value.ToString() : "#", c == '"', c == '"')); continue;
+                var identifier = value.ToString();
+                if (unicodeIdentifier)
+                {
+                    try { identifier = PgUnicodeIdentifier.Decode(identifier, doubledQuotes: false); }
+                    catch (ArgumentException) { return null; }
+                }
+                result.Add(new Token(c == '"' ? identifier : "#", c == '"', c == '"')); continue;
             }
             if (char.IsLetter(c) || c == '_' || c >= 128)
             {
