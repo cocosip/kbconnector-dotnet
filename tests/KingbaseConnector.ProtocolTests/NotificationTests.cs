@@ -108,8 +108,8 @@ public sealed class NotificationTests
         using var connection = new KingbaseConnection(); var flags = BindingFlags.Instance | BindingFlags.NonPublic;
         typeof(KingbaseConnection).GetField("_generation", flags)!.SetValue(connection, 2L);
         var failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(new InvalidOperationException("callback"));
-        var field = typeof(KingbaseConnection).GetField("_notificationFailure", flags)!; field.SetValue(connection, failure);
-        connection.ThrowNotificationFailure(null!, 1); Assert.Same(failure, field.GetValue(connection));
+        var field = typeof(KingbaseConnection).GetField("_callbackFailure", flags)!; field.SetValue(connection, failure);
+        connection.ThrowCallbackFailure(null!, 1); Assert.Same(failure, field.GetValue(connection));
     }
 
     [Fact]

@@ -68,6 +68,7 @@ internal sealed partial class PgQuerySession : IDisposable
     internal IReadOnlyDictionary<string, string> Parameters { get; }
     internal bool IsDisposed => Volatile.Read(ref _disposed) != 0 || _wire.IsDisposed;
     internal Action<KingbaseNotificationEventArgs>? NotificationHandler { get; set; }
+    internal Action<KingbaseNotice>? NoticeHandler { get; set; }
     internal long WriteAttempts => _wire.WriteAttempts;
     internal long ExecutionWriteAttempts { get; private set; }
     internal PgServerError? CommandRejection { get; private set; }
@@ -247,7 +248,8 @@ internal sealed partial class PgQuerySession : IDisposable
                         UpdateParameter(parameter);
                         break;
                     case (byte)'N':
-                        PgBackendMessages.ParseError(message.Payload);
+                        var notice = PgBackendMessages.ParseError(message.Payload);
+                        NoticeHandler?.Invoke(new KingbaseNotice(notice));
                         break;
                     case (byte)'E':
                         if (control && extendedPhase != 0) throw InvalidExchange();
@@ -349,6 +351,7 @@ internal sealed partial class PgQuerySession : IDisposable
     public void Dispose()
     {
         NotificationHandler = null;
+        NoticeHandler = null;
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
             InvalidatePreparedStatements();

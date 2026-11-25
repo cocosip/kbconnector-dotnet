@@ -41,8 +41,20 @@ public sealed partial class KingbaseConnection
             command = definition is null ? new KingbaseCommand(KingbaseSchema.KeywordsSql, this) { Transaction = _transaction } :
                 KingbaseObjectSchema.Command(definition, restrictionValues, this, _transaction);
         }
-        using (command)
-        using (var reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
-            return definition is null ? KingbaseSchema.ReadWords(reader, token) : KingbaseObjectSchema.Read(definition, reader, token);
+        DataTable? table = null;
+        var validate = command.ValidateResultSchema;
+        command.ValidateResultSchema = (results, catalog) =>
+        {
+            validate?.Invoke(results, catalog);
+            using var reader = new KingbaseDataReader(results, catalog);
+            table = definition is null ? KingbaseSchema.ReadWords(reader, token) : KingbaseObjectSchema.Read(definition, reader, token);
+        };
+        try
+        {
+            using (command)
+            using (await command.ExecuteReaderAsync(token).ConfigureAwait(false))
+                return table!;
+        }
+        catch { table?.Dispose(); throw; }
     }
 }

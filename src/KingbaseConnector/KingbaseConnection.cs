@@ -167,8 +167,8 @@ public sealed partial class KingbaseConnection : DbConnection
             _closing = completion;
             previous = _state;
             physical = _session; _session = null;
-            if (physical is { IsUsable: true }) physical.Queries.NotificationHandler = null;
-            _notificationFailure = null;
+            if (physical is { IsUsable: true }) { physical.Queries.NotificationHandler = null; physical.Queries.NoticeHandler = null; }
+            _callbackFailure = null;
             lease = _lease; _lease = null;
             opening = _opening; _opening = null;
             hadCommand = _command is not null;
@@ -305,9 +305,10 @@ public sealed partial class KingbaseConnection : DbConnection
                 throw new InvalidOperationException("The command transaction is not the active transaction on this connection.");
             _command = command;
             _operationCancel = operationCancel;
-            _notificationFailure = null;
+            _callbackFailure = null;
             var generation = _generation;
             physical.Queries.NotificationHandler = notification => DispatchNotification(physical, generation, notification);
+            physical.Queries.NoticeHandler = notice => DispatchNotice(physical, generation, notice);
             return (physical, _generation);
         }
     }
@@ -339,7 +340,8 @@ public sealed partial class KingbaseConnection : DbConnection
             _operationCancel = null;
             _reader = reader;
             session.Queries.NotificationHandler = null;
-            _notificationFailure = null;
+            session.Queries.NoticeHandler = null;
+            _callbackFailure = null;
         }
     }
     internal void EndExecution(KingbaseCommand command, PgPhysicalSession session, long generation)
@@ -349,8 +351,8 @@ public sealed partial class KingbaseConnection : DbConnection
             {
                 _command = null;
                 _operationCancel = null;
-                if (session.IsUsable) session.Queries.NotificationHandler = null;
-                _notificationFailure = null;
+                if (session.IsUsable) { session.Queries.NotificationHandler = null; session.Queries.NoticeHandler = null; }
+                _callbackFailure = null;
             }
     }
     internal void ReleaseReader(KingbaseDataReader reader, PgPhysicalSession session, long generation, bool closeConnection)

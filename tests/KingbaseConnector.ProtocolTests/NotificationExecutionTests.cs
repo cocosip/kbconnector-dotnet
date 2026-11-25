@@ -79,17 +79,19 @@ public sealed class NotificationExecutionTests
         await peer.WaitAsync(guard.Token);
     }
 
-    [Fact]
-    public async Task HandlerFailureAfterBatchAcknowledgmentPreservesSucceededStatuses()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HandlerFailureAfterBatchAcknowledgmentPreservesSucceededStatuses(bool notice)
     {
         using var listener = Listen(); using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(10)); using var connection = new KingbaseConnection(Settings(listener).ConnectionString);
         var peer = Task.Run(async () =>
         {
             using var client = await listener.AcceptTcpClientAsync(guard.Token); using var stream = client.GetStream(); await Initialize(stream, guard.Token);
-            await ReadExtended(stream, guard.Token); await stream.WriteAsync(Join(Notify(42, "ch", ""), Frame('1'), Frame('2'), Frame('n'), Frame('C', Encoding.ASCII.GetBytes("UPDATE 1\0")), Ready()), guard.Token);
+            await ReadExtended(stream, guard.Token); await stream.WriteAsync(Join(CallbackFrame(notice), Frame('1'), Frame('2'), Frame('n'), Frame('C', Encoding.ASCII.GetBytes("UPDATE 1\0")), Ready()), guard.Token);
             Assert.Equal(0, await stream.ReadAsync(new byte[1], guard.Token));
         }, guard.Token);
-        connection.Notification += (_, _) => throw new CallbackFailure(); await connection.OpenAsync(guard.Token);
+        SubscribeFailure(connection, notice); await connection.OpenAsync(guard.Token);
         using var batch = new KingbaseBatch(connection); batch.BatchCommands.Add(new("UPDATE public.items SET v=1"));
         await Assert.ThrowsAsync<CallbackFailure>(() => batch.ExecuteNonQueryAsync(guard.Token)); Assert.Equal(1, batch.BatchCommands[0].RecordsAffected);
         Assert.Equal(KingbaseBatchCommandStatus.Succeeded, batch.BatchCommands[0].ExecutionStatus); Assert.Null(batch.FailedCommandIndex); Assert.Equal(ConnectionState.Open, connection.State);
@@ -97,16 +99,18 @@ public sealed class NotificationExecutionTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task CallbackFailureDuringBeginRollsBackBeforeReturningAnUnusableTransactionHandle(bool cleanupFails)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task CallbackFailureDuringBeginRollsBackBeforeReturningAnUnusableTransactionHandle(bool cleanupFails, bool notice)
     {
         using var listener = Listen(); using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(10)); using var connection = new KingbaseConnection(Settings(listener).ConnectionString);
-        var calls = 0; connection.Notification += (_, _) => { if (++calls == 1) throw new CallbackFailure(); };
+        var calls = 0; SubscribeCallback(connection, notice, () => { if (++calls == 1) throw new CallbackFailure(); });
         var peer = Task.Run(async () =>
         {
             using var client = await listener.AcceptTcpClientAsync(guard.Token); using var stream = client.GetStream(); await Initialize(stream, guard.Token); await SavepointExecutionTests.Limit(stream, guard.Token);
-            await ReadExtended(stream, guard.Token); await stream.WriteAsync(Join(Notify(42, "ch", ""), TransactionExecutionTests.Result("BEGIN", 'T')), guard.Token);
+            await ReadExtended(stream, guard.Token); await stream.WriteAsync(Join(CallbackFrame(notice), TransactionExecutionTests.Result("BEGIN", 'T')), guard.Token);
             if (cleanupFails)
             {
                 await ReadExtended(stream, guard.Token); await stream.WriteAsync(Join(Frame('E', Encoding.ASCII.GetBytes("SERROR\0C42501\0Mrollback-denied\0\0")), Frame('Z', [(byte)'E'])), guard.Token);
@@ -122,16 +126,18 @@ public sealed class NotificationExecutionTests
         using var next = await connection.BeginTransactionAsync(guard.Token); await next.RollbackAsync(guard.Token); connection.Close(); await peer.WaitAsync(guard.Token);
     }
 
-    [Fact]
-    public async Task DefiniteRollbackTakesPrecedenceOverAnUnrelatedNotificationHandlerFailure()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DefiniteRollbackTakesPrecedenceOverAnUnrelatedNotificationHandlerFailure(bool notice)
     {
         using var listener = Listen(); using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(10)); using var connection = new KingbaseConnection(Settings(listener).ConnectionString);
-        connection.Notification += (_, _) => throw new CallbackFailure();
+        SubscribeFailure(connection, notice);
         var peer = Task.Run(async () =>
         {
             using var client = await listener.AcceptTcpClientAsync(guard.Token); using var stream = client.GetStream(); await Initialize(stream, guard.Token); await SavepointExecutionTests.Limit(stream, guard.Token);
             await ReadExtended(stream, guard.Token); await stream.WriteAsync(TransactionExecutionTests.Result("BEGIN", 'T'), guard.Token);
-            await ReadExtended(stream, guard.Token); await stream.WriteAsync(Join(Notify(42, "ch", ""), TransactionExecutionTests.Result("ROLLBACK", 'I')), guard.Token);
+            await ReadExtended(stream, guard.Token); await stream.WriteAsync(Join(CallbackFrame(notice), TransactionExecutionTests.Result("ROLLBACK", 'I')), guard.Token);
             Assert.Equal(0, await stream.ReadAsync(new byte[1], guard.Token));
         }, guard.Token);
         await connection.OpenAsync(guard.Token); using var transaction = await connection.BeginTransactionAsync(guard.Token);
@@ -139,16 +145,18 @@ public sealed class NotificationExecutionTests
         connection.Close(); await peer.WaitAsync(guard.Token);
     }
 
-    [Fact]
-    public async Task HandlerFailureDuringFinalKeyInfoEnrichmentCannotBeClearedByReaderPublication()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HandlerFailureDuringFinalKeyInfoEnrichmentCannotBeClearedByReaderPublication(bool notice)
     {
         using var listener = Listen(); using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(10)); using var connection = new KingbaseConnection(Settings(listener).ConnectionString);
-        connection.Notification += (_, _) => throw new CallbackFailure();
+        SubscribeFailure(connection, notice);
         var peer = Task.Run(async () =>
         {
             using var client = await listener.AcceptTcpClientAsync(guard.Token); using var stream = client.GetStream(); await Initialize(stream, guard.Token); await KeyInfoTests.Preflight(stream, guard.Token);
             await ReadExtended(stream, guard.Token); await stream.WriteAsync(Join(Frame('1'), Frame('2'), KeyInfoTests.Origin(), Row(["7"]), Complete(), Ready()), guard.Token);
-            await ReadExtended(stream, guard.Token); await stream.WriteAsync(Join(Notify(42, "ch", ""), KeyInfoTests.Metadata(KeyInfoTests.Facts())), guard.Token);
+            await ReadExtended(stream, guard.Token); await stream.WriteAsync(Join(CallbackFrame(notice), KeyInfoTests.Metadata(KeyInfoTests.Facts())), guard.Token);
             await ReadExtended(stream, guard.Token); await stream.WriteAsync(Value("42"), guard.Token); Assert.Equal(0, await stream.ReadAsync(new byte[1], guard.Token));
         }, guard.Token);
         await connection.OpenAsync(guard.Token); using var command = new KingbaseCommand("SELECT id AS alias FROM public.items", connection);
@@ -156,19 +164,28 @@ public sealed class NotificationExecutionTests
         command.CommandText = "SELECT 42"; Assert.Equal(42, await command.ExecuteScalarAsync(guard.Token)); connection.Close(); await peer.WaitAsync(guard.Token);
     }
 
-    [Fact]
-    public async Task InvalidResultSchemaTakesPrecedenceOverAnEarlierCallbackFailure()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InvalidResultSchemaTakesPrecedenceOverAnEarlierCallbackFailure(bool notice)
     {
         using var listener = Listen(); using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(10)); using var connection = new KingbaseConnection(Settings(listener).ConnectionString);
-        connection.Notification += (_, _) => throw new CallbackFailure();
+        SubscribeFailure(connection, notice);
         var peer = Task.Run(async () =>
         {
             using var client = await listener.AcceptTcpClientAsync(guard.Token); using var stream = client.GetStream(); await Initialize(stream, guard.Token);
-            await ReadExtended(stream, guard.Token); await stream.WriteAsync(Join(Notify(42, "ch", ""), Frame('1'), Frame('2'), Description(1, 1234567), Row(["unmapped"]), Complete(), Ready()), guard.Token);
+            await ReadExtended(stream, guard.Token); await stream.WriteAsync(Join(CallbackFrame(notice), Frame('1'), Frame('2'), Description(1, 1234567), Row(["unmapped"]), Complete(), Ready()), guard.Token);
             await ReadExtended(stream, guard.Token); await stream.WriteAsync(Value("42"), guard.Token); Assert.Equal(0, await stream.ReadAsync(new byte[1], guard.Token));
         }, guard.Token);
         await connection.OpenAsync(guard.Token); using var command = new KingbaseCommand("SELECT 42", connection);
         await Assert.ThrowsAsync<NotSupportedException>(() => command.ExecuteScalarAsync(guard.Token)); Assert.Equal(42, await command.ExecuteScalarAsync(guard.Token));
         connection.Close(); await peer.WaitAsync(guard.Token);
+    }
+    static byte[] CallbackFrame(bool notice) => notice ? NoticeTests.Notice() : Notify(42, "ch", "");
+    static void SubscribeFailure(KingbaseConnection connection, bool notice) => SubscribeCallback(connection, notice, () => throw new CallbackFailure());
+    static void SubscribeCallback(KingbaseConnection connection, bool notice, Action callback)
+    {
+        if (notice) connection.Notice += (_, _) => callback();
+        else connection.Notification += (_, _) => callback();
     }
 }

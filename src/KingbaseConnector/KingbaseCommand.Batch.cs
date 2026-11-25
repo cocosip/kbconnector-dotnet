@@ -119,10 +119,10 @@ public sealed partial class KingbaseCommand
                 throw;
             }
         }
-        if (operation == Operation.Prepare) { _batch!.FailedCommandIndex = null; connection.ThrowNotificationFailure(session, generation); return null; }
+        if (operation == Operation.Prepare) { _batch!.FailedCommandIndex = null; connection.ThrowCallbackFailure(session, generation); return null; }
         var reader = new KingbaseDataReader(allResults.AsReadOnly(), session.Catalog, behavior,
             r => connection.ReleaseReader(r, session, generation, (behavior & CommandBehavior.CloseConnection) != 0));
-        try { _batch!.FailedCommandIndex = null; connection.ThrowNotificationFailure(session, generation); connection.PublishReader(this, session, generation, reader); return reader; }
+        try { _batch!.FailedCommandIndex = null; connection.ThrowCallbackFailure(session, generation); connection.PublishReader(this, session, generation, reader); return reader; }
         catch { reader.Close(); throw; }
     }
 }

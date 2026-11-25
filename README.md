@@ -31,6 +31,10 @@ bool received = await listener.WaitAsync(TimeSpan.FromSeconds(5), cancellationTo
 
 LISTEN/NOTIFY follows server transaction semantics: rollback does not publish notifications and commit makes them available. Closing a pooled borrower clears the callback sink before cleanup, discards queued notifications and removes LISTEN subscriptions. A later borrower or a reconnected client must issue LISTEN again. Notifications are not durable and the driver does not replay missed messages or automatically resubscribe. Native MySQL wire notification support, broader profiles/platforms and real-server TLS remain outside the current acceptance evidence.
 
+Subscribe to `KingbaseConnection.Notice` for structured server diagnostics during commands or explicit waits. `KingbaseNoticeEventArgs.Notice` exposes `SqlState`, localized `Severity`, optional `InvariantSeverity`, `MessageText`, `Detail`, `Hint` and an immutable `Fields` dictionary keyed by protocol character. Raw fields may contain sensitive application data; the driver does not log them, and `KingbaseNotice.ToString()` includes only SQLSTATE. Startup, unowned and pool-reset notices are parsed and discarded.
+
+Notice handlers share notification ownership and reentry restrictions. The first handler exception from either event is surfaced after command synchronization and result validation, with server/protocol/schema errors and confirmed rollback taking precedence. During idle Wait, a notice alone does not return true; a Notice handler exception stops that wait immediately after its complete frame and preserves a healthy connection. Default severity handling follows the server's message settings. Complete error-tail/profile/platform acceptance remains tracked separately; the tested SQL Server profile's Error/CommandComplete/Ready tail still causes strict physical retirement.
+
 `KingbaseNumeric` preserves high-precision numeric values without rounding:
 
 ```csharp

@@ -4,7 +4,7 @@ namespace KingbaseConnector.Protocol;
 
 internal sealed partial class PgQuerySession
 {
-    internal Task<bool> WaitForNotificationAsync(int timeoutMilliseconds, CancellationToken token, Action validate) => OwnAsync(async () =>
+    internal Task<bool> WaitForNotificationAsync(int timeoutMilliseconds, CancellationToken token, Action validate, Func<bool>? callbackFailed = null) => OwnAsync(async () =>
     {
         if (TransactionStatus != PgTransactionStatus.Idle) throw new InvalidOperationException("Notification waiting requires an idle session.");
         var elapsed = Stopwatch.StartNew(); var retained = 0;
@@ -23,7 +23,11 @@ internal sealed partial class PgQuerySession
                     case (byte)'A':
                         var notification = PgBackendMessages.ParseNotification(message.Payload);
                         validate(); NotificationHandler?.Invoke(notification); return true;
-                    case (byte)'N': PgBackendMessages.ParseError(message.Payload); break;
+                    case (byte)'N':
+                        var notice = PgBackendMessages.ParseError(message.Payload);
+                        validate(); NoticeHandler?.Invoke(new KingbaseNotice(notice));
+                        if (callbackFailed?.Invoke() == true) return false;
+                        break;
                     case (byte)'S':
                         var setting = PgBackendMessages.ParseParameterStatus(message.Payload);
                         if (setting.Key == "client_encoding" && setting.Value != "UTF8") throw InvalidExchange();

@@ -451,3 +451,27 @@ package-consumer checks, not exact-package LIVE or cross-platform certification.
 There is no automatic replay/resubscription or background dispatch; ordinary query
 cancellation and graceful Cancel-channel acceptance remain separate. Native MySQL
 wire and real TLS are not accepted by these tests.
+
+Notice acceptance adds 12 cases across the same four PG-wire modes. Isolated
+anonymous blocks raise a fixed Unicode WARNING with independently expected
+SQLSTATE/detail/hint. Prepared execution delivers exactly one notice per call;
+handlers reject same-connection command/Wait reentry. A throwing handler leaves
+the synchronized session usable. A following deliberate server error takes
+precedence over that handler. The supplied SQL Server profile emits an extra
+CommandComplete after Error in this case (independently captured extended-query
+sequence 12nNECZ); tests explicitly require strict retirement and reopen, rather
+than claiming synchronized SQLSTATE recovery for that tail. Other modes verify
+the expected 22012 and same-session reuse. Two successive max-size-1 private-pool
+borrowers verify same PID and delivery only to the current logical handler.
+No permanent routines or objects are created. Raw profiles, frames and original
+results remain outside the repository.
+
+Loopback tests and every exact package asset separately exercise command and idle
+notices, structured/immutable fields, safe default strings, handler failure/reentry,
+first-failure ordering and startup/reset/borrower sink isolation. Notice alone does
+not complete Wait successfully; its handler failure exits promptly after a complete
+frame without retiring a healthy idle session. Additional source regressions cover
+malformed fields/UTF8, identity drift, schema row-validation precedence, scalar
+overflow consistency, BEGIN cleanup, confirmed rollback and batch acknowledgment.
+Broader profile/platform, native MySQL wire, exact-package LIVE and real TLS remain
+separate acceptance gaps.
