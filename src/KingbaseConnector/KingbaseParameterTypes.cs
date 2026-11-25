@@ -40,6 +40,7 @@ internal static class KingbaseParameterTypes
         KingbaseDbType.Date => "date", KingbaseDbType.Time => "time", KingbaseDbType.TimeTz => "timetz",
         KingbaseDbType.Timestamp => "timestamp", KingbaseDbType.TimestampTz => "timestamptz",
         KingbaseDbType.Interval => "interval", KingbaseDbType.Xml => "xml",
+        KingbaseDbType.Blob => "blob", KingbaseDbType.Clob => "clob", KingbaseDbType.NClob => "nclob",
         KingbaseDbType.SignedTinyint => "tinyint", KingbaseDbType.UnsignedTinyint => "tinyint_unsigned",
         KingbaseDbType.UnsignedInteger => "uint4", KingbaseDbType.UnsignedBigint => "uint8", KingbaseDbType.Int128 => "int16",
         KingbaseDbType.VarcharByte => "varcharbyte", KingbaseDbType.CharByte => "bpcharbyte", KingbaseDbType.NChar => "nchar",
@@ -62,6 +63,7 @@ internal static class KingbaseParameterTypes
         KingbaseDbType.Timestamp => DbType.DateTime, KingbaseDbType.TimestampTz => DbType.DateTimeOffset,
         KingbaseDbType.Interval => DbType.Object,
         KingbaseDbType.Xml => DbType.Xml,
+        KingbaseDbType.Blob => DbType.Binary, KingbaseDbType.Clob or KingbaseDbType.NClob => DbType.String,
         KingbaseDbType.SignedTinyint => DbType.SByte, KingbaseDbType.UnsignedTinyint => DbType.Byte,
         KingbaseDbType.UnsignedInteger => DbType.UInt32, KingbaseDbType.UnsignedBigint => DbType.UInt64,
         KingbaseDbType.Int128 or KingbaseDbType.Bit or KingbaseDbType.Varbit => DbType.Object, KingbaseDbType.SqlServerBit => DbType.Boolean,
@@ -91,7 +93,8 @@ internal static class KingbaseParameterTypes
     internal static bool Compatible(DbType constraint, KingbaseDbType selected) => constraint switch
     {
         DbType.String => selected is KingbaseDbType.Text or KingbaseDbType.Varchar or KingbaseDbType.Char or KingbaseDbType.Json or KingbaseDbType.Jsonb or KingbaseDbType.Xml or
-            KingbaseDbType.VarcharByte or KingbaseDbType.CharByte or KingbaseDbType.NChar or KingbaseDbType.NVarchar,
+            KingbaseDbType.VarcharByte or KingbaseDbType.CharByte or KingbaseDbType.NChar or KingbaseDbType.NVarchar or KingbaseDbType.Clob or KingbaseDbType.NClob,
+        DbType.Binary => selected is KingbaseDbType.Bytea or KingbaseDbType.Blob,
         DbType.StringFixedLength => selected is KingbaseDbType.Char or KingbaseDbType.CharByte or KingbaseDbType.NChar,
         DbType.SByte => selected is KingbaseDbType.SignedTinyint or KingbaseDbType.Smallint,
         DbType.Byte => selected is KingbaseDbType.UnsignedTinyint or KingbaseDbType.UnsignedInteger or KingbaseDbType.Smallint,

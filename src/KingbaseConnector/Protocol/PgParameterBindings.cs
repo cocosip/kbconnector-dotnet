@@ -90,6 +90,13 @@ internal sealed class PgParameterBindings
     static PgTypeDescription Lookup(KingbaseDbType provider, PgTypeCatalog catalog)
     {
         var name = KingbaseParameterTypes.Name(provider);
+        if (provider is KingbaseDbType.Blob or KingbaseDbType.Clob or KingbaseDbType.NClob)
+        {
+            var codec = provider == KingbaseDbType.Blob ? "bytea" : "text";
+            foreach (var schema in new[] { "pg_catalog.", "sys." })
+                if (catalog.ByName.TryGetValue(schema + name, out var lob) && lob.CodecName == codec) return lob;
+            throw KingbaseParameterTypes.Unsupported();
+        }
         if (name == "oracle_date" || name.StartsWith("sqlserver_", StringComparison.Ordinal) || name.StartsWith("mysql_", StringComparison.Ordinal))
         {
             var key = "sys." + (name == "oracle_date" ? "date" : name.Substring(name.IndexOf('_') + 1));

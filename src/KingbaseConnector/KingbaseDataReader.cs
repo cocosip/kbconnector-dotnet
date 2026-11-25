@@ -20,6 +20,7 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     Action<KingbaseDataReader>? _onClose;
     int _resultIndex;
     int _rowIndex = -1;
+    Dictionary<int, object>? _partialValues;
 
     internal KingbaseDataReader(IReadOnlyList<PgTextResult> results, PgTypeCatalog catalog,
         CommandBehavior behavior = CommandBehavior.Default, Action<KingbaseDataReader>? onClose = null)
@@ -65,6 +66,7 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     public override bool Read()
     {
         var current = Current;
+        _partialValues = null;
         if (current is null) return false;
         var count = _singleRow ? Math.Min(1, current.Rows.Count) : current.Rows.Count;
         if (_rowIndex < count) _rowIndex++;
@@ -73,6 +75,7 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     public override bool NextResult()
     {
         EnsureOpen();
+        _partialValues = null;
         if (_resultIndex < _results!.Count) _resultIndex = _singleResult ? _results.Count : _resultIndex + 1;
         _rowIndex = -1;
         return _resultIndex < _results.Count;
@@ -147,7 +150,7 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     /// <summary>Copies buffered bytes. A null buffer returns the full length.</summary>
     public override long GetBytes(int ordinal, long dataOffset, byte[]? buffer, int bufferOffset, int length)
     {
-        var source = GetFieldValue<byte[]>(ordinal);
+        var source = PartialValue<byte[]>(ordinal);
         ValidateSlice(dataOffset, buffer, bufferOffset, length);
         if (buffer is null) return source.Length;
         var count = SliceCount(source.Length, dataOffset, length);
@@ -157,7 +160,7 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     /// <summary>Copies buffered UTF16 characters. A null buffer returns the full length.</summary>
     public override long GetChars(int ordinal, long dataOffset, char[]? buffer, int bufferOffset, int length)
     {
-        var source = GetString(ordinal);
+        var source = PartialValue<string>(ordinal);
         ValidateSlice(dataOffset, buffer, bufferOffset, length);
         if (buffer is null) return source.Length;
         var count = SliceCount(source.Length, dataOffset, length);
@@ -166,6 +169,14 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     }
     public override Stream GetStream(int ordinal) => new MemoryStream(GetFieldValue<byte[]>(ordinal), writable: false);
     public override TextReader GetTextReader(int ordinal) => new StringReader(GetString(ordinal));
+    T PartialValue<T>(int ordinal) where T : class
+    {
+        EnsureRow();
+        if (_partialValues is not null && _partialValues.TryGetValue(ordinal, out var value)) return (T)value;
+        var decoded = GetFieldValue<T>(ordinal);
+        (_partialValues ??= new Dictionary<int, object>()).Add(ordinal, decoded);
+        return decoded;
+    }
     static void ValidateSlice(long dataOffset, Array? buffer, int bufferOffset, int length)
     {
         if (dataOffset < 0) throw new ArgumentOutOfRangeException(nameof(dataOffset));
@@ -280,6 +291,7 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     public override void Close()
     {
         if (Interlocked.Exchange(ref _results, null) is null) return;
+        _partialValues = null;
         _rowIndex = -1;
         Interlocked.Exchange(ref _onClose, null)?.Invoke(this);
     }

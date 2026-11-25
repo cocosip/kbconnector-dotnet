@@ -15,6 +15,8 @@ Use the design to understand the intended behavior, the matrix to identify a fea
 
 E60 OID manager/streams have passed final offline/package/static/review and source-built LIVE gates; broader privilege/profile/platform acceptance remains pending. B05 ordinary BLOB/CLOB/NCLOB binding is separate. Read the tracker's current delivery section for the distinction between verified behavior and full acceptance; do not interpret the parent-feature closure count as a completion percentage.
 
+E61 adds typed ordinary BLOB/CLOB/NCLOB input and buffered partial Reader access on verified Oracle/MySQL PG-wire domains. Its final validation is recorded in the tracker. Network SequentialAccess, Stream/TextReader parameter input and full B05 acceptance remain open; the OID API does not satisfy those contracts.
+
 PG remains the default connection protocol in all compatibility modes. The explicit MySQL backend is designed for exceptional installations exposing only MySQL protocol. WireProtocol selects the backend; CompatibilityMode selects database semantics. Both backends use built-in provider pooling with protocol-isolated sessions. These are intended contracts, not implemented capabilities.
 
 All maintained project documentation is written in English. Keep temporary walkthroughs, review reports, and decompiled source outside the repository. Retain durable technical facts and source references in the design, matrix, or inventory where they belong.

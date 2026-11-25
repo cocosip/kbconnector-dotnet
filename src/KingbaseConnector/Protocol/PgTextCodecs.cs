@@ -208,8 +208,10 @@ internal sealed class PgTextCodecs
 
     bool SupportedNativeDomain(PgTypeDescription type)
     {
-        var key = type.CodecName switch { "oracle_date" when type.Name == "date" => "pg_catalog.timestamp", "mysql_year" when type.Name == "year" => "pg_catalog.int4", _ => null };
-        return key is not null && type.Namespace == "sys" && type.Kind == 'd' && _catalog.ByName.TryGetValue(key, out var baseType) &&
+        var lob = type.Name is "blob" or "clob" or "nclob";
+        var key = type.CodecName switch { "oracle_date" when type.Name == "date" => "pg_catalog.timestamp", "mysql_year" when type.Name == "year" => "pg_catalog.int4",
+            "bytea" when type.Name == "blob" => "pg_catalog.bytea", "text" when type.Name is "clob" or "nclob" => "pg_catalog.text", _ => null };
+        return key is not null && (type.Namespace == "sys" || (lob && type.Namespace == "pg_catalog")) && type.Kind == 'd' && _catalog.ByName.TryGetValue(key, out var baseType) &&
             type.BaseTypeOid == baseType.Oid && baseType.Kind == 'b' && baseType.BaseTypeOid == 0 && baseType.ElementTypeOid == 0 && baseType.Size == type.Size && baseType.Category == type.Category;
     }
 

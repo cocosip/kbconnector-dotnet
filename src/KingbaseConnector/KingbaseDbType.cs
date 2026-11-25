@@ -8,5 +8,6 @@ public enum KingbaseDbType
     SignedTinyint, UnsignedTinyint, UnsignedInteger, UnsignedBigint, Int128, VarcharByte, CharByte, NChar, NVarchar, SqlServerBit,
     Bit, Varbit,
     OracleDate, SqlServerDate, SqlServerDateTime, SqlServerDateTime2, SqlServerSmallDateTime, SqlServerTime,
-    MySqlDate, MySqlDateTime, MySqlTimestamp, MySqlTime, MySqlYear
+    MySqlDate, MySqlDateTime, MySqlTimestamp, MySqlTime, MySqlYear,
+    Blob, Clob, NClob
 }

@@ -15,7 +15,7 @@ namespace KingbaseConnector.Tests;
 internal static class NativeScalarAssetProbe
 {
     sealed record Spec(string Schema, string Name, int Size, string Category, string Input = "", string Output = "", string Kind = "b", string? Base = null);
-    sealed record Value(KingbaseDbType Provider, object Input, string Key, object Expected, string? Text, object? ProviderExpected = null, Type? NullType = null);
+    sealed record Value(KingbaseDbType Provider, object Input, string Key, object Expected, string? Text, object? ProviderExpected = null, Type? NullType = null, string? ResultText = null);
     internal static async Task RunAsync(KingbaseCompatibilityMode mode)
     {
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(20)); var token = guard.Token;
@@ -44,7 +44,7 @@ internal static class NativeScalarAssetProbe
                     Check(frames[0].SequenceEqual(Frame('P', Join([0], Encoding.UTF8.GetBytes("SELECT $1\0"), Count(1), Int32(oid)))));
                     var text = value.Text is null ? [] : Encoding.UTF8.GetBytes(value.Text);
                     Check(frames[1].SequenceEqual(Frame('B', Join([0, 0], Count(0), Count(1), Int32(value.Text is null ? -1 : text.Length), text, Count(0)))));
-                    await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, oid, spec.Size), Row(value.Text), Complete(), Ready()), token);
+                    await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, oid, spec.Size), Row(value.ResultText ?? value.Text), Complete(), Ready()), token);
                 }
                 await Query(stream, "DISCARD ALL"); await stream.WriteAsync(Join(Frame('C', Encoding.ASCII.GetBytes("DISCARD ALL\0")), Ready()), token);
                 await Catalog(stream, borrower + 1);
@@ -119,8 +119,8 @@ internal static class NativeScalarAssetProbe
                 var query = await ReadFrames(stream, "Q", token); var sql = Encoding.UTF8.GetString(query[0]);
                 Check(sql.Contains("FROM sys_catalog.sys_type", StringComparison.Ordinal) && sql.Contains("pg_catalog.nameeq", StringComparison.Ordinal));
                 if (schema == "sys") Check(sql.Contains("pg_catalog.pg_roles", StringComparison.Ordinal));
-                var selected = definitions.Where(type => type.Schema == schema).ToArray();
-                var rows = selected.Select(spec => Row(new[] { Oid(spec, generation).ToString(CultureInfo.InvariantCulture), schema == "sys" ? "91" : "90", schema,
+                var selected = definitions.Where(type => schema == "sys" ? type.Input.Length != 0 : type.Input.Length == 0).ToArray();
+                var rows = selected.Select(spec => Row(new[] { Oid(spec, generation).ToString(CultureInfo.InvariantCulture), spec.Schema == "sys" ? "91" : "90", spec.Schema,
                     spec.Name, spec.Size.ToString(CultureInfo.InvariantCulture), spec.Kind, spec.Category, "t", spec.Base is null ? "0" : Oid(definitions.Single(type => type.Schema + "." + type.Name == spec.Base), generation).ToString(CultureInfo.InvariantCulture), "0", "0", "-1" }
                     .Concat(schema == "sys" ? new[] { spec.Input, spec.Output, "true", "true" } : []).ToArray())).ToArray();
                 await stream.WriteAsync(Join(Description(schema == "sys" ? 16 : 12), Join(rows), Frame('C', Encoding.ASCII.GetBytes("SELECT " + rows.Length.ToString(CultureInfo.InvariantCulture) + "\0")), Ready()), token);
@@ -156,6 +156,12 @@ internal static class NativeScalarAssetProbe
             result.Add(new("sys", "bit", 1, "B", "sys.sqlserver_bit_in", "sys.sqlserver_bit_out"));
             result.Add(new("sys", "nchar", -1, "S", "sys.nchar_in", "sys.nchar_out")); result.Add(new("sys", "nvarchar", -1, "S", "sys.nvarchar_in", "sys.nvarchar_out"));
             foreach (var name in new[] { "date", "datetime", "datetime2", "smalldatetime", "time" }) result.Add(new("sys", name, name == "date" ? 4 : 8, "D", "sys.sqlserver_" + name + "_in", "sys.sqlserver_" + name + "_out"));
+        }
+        if (mode is KingbaseCompatibilityMode.Oracle or KingbaseCompatibilityMode.MySql)
+        {
+            var schema = mode == KingbaseCompatibilityMode.Oracle ? "pg_catalog" : "sys";
+            result.Add(new(schema, "blob", -1, "U", "pg_catalog.byteain", "pg_catalog.blobout", "d", "pg_catalog.bytea"));
+            foreach (var name in new[] { "clob", "nclob" }) result.Add(new(schema, name, -1, "S", "pg_catalog.textin", "pg_catalog.textout", "d", "pg_catalog.text"));
         }
         return result;
     }
@@ -198,10 +204,18 @@ internal static class NativeScalarAssetProbe
             result.Add(new(KingbaseDbType.MySqlTime, -TimeSpan.FromHours(25) - TimeSpan.FromTicks(10), "sys.time", -TimeSpan.FromHours(25) - TimeSpan.FromTicks(10), "-25:00:00.000001"));
             result.Add(new(KingbaseDbType.MySqlYear, 1901, "sys.year", 1901, "1901"));
         }
+        if (mode is KingbaseCompatibilityMode.Oracle or KingbaseCompatibilityMode.MySql)
+        {
+            var schema = mode == KingbaseCompatibilityMode.Oracle ? "pg_catalog." : "sys."; var bytes = new byte[] { 0, 1, 255, 92 };
+            result.Add(new(KingbaseDbType.Blob, bytes, schema + "blob", bytes, "\\x0001ff5c", ResultText: "\\000\\001\\377\\\\"));
+            result.Add(new(KingbaseDbType.Blob, Array.Empty<byte>(), schema + "blob", Array.Empty<byte>(), "\\x", ResultText: ""));
+            result.Add(new(KingbaseDbType.Clob, "LOB_文字😀", schema + "clob", "LOB_文字😀", "LOB_文字😀"));
+            result.Add(new(KingbaseDbType.NClob, "NLOB_文字😀", schema + "nclob", "NLOB_文字😀", "NLOB_文字😀"));
+        }
         foreach (var native in result.Where(value => (int)value.Provider >= (int)KingbaseDbType.OracleDate).ToArray())
             result.Add(new(native.Provider, DBNull.Value, native.Key, DBNull.Value, null, NullType: native.Expected.GetType()));
         return result;
     }
-    static bool SameValue(object expected, object actual) => expected is BitArray bits ? actual is BitArray other && bits.Cast<bool>().SequenceEqual(other.Cast<bool>()) : Equals(expected, actual);
+    static bool SameValue(object expected, object actual) => expected is byte[] bytes ? actual is byte[] value && bytes.SequenceEqual(value) : expected is BitArray bits ? actual is BitArray other && bits.Cast<bool>().SequenceEqual(other.Cast<bool>()) : Equals(expected, actual);
     static void Check(bool condition) { if (!condition) throw new InvalidOperationException("Exact-asset native scalar probe failed."); }
 }

@@ -532,3 +532,22 @@ simulated package-consumer checks; LIVE remains source-built. Memory bounds cove
 the byte-array stream methods, not inherited BCL Span/Memory staging. Broader
 privilege/profile/platform and exact-package LIVE acceptance remains pending;
 B05 ordinary BLOB/CLOB/NCLOB binding and typed binary COPY remain separate work.
+
+E61 ordinary LOB cases separately cover Oracle and MySQL PG-wire domains. Temporary
+columns are created and populated inside an explicit transaction and rolled back.
+Prepared byte-array/string inputs exercise binary zeros/backslashes/non-ASCII bytes,
+Unicode supplementary characters, newlines and quotes; buffered GetBytes/GetChars
+verify lengths, offsets and partial copies, and buffered Stream/TextReader views
+verify full values. Qualified DataTypeName and typed NULL reuse the same prepared
+statement. Empty BLOB remains non-NULL; empty CLOB/NCLOB becomes NULL on Oracle and
+remains empty on MySQL. Separate PG/SQL Server cases verify local rejection of
+unavailable LOB selectors without bytea/OID fallback or loss of ordinary execution.
+
+Independent external characterization establishes actual domain bases and trusted
+I/O shapes, legacy blobout escaping and mode-specific literal/bound empty behavior.
+Offline regressions reject unproven domain identities, preserve same-name namespace
+isolation and bound repeated partial-read allocations with per-row/column private
+decoded buffers. Exact-asset native probes exercise typed bytes/Unicode/NULL and
+legacy BLOB output across physical catalog reloads. These are bounded ordinary
+values: Stream/TextReader parameter input, network SequentialAccess, full LOB bounds,
+native MySQL, broader profiles/platforms and exact-package LIVE remain pending.

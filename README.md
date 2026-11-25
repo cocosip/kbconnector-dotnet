@@ -83,6 +83,22 @@ Every operation requires a healthy explicit transaction and exclusively owns the
 
 One Command Timeout covers all SQL in each operation. Close and deferred close additionally use Cleanup Timeout. Cancellation after I/O starts retires the physical session; pre-canceled calls and cancellation of operations that send no SQL preserve it. Acknowledged effects are never replayed or implicitly committed. Notice/notification callbacks finish after ownership and result checks; an unpublished Create/Open is cleaned up independently if callback delivery fails, or its session is retired. Byte-array transfers use chunks of at most 64 KiB without buffering an entire object. Inherited BCL Span/Memory adapters may allocate for the caller's full buffer; use byte-array methods or CopyToAsync with a bounded buffer when memory bounds matter. Broader platform/profile, privileges, exact-package LIVE and ordinary B05 LOB acceptance remain open.
 
+Ordinary BLOB/CLOB/NCLOB parameters are supported on the tested Oracle and MySQL PG-wire profiles:
+
+```csharp
+using var command = new KingbaseCommand(
+    "INSERT INTO app_documents (content, description) VALUES (:b, :c)", connection);
+command.Parameters.Add(new KingbaseParameter("b", bytes) { KingbaseDbType = KingbaseDbType.Blob });
+command.Parameters.Add(new KingbaseParameter("c", description) { KingbaseDbType = KingbaseDbType.Clob });
+await command.ExecuteNonQueryAsync(cancellationToken);
+```
+
+`Blob` requires Byte[]; `Clob` and `NClob` require String. Typed DBNull is supported. Selectors resolve the verified Oracle `pg_catalog` or MySQL `sys` domain and its actual base OID, I/O identity and layout; unavailable modes reject before execution. An explicit qualified DataTypeName can select the same proven domain. Byte arrays retain input snapshot isolation. These are ordinary parameters and result values, separate from OID large-object descriptors.
+
+Reader GetBytes/GetChars provide buffered partial reads and lengths; character lengths/offsets count UTF16 code units. Partial reads reuse private decoded bytes and validated strings for each current-row column, while public byte-array values remain independently mutable. GetStream/GetTextReader return buffered views, with no network SequentialAccess promise. The ordinary command exchange retains its 1MiB aggregate encoded limit; large binary escape output can reach that limit before the original bytes do. Stream/TextReader parameter inputs, unbounded LOB transfer, native MySQL wire and full B05 acceptance remain open.
+
+Real prepared inputs preserve empty BLOB as non-NULL zero-length bytes in both tested modes. Oracle converts empty CLOB/NCLOB input to NULL; MySQL preserves empty text. The driver sends the supplied value without inventing that conversion. Ordinary PG and SQL Server profiles do not provide these named LOB types; their bytea/text and binary mappings remain separate contracts.
+
 `KingbaseNumeric` preserves high-precision numeric values without rounding:
 
 ```csharp
