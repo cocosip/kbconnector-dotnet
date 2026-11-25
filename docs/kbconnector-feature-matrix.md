@@ -191,7 +191,7 @@ Every feature below was unimplemented and unaccepted at the 2026-11-23 baseline.
 | Q04 | Parameter types, precision/scale, typed NULL | L1 SYM, W6 | Explicit type precedence; internal snapshots do not mutate user parameters; no silent rounding. | R / V9-1 |
 | Q05 | Synchronous/asynchronous execution, cancellation, and timeouts | L1 BODY | All I/O paths support cancellation; PG cancel waits for cancellation-channel closure plus original-channel synchronization, not only a successful send. MySQL cancellation/abort follows its verified path; no late cancellation of a later command/lease and no SQL replay. | R / V9-1/3 |
 | Q06 | Multiple results and statements | L1 BODY | NextResult, per-statement parameters/row counts/error locations; confirm PG ReadyForQuery or the verified MySQL terminal status after closure. | R / V9-2 |
-| Q07 | Explicit Prepare / Unprepare | L1, W8 | Type signatures, connection ownership, transaction errors, and schema invalidation; no fallback by interpolating SQL. | R / V9-2 |
+| Q07 | Explicit Prepare / Unprepare | L1, W8, W21-W22, W34 | Type signatures, connection ownership, transaction errors, and schema invalidation; no fallback by interpolating SQL. | R / V9-2 |
 | Q08 | Automatic preparation | L1, W8 | Bounded cache, eviction and pool reset, name collisions/concurrency; no unbounded server resource use. | R / V9-2 |
 | Q09 | Sequential batch / DbBatch | Proposed new public API. | Standard base class on modern assets; sequential execution without automatic atomicity; precise partial-success reporting. | R / V9-2 |
 | Q10 | Function/procedure resolution and overloads | L1 CommandType branches differ by mode. | Generate SELECT/CALL/blocks from routine kind/catalogs; reject ambiguity before sending. | R / V9-0/2 |

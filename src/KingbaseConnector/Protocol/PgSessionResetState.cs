@@ -37,6 +37,7 @@ internal sealed class PgSessionResetState
         if (session.TransactionStatus != PgTransactionStatus.Idle)
             ValidateControl(await session.ExecuteAsync("ROLLBACK", token).ConfigureAwait(false), session, "ROLLBACK");
         ValidateControl(await session.ExecuteAsync("DISCARD ALL", token).ConfigureAwait(false), session, "DISCARD ALL");
+        session.InvalidatePreparedStatements();
         var catalog = await PgTypeCatalog.LoadAsync(session, identity, token).ConfigureAwait(false);
         var textOid = catalog.ByName["sys_catalog.text"].Oid;
         var parameters = _values.Skip(4).Take(Settings.Length).Select(value => new PgQueryParameter(textOid, value)).ToArray();
