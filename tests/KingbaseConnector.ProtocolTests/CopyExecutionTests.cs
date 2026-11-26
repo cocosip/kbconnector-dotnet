@@ -1,4 +1,5 @@
 using System.Data;
+using KingbaseConnector.Protocol;
 using System.Text;
 using static KingbaseConnector.ProtocolTests.PgTestPeer;
 using static KingbaseConnector.ProtocolTests.PublicExecutionTests;
@@ -139,13 +140,13 @@ public sealed class CopyExecutionTests
         var header = new byte[5]; await stream.ReadExactlyAsync(header, token); var length = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(header.AsSpan(1)); Assert.InRange(length, 4, 65540);
         var payload = new byte[length - 4]; await stream.ReadExactlyAsync(payload, token); return ((char)header[0], payload);
     }
-    internal static async Task Run(Func<KingbaseConnection, CancellationToken, Task> action, Func<Stream, CancellationToken, Task> respond, int commandTimeout = 30, int cleanupTimeout = 5, string? integerDatetimes = null)
+    internal static async Task Run(Func<KingbaseConnection, CancellationToken, Task> action, Func<Stream, CancellationToken, Task> respond, int commandTimeout = 30, int cleanupTimeout = 5, string? integerDatetimes = null, IEnumerable<PgTypeDescription>? catalogTypes = null)
     {
         using var listener = Listen(); using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var settings = Settings(listener); settings.CommandTimeout = commandTimeout; settings.CleanupTimeout = cleanupTimeout; using var connection = new KingbaseConnection(settings.ConnectionString);
         var peer = Task.Run(async () =>
         {
-            using var client = await listener.AcceptTcpClientAsync(guard.Token); using var stream = client.GetStream(); await Initialize(stream, guard.Token, integerDatetimes: integerDatetimes); await respond(stream, guard.Token);
+            using var client = await listener.AcceptTcpClientAsync(guard.Token); using var stream = client.GetStream(); await Initialize(stream, guard.Token, integerDatetimes: integerDatetimes, catalogTypes: catalogTypes); await respond(stream, guard.Token);
             try { Assert.Equal(0, await stream.ReadAsync(new byte[1], guard.Token)); }
             catch (IOException error) when (error.InnerException is System.Net.Sockets.SocketException socket && socket.SocketErrorCode is System.Net.Sockets.SocketError.ConnectionReset or System.Net.Sockets.SocketError.ConnectionAborted) { }
         }, guard.Token);

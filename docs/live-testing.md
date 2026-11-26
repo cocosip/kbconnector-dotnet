@@ -650,3 +650,15 @@ four simulated modes, including the Standard assets. Other base/native/domain/
 complex codecs, field streaming, exact-package LIVE, native MySQL wire and
 broader platforms/profiles remain open. Real TLS remains user-deferred;
 offline TLS tests remain required.
+
+## JSON and PG bit binary COPY (E67)
+
+E67 adds five source-built scenarios in all four PG-wire modes (20 cases):
+
+- Independent json_send/jsonb_send/bit_send/varbit_send hexadecimal literals and server-generated binary export establish JSONB version 1, network bit counts and MSB-first bit order.
+- Temporary-table import, ordinary text Reader and binary export independently verify exact JSON versus server-normalized JSONB, duplicate keys, Unicode, fixed/varying/empty bits, leading zeros and SQL NULL.
+- Invalid JSON/JSONB syntax is sent to the server, rejects with 22P02 and permits a subsequent command after terminal synchronization. The client owns UTF8/NUL/version validation and does not parse JSON syntax.
+- A 1048576-bit varbit value imports and exports exactly, including first/last bits; an independent bit_length query confirms declared length.
+- Explicit transaction rollback and two same-PID pooled borrowers verify ownership/reset and harmless stale importer disposal. SQL Server COUNT returns Int32 on the tested profile; other modes return Int64. The test compares the lossless numeric count without imposing a cross-mode CLR type.
+
+Offline public/codec tests additionally reject unsupported versions, malformed Unicode/NUL, negative/extreme bit counts, wrong lengths, nonzero unused padding and valid oversized output before provider allocation. Invalid local rows stay unsent; output failures after a prior valid row retire the physical connection. Exact archive probes include all four new types, NULL, fragmented rows and two borrowers in four simulated modes. Preserve the existing 1MiB encoded row budget and separate 1048576-bit value bound. This accepts PG catalog base bit/varbit, not native MySQL BIT or SQL Server Boolean BIT. XML binary encoding declarations, other codecs and broader profile/platform acceptance remain open. Raw LIVE records and deployment/credential data stay outside Git; real-server TLS remains deferred and offline TLS active.

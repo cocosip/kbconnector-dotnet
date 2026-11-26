@@ -14,6 +14,7 @@ internal static class PgBinaryCopyCodec
             KingbaseDbType.Char => "bpchar", KingbaseDbType.Bytea => "bytea", KingbaseDbType.Uuid => "uuid",
             KingbaseDbType.Numeric => "numeric", KingbaseDbType.Date => "date", KingbaseDbType.Time => "time",
             KingbaseDbType.TimeTz => "timetz", KingbaseDbType.Timestamp => "timestamp", KingbaseDbType.TimestampTz => "timestamptz", KingbaseDbType.Interval => "interval",
+            KingbaseDbType.Json => "json", KingbaseDbType.Jsonb => "jsonb", KingbaseDbType.Bit => "bit", KingbaseDbType.Varbit => "varbit",
             _ => throw new NotSupportedException("This type has no implemented binary COPY codec.") }).ToArray();
         var layouts = new PgTextCodecs(catalog);
         foreach (var name in names)
@@ -31,15 +32,21 @@ internal static class PgBinaryCopyCodec
         if (value is null or DBNull) return null;
         if (name == "numeric") return PgBinaryCopyNumeric.Encode(value, budget);
         if (PgBinaryCopyTemporal.Supports(name)) return PgBinaryCopyTemporal.Encode(name, value, budget);
+        if (name is "bit" or "varbit") return PgBinaryCopyBits.Encode(value, budget);
         var length = name switch {
             "bool" when value is bool => 1, "int2" when value is short => 2,
             "int4" when value is int => 4, "int8" when value is long => 8, "oid" when value is uint => 4,
             "float4" when value is float => 4, "float8" when value is double => 8, "uuid" when value is Guid => 16,
             "bytea" when value is byte[] bytes => bytes.Length,
-            "text" or "varchar" or "bpchar" when value is string text && text.IndexOf('\0') < 0 => PgBinary.Utf8.GetByteCount(text),
+            "text" or "varchar" or "bpchar" or "json" or "jsonb" when value is string text && text.IndexOf('\0') < 0 => checked(PgBinary.Utf8.GetByteCount(text) + (name == "jsonb" ? 1 : 0)),
             _ => throw new InvalidCastException("Binary COPY input requires the exact supported CLR type and valid text.") };
         if (length > budget) throw new ArgumentException("Binary COPY row values exceed 1 MiB.");
-        if (value is string s) return PgBinary.Utf8.GetBytes(s);
+        if (value is string s)
+        {
+            var bytes = new byte[length]; var offset = name == "jsonb" ? 1 : 0;
+            if (offset != 0) bytes[0] = 1;
+            PgBinary.Utf8.GetBytes(s, 0, s.Length, bytes, offset); return bytes;
+        }
         if (value is byte[] b) return (byte[])b.Clone();
         if (value is Guid guid) { var bytes = guid.ToByteArray(); GuidOrder(bytes); return bytes; }
         if (value is bool boolean) return new byte[] { boolean ? (byte)1 : (byte)0 };
@@ -55,6 +62,7 @@ internal static class PgBinaryCopyCodec
     {
         if (name == "numeric") return PgBinaryCopyNumeric.Decode(bytes);
         if (PgBinaryCopyTemporal.Supports(name)) return PgBinaryCopyTemporal.Decode(name, bytes);
+        if (name is "bit" or "varbit") return PgBinaryCopyBits.Decode(bytes);
         var size = name switch { "bool" => 1, "int2" => 2, "int4" or "oid" or "float4" => 4, "int8" or "float8" => 8, "uuid" => 16, _ => -1 };
         if (size != -1 && bytes.Length != size) throw Invalid();
         switch (name)
@@ -68,9 +76,11 @@ internal static class PgBinaryCopyCodec
             case "float8": return BitConverter.ToDouble(Network((byte[])bytes.Clone()), 0);
             case "uuid": var uuid = (byte[])bytes.Clone(); GuidOrder(uuid); return new Guid(uuid);
             case "bytea": return (byte[])bytes.Clone();
-            case "text": case "varchar": case "bpchar":
+            case "text": case "varchar": case "bpchar": case "json": case "jsonb":
                 string text;
-                try { text = PgBinary.Utf8.GetString(bytes); } catch (System.Text.DecoderFallbackException) { throw Invalid(); }
+                var offset = name == "jsonb" ? 1 : 0;
+                if (offset != 0 && (bytes.Length == 0 || bytes[0] != 1)) throw Invalid();
+                try { text = PgBinary.Utf8.GetString(bytes, offset, bytes.Length - offset); } catch (System.Text.DecoderFallbackException) { throw Invalid(); }
                 return text.IndexOf('\0') < 0 ? text : throw Invalid();
             default: throw new NotSupportedException("This type has no implemented binary COPY codec.");
         }
