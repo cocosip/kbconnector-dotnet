@@ -618,3 +618,35 @@ consumers add typed int4/text import/export with NULL/empty values over two
 borrowers in all four simulated modes. Numeric/temporal/complex codecs, native
 MySQL wire, exact-package LIVE, other profiles/platforms and real TLS remain
 outside this increment's evidence. Offline TLS tests remain required.
+
+E66 adds seven source-built scenarios in all four PG-wire modes (28 cases):
+server-generated numeric/temporal COPY without using the importer; independent
+server send-function hex literals including date/timestamp extrema; exact
+numeric coefficient/scale limits; imported values checked through ordinary
+provider text Readers and binary export; server-rejected numeric infinities
+with continued connection use; binary intervals beyond the server text
+formatter; and transactions/two same-PID pooled borrowers with stale disposal
+and unsent precision errors. Actual integer_datetimes=on is required before
+clock/timestamp/interval COPY. Numeric/DATE alone need no such status.
+
+The tested four-mode servers reject numeric infinities: text casts report
+22P02 and binary COPY reports22P03. SQL Server additionally rejects text NaN
+and displays a binary-imported NaN as text zero; binary export retains NaN.
+An interval with microseconds=Int64.MinValue+1 imports/exports exactly in
+binary, but server text formatting reports22008. MySQL mode can omit the
+offset from BC timestamptz text. Independent provider Reader verification
+projects timestamptz AT TIME ZONE 'UTC' and compares its exact calendar;
+the client never infers a missing offset. Initial failed fixtures and final
+passing evidence stay together in the external private directory. These
+observed server boundaries do not establish broader profile acceptance.
+
+Loopback cases add literal numeric/temporal bytes, independent CLR calendar
+comparisons, BC/epoch/range/precision/infinity boundaries, numeric resource
+bounds/redundant zeros/malformed payloads and catalog/status preflight. Check
+numeric Coefficient and Scale separately: numeric equality intentionally
+compares equivalent values across scales. Five exact archive consumers add
+seven-type rows, NULL, fragmented messages and two pooled borrowers in all
+four simulated modes, including the Standard assets. Other base/native/domain/
+complex codecs, field streaming, exact-package LIVE, native MySQL wire and
+broader platforms/profiles remain open. Real TLS remains user-deferred;
+offline TLS tests remain required.

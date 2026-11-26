@@ -12,6 +12,8 @@ internal static class PgBinaryCopyCodec
             KingbaseDbType.Bigint => "int8", KingbaseDbType.Oid => "oid", KingbaseDbType.Real => "float4",
             KingbaseDbType.Double => "float8", KingbaseDbType.Text => "text", KingbaseDbType.Varchar => "varchar",
             KingbaseDbType.Char => "bpchar", KingbaseDbType.Bytea => "bytea", KingbaseDbType.Uuid => "uuid",
+            KingbaseDbType.Numeric => "numeric", KingbaseDbType.Date => "date", KingbaseDbType.Time => "time",
+            KingbaseDbType.TimeTz => "timetz", KingbaseDbType.Timestamp => "timestamp", KingbaseDbType.TimestampTz => "timestamptz", KingbaseDbType.Interval => "interval",
             _ => throw new NotSupportedException("This type has no implemented binary COPY codec.") }).ToArray();
         var layouts = new PgTextCodecs(catalog);
         foreach (var name in names)
@@ -27,6 +29,8 @@ internal static class PgBinaryCopyCodec
     internal static byte[]? Encode(string name, object? value, int budget)
     {
         if (value is null or DBNull) return null;
+        if (name == "numeric") return PgBinaryCopyNumeric.Encode(value, budget);
+        if (PgBinaryCopyTemporal.Supports(name)) return PgBinaryCopyTemporal.Encode(name, value, budget);
         var length = name switch {
             "bool" when value is bool => 1, "int2" when value is short => 2,
             "int4" when value is int => 4, "int8" when value is long => 8, "oid" when value is uint => 4,
@@ -49,6 +53,8 @@ internal static class PgBinaryCopyCodec
 
     internal static object Decode(string name, byte[] bytes)
     {
+        if (name == "numeric") return PgBinaryCopyNumeric.Decode(bytes);
+        if (PgBinaryCopyTemporal.Supports(name)) return PgBinaryCopyTemporal.Decode(name, bytes);
         var size = name switch { "bool" => 1, "int2" => 2, "int4" or "oid" or "float4" => 4, "int8" or "float8" => 8, "uuid" => 16, _ => -1 };
         if (size != -1 && bytes.Length != size) throw Invalid();
         switch (name)

@@ -124,7 +124,7 @@ public sealed class BinaryCopyTests
     [Fact]
     public Task InvalidOutgoingRowsAndPreCancelledCallsDoNotWritePartialRows() => Run(async (connection, token) =>
     {
-        await Assert.ThrowsAsync<NotSupportedException>(() => connection.BeginBinaryImportAsync("COPY items FROM STDIN (FORMAT BINARY)", new[] { KingbaseDbType.Numeric }, token));
+        await Assert.ThrowsAsync<NotSupportedException>(() => connection.BeginBinaryImportAsync("COPY items FROM STDIN (FORMAT BINARY)", new[] { KingbaseDbType.Xml }, token));
         await Assert.ThrowsAsync<NotSupportedException>(() => connection.BeginBinaryImportAsync("COPY items FROM STDIN (FORMAT BINARY)", new[] { KingbaseDbType.Uuid }, token));
         using var input = connection.BeginBinaryImport("COPY items FROM STDIN (FORMAT BINARY)", KingbaseDbType.Integer, KingbaseDbType.Text);
         Assert.Throws<ArgumentException>(() => input.WriteRow(42));

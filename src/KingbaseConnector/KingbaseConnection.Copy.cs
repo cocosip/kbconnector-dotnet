@@ -19,7 +19,13 @@ public sealed partial class KingbaseConnection
         if (columnTypes is null) throw new ArgumentNullException(nameof(columnTypes));
         if (columnTypes.Count > 1024) throw new ArgumentException("Binary COPY supports at most 1024 columns.", nameof(columnTypes));
         var snapshot = columnTypes.ToArray(); string[]? codecs = null;
-        var copy = await BeginCopyCoreAsync(sql, true, import, token, session => codecs = PgBinaryCopyCodec.Resolve(session.Catalog, snapshot)).ConfigureAwait(false);
+        var copy = await BeginCopyCoreAsync(sql, true, import, token, session =>
+        {
+            codecs = PgBinaryCopyCodec.Resolve(session.Catalog, snapshot);
+            if (codecs.Any(name => name is "time" or "timetz" or "timestamp" or "timestamptz" or "interval") &&
+                (!session.Queries.Parameters.TryGetValue("integer_datetimes", out var status) || status != "on"))
+                throw new NotSupportedException("Binary temporal COPY requires server-reported integer_datetimes=on.");
+        }).ConfigureAwait(false);
         var rows = new PgBinaryCopyRows(copy, codecs!);
         await rows.StartAsync(token).ConfigureAwait(false); return rows;
     }
