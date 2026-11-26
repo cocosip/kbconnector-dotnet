@@ -10,8 +10,7 @@ public sealed class PgTypeCatalogTests
         "t.typcategory, t.typisdefined, t.typbasetype, t.typelem, t.typarray, t.typtypmod " +
         "FROM sys_catalog.sys_type AS t JOIN sys_catalog.sys_namespace AS n ON n.oid OPERATOR(pg_catalog.=) t.typnamespace " +
         "WHERE n.nspname OPERATOR(pg_catalog.=) 'pg_catalog'::pg_catalog.name AND t.typisdefined AND (" +
-        string.Join(" OR ", new[] { "bool", "int2", "int4", "int8", "oid", "float4", "float8", "numeric", "text", "varchar", "bpchar",
-            "bytea", "uuid", "date", "time", "timetz", "timestamp", "timestamptz", "interval", "json", "jsonb", "xml", "int16", "tinyint", "bit", "varbit" }
+        string.Join(" OR ", PgTypeCatalog.Names
             .Select(name => "pg_catalog.nameeq(t.typname,'" + name + "'::pg_catalog.name)")) + ")";
 
     static readonly string[] Required = ["bool", "int2", "int4", "int8", "text", "bytea"];

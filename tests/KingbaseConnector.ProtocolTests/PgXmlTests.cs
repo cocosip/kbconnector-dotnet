@@ -108,13 +108,13 @@ public sealed class PgXmlTests
     }
 
     [Theory]
-    [InlineData(16, 'b', 0U, 0U)]
-    [InlineData(-1, 'd', 0U, 0U)]
-    [InlineData(-1, 'b', 5U, 0U)]
-    [InlineData(-1, 'b', 0U, 5U)]
-    public async Task LayoutGuardsAlsoApplyToTypedNull(short size, char kind, uint baseOid, uint elementOid)
+    [InlineData(16, 'b', 0U, 0U, 'U')]
+    [InlineData(-1, 'd', 0U, 0U, 'U')]
+    [InlineData(-1, 'b', 5U, 0U, 'U')]
+    [InlineData(-1, 'b', 0U, 5U, 'A')]
+    public async Task LayoutGuardsAlsoApplyToTypedNull(short size, char kind, uint baseOid, uint elementOid, char category)
     {
-        var catalog = await Catalog(xml: new(XmlOid, 90, "xml", size, kind, 'U', baseOid, elementOid, 0, -1));
+        var catalog = await Catalog(xml: new(XmlOid, 90, "xml", size, kind, category, baseOid, elementOid, 0, -1));
         var codecs = new PgTextCodecs(catalog);
         Assert.Throws<NotSupportedException>(() => codecs.Encode(XmlOid, null));
         Assert.Throws<NotSupportedException>(() => codecs.Decode(XmlOid, null));

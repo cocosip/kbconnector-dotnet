@@ -19,6 +19,7 @@ internal static class PgBinaryCopyCodec
         var layouts = new PgTextCodecs(catalog);
         foreach (var name in names)
         {
+            // Binary COPY takes base scalar types only, so their own catalog row must not expose an element type.
             if (!catalog.ByName.TryGetValue("pg_catalog." + name, out var type) || type.Kind != 'b' ||
                 type.BaseTypeOid != 0 || type.ElementTypeOid != 0 || type.CodecName != name)
                 throw new NotSupportedException("The binary COPY base type is unavailable in the actual catalog.");

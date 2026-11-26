@@ -70,11 +70,12 @@ public sealed class PgTimeTests
         foreach (var name in new[] { "time", "timetz" })
         {
             var oid = name == "time" ? TimeOid : TimeTzOid;
-            foreach (var shape in new[] { "size", "domain", "element", "base" })
+            foreach (var shape in new[] { "size", "domain", "array", "base" })
             {
                 var catalog = await PgTextCodecsTests.LoadCatalog(change: t => t.Name != name ? t :
                     new PgTypeDescription(t.Oid, t.NamespaceOid, t.Name, shape == "size" ? (short)4 : t.Size,
-                        shape == "domain" ? 'd' : 'b', t.Category, shape == "base" ? 1u : 0, shape == "element" ? 1u : 0, 0, -1));
+                        shape == "domain" ? 'd' : 'b', shape == "array" ? 'A' : t.Category,
+                        shape == "base" ? 1u : 0, 0, 0, -1));
                 var codecs = new PgTextCodecs(catalog);
                 Assert.Throws<NotSupportedException>(() => codecs.Decode(oid, null));
                 Assert.Throws<NotSupportedException>(() => codecs.Encode(oid, null));

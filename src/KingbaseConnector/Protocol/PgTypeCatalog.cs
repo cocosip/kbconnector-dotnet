@@ -23,8 +23,9 @@ internal sealed class PgTypeDescription(uint oid, uint namespaceOid, string name
 
 internal sealed class PgTypeCatalog
 {
-    static readonly string[] Names = ["bool", "int2", "int4", "int8", "oid", "float4", "float8", "numeric", "text",
-        "varchar", "bpchar", "bytea", "uuid", "date", "time", "timetz", "timestamp", "timestamptz", "interval", "json", "jsonb", "xml", "int16", "tinyint", "bit", "varbit"];
+    internal static readonly string[] Names = ["bool", "int2", "int4", "int8", "oid", "float4", "float8", "numeric", "text",
+        "varchar", "bpchar", "bytea", "uuid", "date", "time", "timetz", "timestamp", "timestamptz", "interval", "json", "jsonb", "xml", "int16", "tinyint", "bit", "varbit",
+        "name", "char", "regproc", "regprocedure", "regoper", "regoperator", "regclass", "regtype", "regconfig", "regdictionary", "regnamespace", "regrole", "xid", "cid"];
     static readonly string[] Required = ["bool", "int2", "int4", "int8", "text", "bytea"];
     static readonly string Sql = "SELECT t.oid, t.typnamespace, n.nspname, t.typname, t.typlen, t.typtype, " +
         "t.typcategory, t.typisdefined, t.typbasetype, t.typelem, t.typarray, t.typtypmod " +

@@ -642,6 +642,8 @@ Native text mappings are sys.varcharbyte/bpcharbyte for non-PG modes, SQL Server
 
 Native strings preserve Unicode and fixed padding. Client Size retains UTF-16-character/string and byte/binary constraints; it does not claim server modifier equivalence. Bounded LIVE character columns distinguish bpcharbyte padding to UTF8 bytes from nchar padding to Unicode scalar characters. Non-PG key/schema enrichment, binary formats, routines/outputs/COPY, money/temporal/LOB families and general bit strings remain separate acceptance contracts.
 
+E69 adds the catalog and identifier types needed by ordinary catalog queries. Actual catalog resolution selects `pg_catalog.name` (size 64) and the internal one-byte `pg_catalog."char"` as `String`; the OID-alias family `regproc`, `regprocedure`, `regoper`, `regoperator`, `regclass`, `regtype`, `regconfig`, `regdictionary`, `regnamespace` and `regrole` (size 4) as their server text form; and `xid`/`cid` (size 4) as `UInt32` with the same nonnegative exact-text rules as OID. `"char"` requires the empty string (its zero byte) or one ASCII character on decode, streaming decode and encode; the others reuse the bounded strict-text path. `pg_attribute.attidentity`/`attgenerated` rely on that empty form. The earlier scalar guard rejected any type whose `typelem` was nonzero; the tested servers report `pg_catalog.name` with element type `"char"`, so array-ness is now identified by catalog category `A` (which also covers `int2vector`/`oidvector`), while kind/domain/base/size and per-codec category guards remain mandatory. `Ltree`-style, enum, `SET`, `int2vector`, `money`, network/geometry/full-text and true array types remain unimplemented, and `"char"` stays `String` rather than `Char`, so `GetChar` retains the reader's exact-CLR rule.
+
 | Type family | Proposed default/explicit representation | Required boundaries |
 | --- | --- | --- |
 | Integers, unsigned values, Boolean, BIT | Exact-width integers, bool; bit arrays/explicit provider values for multi-bit BIT | tinyint signedness, BIT(n), UInt64/wide integers; names do not establish width |
@@ -960,3 +962,4 @@ ilspycmd --dump-table AssemblyRef --json <path-to-Kdbndp.dll>
 ```
 
 The baseline used ilspycmd `11.2.0.10050`. It read/decompiled binaries without executing official DLLs, modifying the reference OceanBase repository, or connecting to a real Kingbase database. No product build, protocol simulation, performance test, or database interoperability test was possible at this documentation-only baseline. Later development and verification results must be recorded with their own evidence in the development progress document. Update the design and matrix when those findings change requirements or support boundaries.
+

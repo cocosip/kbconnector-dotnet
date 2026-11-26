@@ -20,6 +20,7 @@ internal sealed class PgTextCodecs
         {
             if (text.IndexOf('\0') >= 0) throw InvalidText();
             try { _ = PgBinary.Utf8.GetByteCount(text); } catch (EncoderFallbackException) { throw InvalidText(); }
+            if (name == "char") ValidateInternalChar(text);
             return name == "bytea" ? DecodeBytes(text) : text;
         }
         return provider ? DecodeProviderSpecific(oid, text, dateStyle, intervalStyle) : Decode(oid, text, dateStyle, intervalStyle);
@@ -80,6 +81,8 @@ internal sealed class PgTextCodecs
                 throw OutOfRange();
             case "oid":
             case "uint4":
+            case "xid":
+            case "cid":
                 ValidateNumber(text, integer: true);
                 if (text[0] == '-') throw InvalidText();
                 if (uint.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var oidValue)) return oidValue;
@@ -105,6 +108,7 @@ internal sealed class PgTextCodecs
                 if (text.Length == 36 && Guid.TryParseExact(text, "D", out var uuid)) return uuid;
                 throw InvalidText();
             case "bytea": return DecodeBytes(text);
+            case "char": ValidateInternalChar(text); return text;
             default: return text;
         }
     }
@@ -168,16 +172,19 @@ internal sealed class PgTextCodecs
             "uuid" => ((Guid)value).ToString("D"),
             "bytea" => EncodeBytes((byte[])value),
             "timetz" => ((KingbaseTimeTz)value).ToString(),
-            "sbyte" or "byte" or "int2" or "int4" or "int8" or "oid" or "uint4" or "uint8" => ((IFormattable)value).ToString(null, CultureInfo.InvariantCulture),
+            "sbyte" or "byte" or "int2" or "int4" or "int8" or "oid" or "uint4" or "uint8" or "xid" or "cid" => ((IFormattable)value).ToString(null, CultureInfo.InvariantCulture),
             _ => (string)value
         };
         ValidateText(text);
+        if (name == "char") ValidateInternalChar(text);
         return text;
     }
 
     (string Name, Type ClrType) Resolve(uint oid)
     {
-        if (!_catalog.ByOid.TryGetValue(oid, out var type) || type.ElementTypeOid != 0 ||
+        // Array types are identified by their catalog category: KingbaseES reports pg_catalog.name with element type "char",
+        // so a nonzero typelem alone does not mean the type is an array.
+        if (!_catalog.ByOid.TryGetValue(oid, out var type) || type.Category == 'A' ||
             (!SupportedNativeDomain(type) && (type.Kind != 'b' || type.BaseTypeOid != 0)))
             throw Unsupported();
         if (type.CodecName is "sbyte" or "byte" or "uint4" or "uint8" or "int16" && type.Category != 'N') throw Unsupported();
@@ -212,6 +219,11 @@ internal sealed class PgTextCodecs
             "uuid" => (typeof(Guid), 16),
             "bytea" => (typeof(byte[]), -1),
             "text" or "varchar" or "bpchar" or "json" or "jsonb" or "xml" => (typeof(string), -1),
+            "name" => (typeof(string), 64),
+            "char" => (typeof(string), 1),
+            "regproc" or "regprocedure" or "regoper" or "regoperator" or "regclass" or "regtype" or "regconfig" or
+                "regdictionary" or "regnamespace" or "regrole" => (typeof(string), 4),
+            "xid" or "cid" => (typeof(uint), 4),
             _ => throw Unsupported()
         };
         if (type.Size != size) throw Unsupported();
@@ -257,6 +269,13 @@ internal sealed class PgTextCodecs
         if (text.IndexOf('\0') >= 0) throw InvalidText();
         try { if (PgBinary.Utf8.GetByteCount(text) > MaxTextBytes) throw TooLarge(); }
         catch (EncoderFallbackException) { throw InvalidText(); }
+    }
+
+    // The catalog's internal "char" type is one ASCII byte. Its text form is that byte, except that the zero byte
+    // renders as the empty string; catalog columns such as pg_attribute.attidentity use it.
+    static void ValidateInternalChar(string text)
+    {
+        if (text.Length > 1 || (text.Length == 1 && text[0] > 127)) throw InvalidText();
     }
 
     // Return whether the significand is nonzero, independently of exponent digits.

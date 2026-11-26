@@ -219,16 +219,27 @@ public sealed class PgTextCodecsTests
     }
 
     [Theory]
-    [InlineData(8, 'b', 0U, 0U)]
-    [InlineData(4, 'd', 100U, 0U)]
-    [InlineData(4, 'b', 0U, 123U)]
-    public async Task CatalogNamesCannotOverrideUnsupportedLayouts(short size, char kind, uint baseOid, uint elementOid)
+    [InlineData(8, 'b', 0U, 0U, 'N')]
+    [InlineData(4, 'd', 100U, 0U, 'N')]
+    [InlineData(4, 'b', 0U, 123U, 'A')]
+    public async Task CatalogNamesCannotOverrideUnsupportedLayouts(short size, char kind, uint baseOid, uint elementOid, char category)
     {
         var catalog = await LoadCatalog(change: type => type.Name != "float4" ? type : new PgTypeDescription(
-            type.Oid, type.NamespaceOid, type.Name, size, kind, type.Category, baseOid, elementOid, 0, -1));
+            type.Oid, type.NamespaceOid, type.Name, size, kind, category, baseOid, elementOid, 0, -1));
         var codecs = new PgTextCodecs(catalog);
         Assert.Throws<NotSupportedException>(() => codecs.GetFieldType(Oid("float4")));
         Assert.Throws<NotSupportedException>(() => codecs.Decode(Oid("float4"), "1"));
+    }
+
+    [Fact]
+    public async Task NonArrayScalarsKeepTheirCodecEvenWhenTheCatalogReportsAnElementType()
+    {
+        // KingbaseES reports pg_catalog.name with element type pg_catalog."char"; only category 'A' means array.
+        var catalog = await LoadCatalog(change: type => type.Name != "float4" ? type : new PgTypeDescription(
+            type.Oid, type.NamespaceOid, type.Name, type.Size, type.Kind, type.Category, 0, 18, 0, -1));
+        var codecs = new PgTextCodecs(catalog);
+        Assert.Equal(typeof(float), codecs.GetFieldType(Oid("float4")));
+        Assert.Equal(1.5F, codecs.Decode(Oid("float4"), "1.5"));
     }
 
     [Fact]

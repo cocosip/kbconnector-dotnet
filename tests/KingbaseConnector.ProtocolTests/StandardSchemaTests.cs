@@ -265,7 +265,7 @@ public sealed class StandardSchemaTests
         var types = new (string Name, short Size)[] { ("bool", 1), ("int2", 2), ("int4", 4), ("int8", 8), ("text", -1), ("bytea", -1) }
             .Select((type, i) => new PgTypeDescription((uint)(100 + i), 90, type.Name, type.Size, 'b', 'U', 0, 0, 0, -1));
         if (kind != "absent") types = types.Append(new(uint.MaxValue, 90, "xml", kind == "size" ? (short)4 : (short)-1,
-            kind == "domain" ? 'd' : 'b', 'U', 0, kind == "array" ? 100U : 0U, 0, -1));
+            kind == "domain" ? 'd' : 'b', kind == "array" ? 'A' : 'U', 0, kind == "array" ? 100U : 0U, 0, -1));
         using var session = new PgQuerySession(new PgWire(new QueryStream(Catalog(types))),
             new PgStartupResult(new Dictionary<string, string> { ["client_encoding"] = "UTF8" }, new PgBackendKey(1, 2)));
         Assert.True(KingbaseProductVersion.TryParse("KingbaseES V009R001C001B0001", out var version));

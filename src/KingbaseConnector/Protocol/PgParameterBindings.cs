@@ -87,7 +87,8 @@ internal sealed class PgParameterBindings
         {
             if (selected is not null)
             {
-                if (p.ExplicitProviderType is null && !KingbaseParameterTypes.Compatible(dbType, Provider(selected.CodecName))) throw InvalidBinding();
+                if (p.ExplicitProviderType is null && TryProvider(selected.CodecName, out var mapped) &&
+                    !KingbaseParameterTypes.Compatible(dbType, mapped)) throw InvalidBinding();
             }
             else selected = Lookup(KingbaseParameterTypes.FromDbType(dbType), catalog);
         }
@@ -135,13 +136,20 @@ internal sealed class PgParameterBindings
     }
     static bool EligibleTiny(PgTypeDescription type, string codec) => type.CodecName == codec && type.Kind == 'b' && type.Category == 'N' &&
         type.Size == 1 && type.BaseTypeOid == 0 && type.ElementTypeOid == 0;
-    static KingbaseDbType Provider(string name)
+    // Catalog/identifier codecs have no provider enum member, so their DbType constraint is checked against the
+    // provider type with the same CLR value shape (text-family strings, or OID-style UInt32).
+    static bool TryProvider(string name, out KingbaseDbType provider)
     {
-        if (name == "sbyte") return KingbaseDbType.SignedTinyint;
-        if (name == "byte") return KingbaseDbType.UnsignedTinyint;
+        if (name is "name" or "regproc" or "regprocedure" or "regoper" or "regoperator" or "regclass" or "regtype" or
+            "regconfig" or "regdictionary" or "regnamespace" or "regrole") { provider = KingbaseDbType.Text; return true; }
+        if (name == "char") { provider = KingbaseDbType.Char; return true; }
+        if (name is "xid" or "cid") { provider = KingbaseDbType.Oid; return true; }
+        if (name == "sbyte") { provider = KingbaseDbType.SignedTinyint; return true; }
+        if (name == "byte") { provider = KingbaseDbType.UnsignedTinyint; return true; }
         foreach (KingbaseDbType type in Enum.GetValues(typeof(KingbaseDbType)))
-            if (KingbaseParameterTypes.Name(type) == name) return type;
-        throw KingbaseParameterTypes.Unsupported();
+            if (KingbaseParameterTypes.Name(type) == name) { provider = type; return true; }
+        provider = default;
+        return false;
     }
 
     static void ValidateIntegerInput(KingbaseParameter parameter)
