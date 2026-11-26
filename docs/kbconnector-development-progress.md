@@ -8,7 +8,7 @@ The latest verified implementation increment is E62 (see its evidence entry belo
 
 ### Delivered implementation by functional area
 
-Recent accepted local deliveries on master are E59 text/raw COPY (`5448ed5`), E60 transactional OID streams (`dcc7173`) and E61 ordinary LOB binding (`c309238`). These commits deliver working APIs; none closes every mode, backend, platform and failure case of its parent requirement. E62 adds the public streaming Reader increment after the final checks recorded below; complete parent acceptance remains a separate gate.
+Recent accepted deliveries on master are E59 text/raw COPY (`5448ed5`), E60 transactional OID streams (`dcc7173`), E61 ordinary LOB binding (`c309238`) and E62 network sequential Reader (`1355734`). These commits deliver working APIs; none closes every mode, backend, platform and failure case of its parent requirement. E62 adds the public streaming Reader increment after the final checks recorded below; complete parent acceptance remains a separate gate.
 
 The old report of "1 complete out of 122" mixed two different questions: what code has been delivered, and which complete requirements have passed every declared acceptance gate. It understated the delivered work as a progress report. The functional-area table answers the first question; the closure inventory answers the second. The 122 requirements include substantial missing product functionality as well as acceptance gaps; they are not predominantly test tasks, and the remaining work cannot be explained by stale documentation alone.
 
@@ -80,7 +80,7 @@ Reporting rule: start progress reports with concrete delivered APIs, commits and
 3. Close the corresponding profile, package-consumer, platform, resource/fault and release-readiness acceptance gaps. Record actual capability or environment limitations individually. Keep unsupported real-server TLS acceptance deferred and offline TLS tests active.
 4. Begin the documented V8 adaptation only after the V9 gate. Publishing, pushing and tagging remain outside the current authorization.
 
-Current authorization: continue implementation, testing, .NET checks, review and local master commits; no push/tag/publication. Publication is an intentionally unperformed external action, not missing runtime implementation. Real-server TLS acceptance is user-deferred because the supplied endpoints lack TLS; offline TLS tests remain required. Private configuration, credentials, deployment identities and raw LIVE records stay outside the repository.
+Current handoff: the user paused continuous development after E62 and explicitly authorized committing the updated handoff and pushing current master to origin. E62 is committed as 1355734; E63 ordinary LOB Stream/TextReader input has only been investigated, with no implementation or accepted delivery. Resume from the next-work section when requested. No tag or release publication is authorized. Publication is an intentionally unperformed external action, not missing runtime implementation. Real-server TLS acceptance is user-deferred because the supplied endpoints lack TLS; offline TLS tests remain required. Private configuration, credentials, deployment identities and raw LIVE records stay outside the repository.
 
 Documentation deliverables are tracked separately from product functionality:
 
