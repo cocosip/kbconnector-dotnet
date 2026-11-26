@@ -2,12 +2,12 @@ namespace KingbaseConnector.Protocol;
 
 internal sealed partial class PgQuerySession
 {
-    internal sealed class ExecutionPlan(PgQuerySession owner, byte[][] frames, PgQueryExchange exchange,
+    internal sealed class ExecutionPlan(PgQuerySession owner, PgExtendedRequest request, PgQueryExchange exchange,
         PgPreparedStatement? statement, Action? success = null) : IDisposable
     {
-        byte[][]? _frames = frames;
+        PgExtendedRequest? _request = request;
         Action? _success = success;
-        internal byte[][] Frames => _frames ?? throw new ObjectDisposedException(nameof(ExecutionPlan));
+        internal PgExtendedRequest Request => _request ?? throw new ObjectDisposedException(nameof(ExecutionPlan));
         internal PgQueryExchange Exchange { get; } = exchange;
         internal PgPreparedStatement? Statement { get; } = statement;
         internal void Succeeded() => Interlocked.Exchange(ref _success, null)?.Invoke();
@@ -20,8 +20,7 @@ internal sealed partial class PgQuerySession
         }
         internal void ReleaseFrames()
         {
-            var outgoing = Interlocked.Exchange(ref _frames, null);
-            if (outgoing is not null) foreach (var frame in outgoing) Array.Clear(frame, 0, frame.Length);
+            Interlocked.Exchange(ref _request, null)?.Dispose();
         }
         public void Dispose() { _success = null; ReleaseFrames(); }
     }
@@ -32,7 +31,7 @@ internal sealed partial class PgQuerySession
         {
             try
             {
-                var results = await ExchangeAsync(() => plan.Frames, plan.Exchange, token).ConfigureAwait(false);
+                var results = await ExchangeRequestAsync(() => plan.Request, plan.Exchange, token).ConfigureAwait(false);
                 plan.Succeeded(); return results;
             }
             catch (PgQueryException error) { plan.Failed(error.ServerError); throw; }

@@ -123,7 +123,7 @@ public sealed class StreamingRowExchangeTests
     public async Task LocalFrameValidationDoesNotRetireBeforeTheFirstWriteAttempt()
     {
         using var input = new QueryStream(Tail("SELECT 0")); using var session = Session(input); using var rows = new PgQuerySession.RowExchange(session, null);
-        await Assert.ThrowsAsync<ArgumentException>(() => rows.StartAsync([Array.Empty<byte>()], CancellationToken.None)); rows.Dispose();
+        await Assert.ThrowsAsync<ArgumentException>(() => rows.StartAsync(new PgExtendedRequest([Array.Empty<byte>()]), CancellationToken.None)); rows.Dispose();
         Assert.Equal(0, session.WriteAttempts); Assert.False(session.IsDisposed); Assert.Single(await session.ExecuteAsync("SELECT 0"));
     }
 

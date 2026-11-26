@@ -22,6 +22,8 @@ internal static class NativeScalarAssetProbe
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
         var wireMode = mode switch { KingbaseCompatibilityMode.Oracle => "oracle", KingbaseCompatibilityMode.MySql => "mysql", KingbaseCompatibilityMode.SqlServer => "sqlserver", _ => "pg" };
         var definitions = Definitions(mode); var values = Values(mode);
+        var bigBinary = new byte[600013]; var bigText = "\uFEFF" + new string('界', 360000) + "😀";
+        var bigBinaryText = Encoding.ASCII.GetBytes("\\x" + Convert.ToHexString(bigBinary).ToLowerInvariant()); var bigTextBytes = Encoding.UTF8.GetBytes(bigText);
         Check(KingbaseMySqlDate.Parse("0000-00-00").IsZero && KingbaseMySqlDateTime.Parse("2024-00-15 13:14:15.123456").ToString() == "2024-00-15 13:14:15.123456");
         try { KingbaseMySqlDate.Parse("10000-01-01").ToDateTime(); throw new InvalidOperationException("A non-CLR date was narrowed."); } catch (OverflowException) { }
         string[] baseline = ["db", "user", "user", wireMode, "UTF8", "on", "native_probe", "pg_catalog, public", "UTC",
@@ -39,13 +41,19 @@ internal static class NativeScalarAssetProbe
                 if (borrower != 0) { await Query(stream, "SELECT 1"); await stream.WriteAsync(Join(Description(1), Row("1"), Complete(), Ready()), token); }
                 foreach (var value in values)
                 {
+                    for (var pass = 0; pass < (StreamingCandidate(value) ? 2 : 1); pass++)
+                    {
                     var spec = definitions.Single(type => type.Schema + "." + type.Name == value.Key); var oid = Oid(spec, borrower);
                     var frames = await ReadFrames(stream, "PBDES", token);
                     Check(frames[0].SequenceEqual(Frame('P', Join([0], Encoding.UTF8.GetBytes("SELECT $1\0"), Count(1), Int32(oid)))));
                     var text = value.Text is null ? [] : Encoding.UTF8.GetBytes(value.Text);
                     Check(frames[1].SequenceEqual(Frame('B', Join([0, 0], Count(0), Count(1), Int32(value.Text is null ? -1 : text.Length), text, Count(0)))));
                     await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, oid, spec.Size), Row(value.ResultText ?? value.Text), Complete(), Ready()), token);
+                    }
                 }
+                var big = await ReadFrames(stream, "PBDES", token, 64 * 1024 * 1024);
+                Check(big[1].SequenceEqual(Frame('B', Join([0, 0], Count(0), Count(2), Int32(bigBinaryText.Length), bigBinaryText, Int32(bigTextBytes.Length), bigTextBytes, Count(0)))));
+                await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, Oid(definitions.Single(type => type.Name == "int4"), borrower), 4), Row("42"), Complete(), Ready()), token);
                 await Query(stream, "DISCARD ALL"); await stream.WriteAsync(Join(Frame('C', Encoding.ASCII.GetBytes("DISCARD ALL\0")), Ready()), token);
                 await Catalog(stream, borrower + 1);
                 var restore = await ReadFrames(stream, "PBDES", token); var textOid = Oid(definitions.Single(type => type.Name == "text"), borrower + 1);
@@ -87,6 +95,20 @@ internal static class NativeScalarAssetProbe
                 if (value.Input is uint unsignedInteger) Check(reader.GetFieldValue<uint>(0) == unsignedInteger);
                 if (value.Input is ulong unsignedLong) Check(reader.GetFieldValue<ulong>(0) == unsignedLong);
                 Check(reader.GetSchemaTable()!.Rows[0]["DataType"].Equals(expectedType));
+                reader.Close();
+                if (StreamingCandidate(value))
+                {
+                    using IDisposable input = value.Input is byte[] bytes ? new NonseekableInput(bytes) : new StringReader((string)value.Input);
+                    parameter.Value = input; using var streamed = await command.ExecuteReaderAsync(token); Check(streamed.Read()); Check(SameValue(value.Expected, streamed.GetValue(0)));
+                    if (input is Stream sourceStream) Check(sourceStream.CanRead); else Check(((TextReader)input).Read() == -1);
+                }
+            }
+            using (var binaryInput = new NonseekableInput(bigBinary))
+            using (var textInput = new StringReader(bigText))
+            using (var large = new KingbaseCommand("SELECT :b,:t", connection))
+            {
+                large.Parameters.Add(new KingbaseParameter("b", binaryInput) { DbType = DbType.Binary }); large.Parameters.Add(new KingbaseParameter("t", textInput) { DbType = DbType.String });
+                using var result = await large.ExecuteReaderAsync(CommandBehavior.SequentialAccess, token); Check(await result.ReadAsync(token)); Check(result.GetInt32(0) == 42); Check(!await result.ReadAsync(token)); Check(binaryInput.CanRead);
             }
             command.Parameters.Clear(); command.Parameters.Add(new KingbaseParameter("p", BigInteger.One << 127) { KingbaseDbType = KingbaseDbType.Int128 });
             try { await command.ExecuteScalarAsync(token); throw new InvalidOperationException("Wide input overflow was not rejected."); } catch (OverflowException) { }
@@ -217,5 +239,13 @@ internal static class NativeScalarAssetProbe
         return result;
     }
     static bool SameValue(object expected, object actual) => expected is byte[] bytes ? actual is byte[] value && bytes.SequenceEqual(value) : expected is BitArray bits ? actual is BitArray other && bits.Cast<bool>().SequenceEqual(other.Cast<bool>()) : Equals(expected, actual);
+    static bool StreamingCandidate(Value value) => value.Input is not DBNull && value.Provider is KingbaseDbType.Blob or KingbaseDbType.Clob or KingbaseDbType.NClob;
+    sealed class NonseekableInput(byte[] data) : MemoryStream(data, writable: false)
+    {
+        public override bool CanSeek => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override long Seek(long offset, SeekOrigin loc) => throw new NotSupportedException();
+    }
     static void Check(bool condition) { if (!condition) throw new InvalidOperationException("Exact-asset native scalar probe failed."); }
 }

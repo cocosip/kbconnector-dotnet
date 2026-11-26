@@ -30,6 +30,7 @@ internal sealed class PgParameterBindings
         var plan = PgParameterPlan.Create(sql, snapshot.Select(p => (string?)p.ParameterName).ToArray(), mode, standardConformingStrings);
         var codecs = new PgTextCodecs(catalog);
         var values = new PgQueryParameter[plan.ParameterIndexes.Count];
+        var inputs = new List<object>();
         var textBytes = PgFrontendMessages.CStringLength(plan.Sql);
         for (var i = 0; i < values.Length; i++)
         {
@@ -41,6 +42,15 @@ internal sealed class PgParameterBindings
             ValidateIntegerInput(p);
             ValidateSize(p, clrType);
             ValidateNumeric(p, type.Name);
+            if (p.Value is Stream or TextReader)
+            {
+                if (inputs.Any(input => ReferenceEquals(input, p.Value)))
+                    throw new ArgumentException("Distinct parameter slots cannot share a streaming input.");
+                inputs.Add(p.Value);
+                var input = PgParameterInput.Create(p.Value, type.CodecName, p.Size);
+                values[i] = new PgQueryParameter(type.Oid, input);
+                continue;
+            }
             // This validates exact CLR/layout/text before a later exchange can write.
             var text = codecs.Encode(type.Oid, p.Value);
             textBytes += text is null ? 0 : PgBinary.Utf8.GetByteCount(text);

@@ -549,7 +549,7 @@ Offline regressions reject unproven domain identities, preserve same-name namesp
 isolation and bound repeated partial-read allocations with per-row/column private
 decoded buffers. Exact-asset native probes exercise typed bytes/Unicode/NULL and
 legacy BLOB output across physical catalog reloads. These are bounded ordinary
-values: Stream/TextReader parameter input, network SequentialAccess, full LOB bounds,
+values at E61: subsequent E62/E64 add network SequentialAccess and Stream/TextReader input; full LOB bounds,
 native MySQL, broader profiles/platforms and exact-package LIVE remain pending.
 
 
@@ -569,7 +569,7 @@ before row bodies, large text/bytea fields, explicit/automatic preparation,
 partial early close and fresh OIDs over two borrowers in all four simulated
 modes. Simulated package consumers remain separate from source-built LIVE;
 these checks do not establish exact-package LIVE or other platform acceptance.
-Stream/TextReader parameter input and strong SequentialAccess+KeyInfo remain
+E64 adds Stream/TextReader parameter input; strong SequentialAccess+KeyInfo remains
 open; real-server TLS is still user-deferred, with offline TLS tests retained.
 
 Text COPY lifetime regressions exercise buffered import and export after Close,
@@ -579,3 +579,17 @@ characters and unflushed writes must reject with cancellation/timeout rather
 than surviving the revoked operation. Loopback tests separately cover normal
 acknowledged EOF, asynchronous overloads and repeated disposal; exact-package
 probes exercise cached export rejection after Close.
+
+E64 source-built LIVE adds twenty cases: twelve four-mode temporary-table
+round trips for unnamed, explicit and automatic preparation; four prepared
+Oracle/MySQL BLOB/CLOB/NCLOB domain cases using provider or qualified-name
+selectors; and four-mode local NUL rejection followed by successful session
+reuse. Nonseekable binary and Unicode inputs exceed the buffered exchange
+limit, with SequentialAccess verifying the result. Prepare/SchemaOnly leave
+input read counts at zero; source streams/readers remain caller-owned.
+Loopback cases additionally cover ignored read cancellation, deadlines, Close,
+split surrogates, Size, frame boundaries, spool disposal, queued-adapter
+rejection, unsent batches and execution-write failure accounting. Exact-asset
+native scalar probes add ordinary LOB streaming values and large base-type
+inputs across two pooled borrowers in all four simulated modes. Real TLS,
+exact-package LIVE and broader platform/profile acceptance remain separate.

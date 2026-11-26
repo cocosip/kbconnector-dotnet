@@ -86,6 +86,8 @@ public sealed partial class KingbaseDataAdapter
                 foreach (var parameter in source.Parameters.Cast<KingbaseParameter>())
                 {
                     var copy = parameter.Snapshot();
+                    if (copy.Value is Stream or TextReader)
+                        throw new NotSupportedException("Queued adapter updates cannot snapshot streaming parameter inputs.");
                     if (copy.Value is byte[] bytes) copy.Value = (byte[])bytes.Clone();
                     else if (copy.Value is System.Collections.BitArray bits)
                     { Protocol.PgTextCodecs.ValidateBitLength(bits); copy.Value = bits.Clone(); }

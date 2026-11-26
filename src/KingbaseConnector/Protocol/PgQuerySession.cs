@@ -118,7 +118,11 @@ internal sealed partial class PgQuerySession : IDisposable
         finally { Volatile.Write(ref _busy, 0); }
     }
 
-    async Task<IReadOnlyList<PgTextResult>> ExchangeAsync(Func<byte[][]> encode, PgQueryExchange exchange,
+    Task<IReadOnlyList<PgTextResult>> ExchangeAsync(Func<byte[][]> encode, PgQueryExchange exchange,
+        CancellationToken cancellationToken, IReadOnlyList<uint>? describedTypes = null) =>
+        ExchangeRequestAsync(() => new PgExtendedRequest(encode()), exchange, cancellationToken, describedTypes);
+
+    async Task<IReadOnlyList<PgTextResult>> ExchangeRequestAsync(Func<PgExtendedRequest> encode, PgQueryExchange exchange,
         CancellationToken cancellationToken, IReadOnlyList<uint>? describedTypes = null)
     {
         var extended = exchange != PgQueryExchange.Simple;
@@ -127,24 +131,14 @@ internal sealed partial class PgQuerySession : IDisposable
         ResetCommandOutcome();
         var started = false;
         var synchronized = false;
-        byte[][]? outgoing = null;
+        PgExtendedRequest? outgoing = null;
         try
         {
             ThrowIfDisposed();
             outgoing = encode();
             cancellationToken.ThrowIfCancellationRequested();
             started = true;
-            foreach (var message in outgoing)
-            {
-                var writes = _wire.WriteAttempts;
-                try { await _wire.WriteMessageAsync(message, cancellationToken).ConfigureAwait(false); }
-                finally
-                {
-                    if (message[0] is (byte)'Q' or (byte)'E')
-                        ExecutionWriteAttempts += _wire.WriteAttempts - writes;
-                    Array.Clear(message, 0, message.Length);
-                }
-            }
+            await outgoing.SendAsync(_wire, count => ExecutionWriteAttempts += count, cancellationToken).ConfigureAwait(false);
 
             var results = new List<PgTextResult>();
             IReadOnlyList<PgColumnDescription>? columns = null;
@@ -287,8 +281,7 @@ internal sealed partial class PgQuerySession : IDisposable
         }
         finally
         {
-            if (outgoing is not null)
-                foreach (var message in outgoing) Array.Clear(message, 0, message.Length);
+            outgoing?.Dispose();
         }
     }
 

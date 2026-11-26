@@ -875,13 +875,13 @@ internal static class PreparedAssetProbe
     static string[] TimestampValues(bool zoned) => ["2024-02-29 12:34:56.123456" + (zoned ? "+00" : ""),
         "0001-02-29 12:34:56.123456" + (zoned ? "+00" : "") + " BC", "infinity", "-infinity"];
 
-    internal static async Task<byte[][]> ReadFrames(Stream stream, string codes, CancellationToken token)
+    internal static async Task<byte[][]> ReadFrames(Stream stream, string codes, CancellationToken token, int maxLength = 1048576)
     {
         var result = new List<byte[]>();
         foreach (var code in codes)
         {
             var header = new byte[5]; await stream.ReadExactlyAsync(header, token); Require(header[0] == (byte)code);
-            var length = BinaryPrimitives.ReadInt32BigEndian(header.AsSpan(1)); Require(length is >= 4 and <= 1048576);
+            var length = BinaryPrimitives.ReadInt32BigEndian(header.AsSpan(1)); Require(length >= 4 && length <= maxLength);
             var payload = new byte[length - 4]; await stream.ReadExactlyAsync(payload, token); result.Add(Join(header, payload));
         }
         return result.ToArray();

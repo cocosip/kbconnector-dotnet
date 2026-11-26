@@ -31,11 +31,11 @@ internal sealed partial class PgQuerySession
         CancellationToken token, Action? validateSession, Action<PgPreparedStatement>? attachStatement)
     {
         if (parameters is null) throw new ArgumentNullException(nameof(parameters));
-        if (_maxAutoPrepare == 0) return new ExecutionPlan(this, PgExtendedQuery.Encode(sql, catalog, parameters), PgQueryExchange.Extended, null);
+        if (_maxAutoPrepare == 0) return new ExecutionPlan(this, await PgExtendedRequest.CreateAsync(sql, catalog, parameters, token).ConfigureAwait(false), PgQueryExchange.Extended, null);
         var snapshot = parameters.Take(1025).ToArray();
         if (snapshot.Length != parameters.Count) throw InvalidSignature();
         // Validate all current inputs and the ordinary aggregate frame bound before retaining SQL.
-        var frames = PgExtendedQuery.Encode(sql, catalog, snapshot);
+        var request = await PgExtendedRequest.CreateAsync(sql, catalog, snapshot, token).ConfigureAwait(false);
         try
         {
             var oids = snapshot.Select(p => p.TypeOid).ToArray();
@@ -52,7 +52,7 @@ internal sealed partial class PgQuerySession
                     candidate = _autoCandidates.FirstOrDefault(c => c.Sql == sql && c.LexicalStatus == lexical && c.Oids.SequenceEqual(oids));
                     if (candidate is null)
                     {
-                        var bytes = frames[0].Length;
+                        var bytes = request.ParseBytes;
                         while (_autoCandidates.Count >= MaxAutoCandidates || _autoCandidateBytes + bytes > MaxPreparedBytes)
                             RemoveAutoCandidate(_autoCandidates.Last!.Value);
                         candidate = new AutoCandidate(sql, oids, lexical, bytes);
@@ -67,24 +67,23 @@ internal sealed partial class PgQuerySession
                 if (_statementSequence == ulong.MaxValue) throw new InvalidOperationException("PG statement identity space is exhausted.");
                 var name = "kbp_" + (_statementSequence + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
                 // Named Bind may have a different frame size; reject before any Close or Parse.
-                var preflight = PgExtendedQuery.EncodePrepared(name, catalog, snapshot);
-                foreach (var frame in preflight) Array.Clear(frame, 0, frame.Length);
+                request.UsePrepared(name, catalog, snapshot);
                 cached = await PrepareOwnedAsync(sql, catalog, oids, true, token, validateSession).ConfigureAwait(false);
             }
             if (cached is not null)
             {
                 attachStatement?.Invoke(cached);
-                var plan = CreatePreparedPlanOwned(cached, catalog, snapshot);
-                foreach (var frame in frames) Array.Clear(frame, 0, frame.Length);
-                return plan;
+                request.UsePrepared(cached.Name, catalog, snapshot);
+                lock (_preparedStatements) { ThrowIfDisposed(); Touch(cached); }
+                return new ExecutionPlan(this, request, PgQueryExchange.PreparedExecution, cached);
             }
-            return new ExecutionPlan(this, frames, PgQueryExchange.Extended, null, () =>
+            return new ExecutionPlan(this, request, PgQueryExchange.Extended, null, () =>
             {
                 lock (_preparedStatements)
                     if (lexical == LexicalStatus && _autoCandidates.Contains(candidate!)) candidate!.Usages++;
             });
         }
-        catch { foreach (var frame in frames) Array.Clear(frame, 0, frame.Length); throw; }
+        catch { request.Dispose(); throw; }
     }
 
     // All candidate mutations use the prepared-list lock, also held by disposal/reset invalidation.

@@ -92,11 +92,11 @@ internal sealed partial class PgQuerySession
         IReadOnlyList<PgQueryParameter> parameters, CancellationToken token = default) =>
         OwnAsync(() => ExecutePreparedOwnedAsync(statement, catalog, parameters, token), token);
 
-    Task<IReadOnlyList<PgTextResult>> ExecutePreparedOwnedAsync(PgPreparedStatement statement, PgTypeCatalog catalog,
+    async Task<IReadOnlyList<PgTextResult>> ExecutePreparedOwnedAsync(PgPreparedStatement statement, PgTypeCatalog catalog,
         IReadOnlyList<PgQueryParameter> parameters, CancellationToken token) =>
-        ExecutePlanOwnedAsync(CreatePreparedPlanOwned(statement, catalog, parameters), token);
+        await ExecutePlanOwnedAsync(await CreatePreparedPlanOwnedAsync(statement, catalog, parameters, token).ConfigureAwait(false), token).ConfigureAwait(false);
 
-    ExecutionPlan CreatePreparedPlanOwned(PgPreparedStatement statement, PgTypeCatalog catalog, IReadOnlyList<PgQueryParameter> parameters)
+    async Task<ExecutionPlan> CreatePreparedPlanOwnedAsync(PgPreparedStatement statement, PgTypeCatalog catalog, IReadOnlyList<PgQueryParameter> parameters, CancellationToken token)
     {
         CheckOwner(statement);
         if (parameters is null) throw new ArgumentNullException(nameof(parameters));
@@ -107,7 +107,7 @@ internal sealed partial class PgQuerySession
         if (snapshot.Length != statement.TypeOids.Count || snapshot.Where((p, i) => p is null || p.TypeOid != statement.TypeOids[i]).Any())
             throw InvalidSignature();
         lock (_preparedStatements) { ThrowIfDisposed(); Touch(statement); }
-        return new ExecutionPlan(this, PgExtendedQuery.EncodePrepared(statement.Name, catalog, snapshot), PgQueryExchange.PreparedExecution, statement);
+        return new ExecutionPlan(this, await PgExtendedRequest.CreateAsync("", catalog, snapshot, token, statement.Name).ConfigureAwait(false), PgQueryExchange.PreparedExecution, statement);
     }
 
     internal Task UnprepareAsync(PgPreparedStatement statement, CancellationToken token = default) => OwnAsync(async () =>

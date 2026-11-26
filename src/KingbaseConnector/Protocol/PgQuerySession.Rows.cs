@@ -13,11 +13,11 @@ internal sealed partial class PgQuerySession
         {
             ThrowIfDisposed(); ResetCommandOutcome(); validateSession?.Invoke();
             if (statement is not null && statement.Sql != sql) throw new ArgumentException("The prepared statement does not match this SQL.", nameof(statement));
-            plan = statement is not null ? CreatePreparedPlanOwned(statement, catalog, parameters) :
+            plan = statement is not null ? await CreatePreparedPlanOwnedAsync(statement, catalog, parameters, token).ConfigureAwait(false) :
                 await CreateAutoPlanOwnedAsync(sql, catalog, parameters, token, validateSession, attachStatement).ConfigureAwait(false);
             beforeExecute?.Invoke();
             rows = new RowExchange(this, validateSession, plan);
-            await rows.StartAsync(plan.Frames, token).ConfigureAwait(false);
+            await rows.StartAsync(plan.Request, token).ConfigureAwait(false);
             return rows;
         }
         catch
@@ -54,7 +54,7 @@ internal sealed partial class PgQuerySession
         internal int ColumnRemaining => _fieldRemaining;
         internal int ColumnLength => _fieldLength;
 
-        internal async Task StartAsync(byte[][] frames, CancellationToken token)
+        internal async Task StartAsync(PgExtendedRequest request, CancellationToken token)
         {
             owner.ResetCommandOutcome();
             try
@@ -62,16 +62,7 @@ internal sealed partial class PgQuerySession
                 token.ThrowIfCancellationRequested();
                 lock (_terminal) if (_finished) throw new ObjectDisposedException(nameof(RowExchange));
                 if (plan?.Exchange == PgQueryExchange.PreparedExecution) _phase = 1;
-                foreach (var frame in frames)
-                {
-                    var writes = owner._wire.WriteAttempts;
-                    try { await owner._wire.WriteMessageAsync(frame, token).ConfigureAwait(false); }
-                    finally
-                    {
-                        if (frame.Length != 0 && frame[0] is (byte)'Q' or (byte)'E') owner.ExecutionWriteAttempts += owner._wire.WriteAttempts - writes;
-                        Array.Clear(frame, 0, frame.Length);
-                    }
-                }
+                await request.SendAsync(owner._wire, count => owner.ExecutionWriteAttempts += count, token).ConfigureAwait(false);
                 while (true)
                 {
                     var message = await owner._wire.ReadMessageAsync(token, MaxPayload - _controlBytes).ConfigureAwait(false);
@@ -90,7 +81,7 @@ internal sealed partial class PgQuerySession
                     }
                 }
             }
-            finally { foreach (var frame in frames) Array.Clear(frame, 0, frame.Length); plan?.ReleaseFrames(); }
+            finally { request.Dispose(); plan?.ReleaseFrames(); }
         }
 
         internal async Task<bool> ReadRowAsync(CancellationToken token)
