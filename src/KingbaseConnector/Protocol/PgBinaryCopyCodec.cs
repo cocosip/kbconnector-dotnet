@@ -14,7 +14,7 @@ internal static class PgBinaryCopyCodec
             KingbaseDbType.Char => "bpchar", KingbaseDbType.Bytea => "bytea", KingbaseDbType.Uuid => "uuid",
             KingbaseDbType.Numeric => "numeric", KingbaseDbType.Date => "date", KingbaseDbType.Time => "time",
             KingbaseDbType.TimeTz => "timetz", KingbaseDbType.Timestamp => "timestamp", KingbaseDbType.TimestampTz => "timestamptz", KingbaseDbType.Interval => "interval",
-            KingbaseDbType.Json => "json", KingbaseDbType.Jsonb => "jsonb", KingbaseDbType.Bit => "bit", KingbaseDbType.Varbit => "varbit",
+            KingbaseDbType.Json => "json", KingbaseDbType.Jsonb => "jsonb", KingbaseDbType.Bit => "bit", KingbaseDbType.Varbit => "varbit", KingbaseDbType.Xml => "xml",
             _ => throw new NotSupportedException("This type has no implemented binary COPY codec.") }).ToArray();
         var layouts = new PgTextCodecs(catalog);
         foreach (var name in names)
@@ -30,6 +30,7 @@ internal static class PgBinaryCopyCodec
     internal static byte[]? Encode(string name, object? value, int budget)
     {
         if (value is null or DBNull) return null;
+        if (name == "xml") return PgBinaryCopyXml.Encode(value, budget);
         if (name == "numeric") return PgBinaryCopyNumeric.Encode(value, budget);
         if (PgBinaryCopyTemporal.Supports(name)) return PgBinaryCopyTemporal.Encode(name, value, budget);
         if (name is "bit" or "varbit") return PgBinaryCopyBits.Encode(value, budget);
@@ -76,7 +77,7 @@ internal static class PgBinaryCopyCodec
             case "float8": return BitConverter.ToDouble(Network((byte[])bytes.Clone()), 0);
             case "uuid": var uuid = (byte[])bytes.Clone(); GuidOrder(uuid); return new Guid(uuid);
             case "bytea": return (byte[])bytes.Clone();
-            case "text": case "varchar": case "bpchar": case "json": case "jsonb":
+            case "text": case "varchar": case "bpchar": case "json": case "jsonb": case "xml":
                 string text;
                 var offset = name == "jsonb" ? 1 : 0;
                 if (offset != 0 && (bytes.Length == 0 || bytes[0] != 1)) throw Invalid();

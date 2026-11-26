@@ -19,13 +19,13 @@ internal static class CopyAssetProbe
         var raw = Enumerable.Range(0, 131079).Select(i => (byte)(i % 251)).ToArray(); var text = "1\t文字😀\n2\t\\N\n";
         var typed = Join(new byte[] {75,66,67,79,80,89,10,255,13,10,0,0,0,0,0,0,0,0,0}, new byte[] {0,2}, Int32(4), Int32(-42), Int32(3), new byte[] {231,149,140}, new byte[] {0,2}, Int32(-1), Int32(0), new byte[] {255,255});
         KingbaseDbType[] extendedTypes = [KingbaseDbType.Numeric, KingbaseDbType.Date, KingbaseDbType.Time, KingbaseDbType.TimeTz, KingbaseDbType.Timestamp, KingbaseDbType.TimestampTz, KingbaseDbType.Interval,
-            KingbaseDbType.Json, KingbaseDbType.Jsonb, KingbaseDbType.Bit, KingbaseDbType.Varbit];
+            KingbaseDbType.Json, KingbaseDbType.Jsonb, KingbaseDbType.Bit, KingbaseDbType.Varbit, KingbaseDbType.Xml];
         object[] extendedValues = [KingbaseNumeric.Parse("12345.6789"), new KingbaseDate(-1, 12, 31), TimeSpan.FromDays(1),
             new KingbaseTimeTz(TimeSpan.FromTicks(10), TimeSpan.FromSeconds(19801)), KingbaseTimestamp.Parse("1999-12-31 23:59:59.999999"),
-            KingbaseTimestampTz.Parse("2000-01-01 00:00:00+00"), new KingbaseInterval(-2, 3, -1), "{\"x\":1}", "[1]", new BitArray(new[] {false,false,true,false,true,true,false,false,true}), new BitArray(0)];
+            KingbaseTimestampTz.Parse("2000-01-01 00:00:00+00"), new KingbaseInterval(-2, 3, -1), "{\"x\":1}", "[1]", new BitArray(new[] {false,false,true,false,true,true,false,false,true}), new BitArray(0), "\ufeff<?xml version='1.0' encoding='UTF-16'?><x>界</x>"];
         byte[][] extendedFields = [[0,3,0,1,0,0,0,4,0,1,9,41,26,133], [255,244,219,248], [0,0,0,20,29,215,96,0],
             [0,0,0,0,0,0,0,1,255,255,178,167], [255,255,255,255,255,255,255,255], new byte[8], [255,255,255,255,255,255,255,255,0,0,0,3,255,255,255,254],
-            [123,34,120,34,58,49,125], [1,91,49,93], [0,0,0,9,44,128], [0,0,0,0]];
+            [123,34,120,34,58,49,125], [1,91,49,93], [0,0,0,9,44,128], [0,0,0,0], Encoding.UTF8.GetBytes("<?xml version='1.0'?><x>界</x>")];
         var extended = Join(typed[..19], new byte[] {0,(byte)extendedTypes.Length}, Join(extendedFields.Select(field => Join(Int32(field.Length), field)).ToArray()),
             new byte[] {0,(byte)extendedTypes.Length}, Join(Enumerable.Repeat(Int32(-1), extendedTypes.Length).ToArray()), new byte[] {255,255});
         var peer = Task.Run(async () =>
@@ -78,7 +78,7 @@ internal static class CopyAssetProbe
             using (var input = await connection.BeginBinaryImportAsync("COPY extended FROM STDIN (FORMAT BINARY)", extendedTypes, token))
             { await input.WriteRowAsync(extendedValues, token); input.WriteRow(Enumerable.Repeat<object?>(DBNull.Value, extendedTypes.Length).ToArray()); Check(await input.CompleteAsync(token) == 2); }
             using (var output = await connection.BeginBinaryExportAsync("COPY extended TO STDOUT (FORMAT BINARY)", extendedTypes, token))
-            { var row = output.ReadRow()!; Check(row.Take(9).SequenceEqual(extendedValues.Take(9))); for (var i = 9; i < 11; i++) Check(((BitArray)row[i]).Cast<bool>().SequenceEqual(((BitArray)extendedValues[i]).Cast<bool>())); Check(((KingbaseNumeric)row[0]).Scale == 4 && ((KingbaseNumeric)row[0]).Coefficient == 123456789); Check((await output.ReadRowAsync(token))!.All(value => value is DBNull)); Check(output.ReadRow() is null && output.RowsCopied == 2); }
+            { var row = output.ReadRow()!; Check(row.Take(9).SequenceEqual(extendedValues.Take(9))); for (var i = 9; i < 11; i++) Check(((BitArray)row[i]).Cast<bool>().SequenceEqual(((BitArray)extendedValues[i]).Cast<bool>())); Check(Equals(row[11], "<?xml version='1.0'?><x>界</x>")); Check(((KingbaseNumeric)row[0]).Scale == 4 && ((KingbaseNumeric)row[0]).Coefficient == 123456789); Check((await output.ReadRowAsync(token))!.All(value => value is DBNull)); Check(output.ReadRow() is null && output.RowsCopied == 2); }
             using (var writer = await connection.BeginTextImportAsync("COPY items FROM STDIN", token)) { writer.Write(text); Check(await writer.CompleteAsync(token) == 2); }
             using (var reader = await connection.BeginTextExportAsync("COPY items TO STDOUT", token)) Check(await reader.ReadToEndAsync() == text);
             using (var copy = await connection.BeginRawBinaryCopyAsync("COPY items FROM STDIN (FORMAT BINARY)", token))
@@ -100,7 +100,7 @@ internal static class CopyAssetProbe
         async Task State(Stream stream) { await Query(stream, PoolAssetProbe.StateSql); await stream.WriteAsync(Join(Description(17), Row(baseline), Complete(), Ready()), token); }
         async Task Catalog(Stream stream)
         {
-            await ReadFrames(stream, "Q", token); var names = new[] { "bool", "int2", "int4", "int8", "text", "bytea", "numeric", "date", "time", "timetz", "timestamp", "timestamptz", "interval", "json", "jsonb", "bit", "varbit" }; var sizes = new[] { "1", "2", "4", "8", "-1", "-1", "-1", "4", "8", "12", "8", "8", "16", "-1", "-1", "-1", "-1" };
+            await ReadFrames(stream, "Q", token); var names = new[] { "bool", "int2", "int4", "int8", "text", "bytea", "numeric", "date", "time", "timetz", "timestamp", "timestamptz", "interval", "json", "jsonb", "bit", "varbit", "xml" }; var sizes = new[] { "1", "2", "4", "8", "-1", "-1", "-1", "4", "8", "12", "8", "8", "16", "-1", "-1", "-1", "-1", "-1" };
             var rows = names.Select((name, i) => Row((15000 + i).ToString(System.Globalization.CultureInfo.InvariantCulture), "90", "pg_catalog", name, sizes[i], "b", name is "bit" or "varbit" ? "V" : "U", "t", "0", "0", "0", "-1")).ToArray(); await stream.WriteAsync(Join(Description(12), Join(rows), Complete(), Ready()), token);
             if (mode != KingbaseCompatibilityMode.PostgreSql) { await ReadFrames(stream, "Q", token); await stream.WriteAsync(Join(Description(16), Tag("SELECT 0"), Ready()), token); }
         }

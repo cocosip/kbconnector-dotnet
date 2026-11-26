@@ -65,9 +65,11 @@ public sealed class PgScramLifetimeTests
     {
         using var auth = new PgPasswordAuthentication(Nonce); using var caller = new CancellationTokenSource();
         auth.Process(Auth(10, "SCRAM-SHA-256\0\0"), "user", "pencil");
-        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var deriving = Task.Run(() => { entered.SetResult(); return auth.Process(Auth(11, First.Replace("i=4096", "i=1000000")), "user", "pencil", caller.Token); });
-        await entered.Task; await Task.Delay(10); caller.Cancel();
+        using var entered = new ManualResetEventSlim();
+        var deriving = Task.Factory.StartNew(() => { entered.Set(); return auth.Process(Auth(11, First.Replace("i=4096", "i=1000000")), "user", "pencil", caller.Token); },
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        // Keep cancellation off a queued pool continuation that may run only after the derivation finishes.
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(3))); Thread.Sleep(10); caller.Cancel();
         Assert.Equal(caller.Token, (await Assert.ThrowsAnyAsync<OperationCanceledException>(() => deriving.WaitAsync(TimeSpan.FromSeconds(3)))).CancellationToken);
         Assert.Throws<IOException>(() => auth.Process(Auth(0), "user", "pencil"));
     }
