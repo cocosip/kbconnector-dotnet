@@ -98,16 +98,18 @@ internal sealed partial class PgQuerySession : IDisposable
             return await ExchangeAsync(() => PgExtendedQuery.EncodeDescribe(sql, snapshot), PgQueryExchange.Describe, token, snapshot).ConfigureAwait(false);
         }, token);
 
+    // maxRows lets one bounded bootstrap read (the type catalog) request more than the ordinary exchange limit.
     internal Task<IReadOnlyList<PgTextResult>> ExecuteAsync(string sql,
-        CancellationToken cancellationToken = default) => ExecuteCoreAsync(() =>
+        CancellationToken cancellationToken = default, int maxRows = MaxRows) => ExecuteCoreAsync(() =>
         {
             if (PgFrontendMessages.CStringLength(sql) > MaxPayload)
                 throw new ArgumentException("Oversized PG bootstrap query.", nameof(sql));
             return [PgFrontendMessages.Query(sql)];
-        }, PgQueryExchange.Simple, cancellationToken);
+        }, PgQueryExchange.Simple, cancellationToken, maxRows);
 
     Task<IReadOnlyList<PgTextResult>> ExecuteCoreAsync(Func<byte[][]> encode, PgQueryExchange exchange,
-        CancellationToken cancellationToken) => OwnAsync(() => ExchangeAsync(encode, exchange, cancellationToken), cancellationToken);
+        CancellationToken cancellationToken, int maxRows = MaxRows) =>
+        OwnAsync(() => ExchangeAsync(encode, exchange, cancellationToken, null, maxRows), cancellationToken);
 
     async Task<T> OwnAsync<T>(Func<Task<T>> operation, CancellationToken token)
     {
@@ -119,11 +121,11 @@ internal sealed partial class PgQuerySession : IDisposable
     }
 
     Task<IReadOnlyList<PgTextResult>> ExchangeAsync(Func<byte[][]> encode, PgQueryExchange exchange,
-        CancellationToken cancellationToken, IReadOnlyList<uint>? describedTypes = null) =>
-        ExchangeRequestAsync(() => new PgExtendedRequest(encode()), exchange, cancellationToken, describedTypes);
+        CancellationToken cancellationToken, IReadOnlyList<uint>? describedTypes = null, int maxRows = MaxRows) =>
+        ExchangeRequestAsync(() => new PgExtendedRequest(encode()), exchange, cancellationToken, describedTypes, maxRows);
 
     async Task<IReadOnlyList<PgTextResult>> ExchangeRequestAsync(Func<PgExtendedRequest> encode, PgQueryExchange exchange,
-        CancellationToken cancellationToken, IReadOnlyList<uint>? describedTypes = null)
+        CancellationToken cancellationToken, IReadOnlyList<uint>? describedTypes = null, int maxRows = MaxRows)
     {
         var extended = exchange != PgQueryExchange.Simple;
         var control = exchange is PgQueryExchange.Prepare or PgQueryExchange.Close;
@@ -205,7 +207,7 @@ internal sealed partial class PgQuerySession : IDisposable
                         extendedPhase = 3;
                         break;
                     case (byte)'D':
-                        if (describe || columns is null || totalRows == MaxRows) throw InvalidExchange();
+                        if (describe || columns is null || totalRows == maxRows) throw InvalidExchange();
                         _parameters.TryGetValue("DateStyle", out var rowStyle);
                         if (rows!.Count == 0) dateStyle = rowStyle;
                         else if (rowStyle != dateStyle) dateStyle = null;
@@ -353,3 +355,4 @@ internal sealed partial class PgQuerySession : IDisposable
         }
     }
 }
+

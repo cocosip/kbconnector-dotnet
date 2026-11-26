@@ -86,7 +86,12 @@ public sealed class KingbaseCommandBuilder : DbCommandBuilder
         var target = (KingbaseParameter)parameter;
         target.ResetDbType();
         if (target.SourceColumnNullMapping) target.DbType = DbType.Int32;
-        else target.DataTypeName = "pg_catalog." + (string)row["DataTypeName"];
+        else
+        {
+            // Reader metadata reports pg_catalog base names bare and other catalog types qualified.
+            var name = (string)row["DataTypeName"];
+            target.DataTypeName = name.Contains('.') ? name : "pg_catalog." + name;
+        }
     }
     protected override DataTable GetSchemaTable(DbCommand sourceCommand)
     {

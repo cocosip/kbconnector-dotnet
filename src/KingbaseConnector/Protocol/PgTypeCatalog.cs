@@ -27,11 +27,15 @@ internal sealed class PgTypeCatalog
         "varchar", "bpchar", "bytea", "uuid", "date", "time", "timetz", "timestamp", "timestamptz", "interval", "json", "jsonb", "xml", "int16", "tinyint", "bit", "varbit",
         "name", "char", "regproc", "regprocedure", "regoper", "regoperator", "regclass", "regtype", "regconfig", "regdictionary", "regnamespace", "regrole", "xid", "cid"];
     static readonly string[] Required = ["bool", "int2", "int4", "int8", "text", "bytea"];
+    // Enum and SET types carry a user-defined name, so they are selected by kind instead of by name.
+    internal const int DynamicCapacity = 8192;
     static readonly string Sql = "SELECT t.oid, t.typnamespace, n.nspname, t.typname, t.typlen, t.typtype, " +
         "t.typcategory, t.typisdefined, t.typbasetype, t.typelem, t.typarray, t.typtypmod " +
         "FROM sys_catalog.sys_type AS t JOIN sys_catalog.sys_namespace AS n ON n.oid OPERATOR(pg_catalog.=) t.typnamespace " +
-        "WHERE n.nspname OPERATOR(pg_catalog.=) 'pg_catalog'::pg_catalog.name AND t.typisdefined AND (" +
-        string.Join(" OR ", Names.Select(name => "pg_catalog.nameeq(t.typname,'" + name + "'::pg_catalog.name)")) + ")";
+        "WHERE t.typisdefined AND ((n.nspname OPERATOR(pg_catalog.=) 'pg_catalog'::pg_catalog.name AND (" +
+        string.Join(" OR ", Names.Select(name => "pg_catalog.nameeq(t.typname,'" + name + "'::pg_catalog.name)")) +
+        ")) OR ((t.typtype OPERATOR(pg_catalog.=) 'e' OR t.typtype OPERATOR(pg_catalog.=) 's') AND " +
+        "NOT pg_catalog.pg_is_other_temp_schema(t.typnamespace)))";
 
     PgTypeCatalog(Dictionary<uint, PgTypeDescription> byOid, Dictionary<string, PgTypeDescription> byName)
     {
@@ -57,9 +61,9 @@ internal sealed class PgTypeCatalog
         try
         {
             CheckMode(session, identity);
-            var results = await session.ExecuteAsync(Sql, cancellationToken).ConfigureAwait(false);
+            var results = await session.ExecuteAsync(Sql, cancellationToken, Names.Length + DynamicCapacity).ConfigureAwait(false);
             if (session.TransactionStatus != PgTransactionStatus.Idle || results.Count != 1 ||
-                results[0].Columns.Count != 12 || results[0].Rows.Count > Names.Length)
+                results[0].Columns.Count != 12 || results[0].Rows.Count > Names.Length + DynamicCapacity)
                 throw InvalidCatalog();
             CheckMode(session, identity);
             var byOid = new Dictionary<uint, PgTypeDescription>();
@@ -68,13 +72,22 @@ internal sealed class PgTypeCatalog
             var seenOids = new HashSet<uint>(); var seenNames = new HashSet<string>(StringComparer.Ordinal);
             foreach (var row in results[0].Rows)
             {
-                if (row.Count != 12 || !Names.Contains(row[3], StringComparer.Ordinal))
-                    throw InvalidCatalog();
-                var type = ReadType(row, "pg_catalog");
-                if (namespaceOid.HasValue && namespaceOid.Value != type.NamespaceOid) throw InvalidCatalog();
-                namespaceOid = type.NamespaceOid;
+                if (row.Count != 12) throw InvalidCatalog();
+                // A same-named type outside pg_catalog is a user type, not the built-in one it resembles.
+                var fixedName = Names.Contains(row[3], StringComparer.Ordinal) && row[2] == "pg_catalog";
+                if (!fixedName && row[5] is not ("e" or "s")) throw InvalidCatalog();
+                var type = ReadType(row, fixedName ? "pg_catalog" : row[2]!);
+                if (fixedName)
+                {
+                    if (namespaceOid.HasValue && namespaceOid.Value != type.NamespaceOid) throw InvalidCatalog();
+                    namespaceOid = type.NamespaceOid;
+                }
+                else if (type.Kind == 'e' ? type.Category != 'E' || type.Size <= 0 || type.BaseTypeOid != 0 || type.ElementTypeOid != 0 :
+                    type.Kind != 's' || type.Category != 'M' || type.Size <= 0 || type.BaseTypeOid != 0 || type.ElementTypeOid != 0) continue;
                 var name = type.Namespace + "." + type.Name;
-                if (!seenOids.Add(type.Oid) || !seenNames.Add(name)) throw InvalidCatalog();
+                // Dedupe on the namespace OID: dots are legal in schema and type names, so the pair is not a key.
+                if (!seenOids.Add(type.Oid) ||
+                    !seenNames.Add(type.NamespaceOid.ToString(CultureInfo.InvariantCulture) + "." + type.Name)) throw InvalidCatalog();
                 if (type.Name is "int16" or "tinyint")
                 {
                     if (type.Kind != 'b' || type.Category != 'N' || type.BaseTypeOid != 0 || type.ElementTypeOid != 0 ||
@@ -83,7 +96,8 @@ internal sealed class PgTypeCatalog
                 }
                 if (type.Name is "bit" or "varbit" && (type.Kind != 'b' || type.Category != 'V' || type.Size != -1 || type.BaseTypeOid != 0 || type.ElementTypeOid != 0)) continue;
                 byOid.Add(type.Oid, type);
-                byName.Add(name, type);
+                // A dotted name collision between distinct types keeps the first entry; both stay readable by OID.
+                if (!byName.ContainsKey(name)) byName.Add(name, type);
             }
             foreach (var name in Required)
                 if (!byName.TryGetValue("pg_catalog." + name, out var type) || type.Kind != 'b' || type.BaseTypeOid != 0)

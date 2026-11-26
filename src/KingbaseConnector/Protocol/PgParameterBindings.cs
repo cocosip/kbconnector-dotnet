@@ -87,8 +87,11 @@ internal sealed class PgParameterBindings
         {
             if (selected is not null)
             {
-                if (p.ExplicitProviderType is null && TryProvider(selected.CodecName, out var mapped) &&
-                    !KingbaseParameterTypes.Compatible(dbType, mapped)) throw InvalidBinding();
+                // Enum and SET codecs have no provider enum member; they follow the text family.
+                var shape = selected.Kind is 'e' or 's' ? KingbaseDbType.Text :
+                    TryProvider(selected.CodecName, out var mapped) ? mapped : (KingbaseDbType?)null;
+                if (p.ExplicitProviderType is null && shape is { } compatible &&
+                    !KingbaseParameterTypes.Compatible(dbType, compatible)) throw InvalidBinding();
             }
             else selected = Lookup(KingbaseParameterTypes.FromDbType(dbType), catalog);
         }

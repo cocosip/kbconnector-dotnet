@@ -9,9 +9,11 @@ public sealed class PgTypeCatalogTests
     static readonly string Sql = "SELECT t.oid, t.typnamespace, n.nspname, t.typname, t.typlen, t.typtype, " +
         "t.typcategory, t.typisdefined, t.typbasetype, t.typelem, t.typarray, t.typtypmod " +
         "FROM sys_catalog.sys_type AS t JOIN sys_catalog.sys_namespace AS n ON n.oid OPERATOR(pg_catalog.=) t.typnamespace " +
-        "WHERE n.nspname OPERATOR(pg_catalog.=) 'pg_catalog'::pg_catalog.name AND t.typisdefined AND (" +
+        "WHERE t.typisdefined AND ((n.nspname OPERATOR(pg_catalog.=) 'pg_catalog'::pg_catalog.name AND (" +
         string.Join(" OR ", PgTypeCatalog.Names
-            .Select(name => "pg_catalog.nameeq(t.typname,'" + name + "'::pg_catalog.name)")) + ")";
+            .Select(name => "pg_catalog.nameeq(t.typname,'" + name + "'::pg_catalog.name)")) +
+        ")) OR ((t.typtype OPERATOR(pg_catalog.=) 'e' OR t.typtype OPERATOR(pg_catalog.=) 's') AND " +
+        "NOT pg_catalog.pg_is_other_temp_schema(t.typnamespace)))";
 
     static readonly string[] Required = ["bool", "int2", "int4", "int8", "text", "bytea"];
 

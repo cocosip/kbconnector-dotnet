@@ -208,8 +208,14 @@ public sealed partial class KingbaseDataReader : DbDataReader, IDbColumnSchemaGe
     {
         var schema = new List<DbColumn>(FieldCount);
         for (var i = 0; i < FieldCount; i++)
-            schema.Add(new ResultColumn(GetName(i), i, GetFieldType(i), GetDataTypeName(i), Column(i).TypeModifier, Current!.Metadata?[i]));
+            schema.Add(new ResultColumn(GetName(i), i, GetFieldType(i), QualifiedTypeName(i), Column(i).TypeModifier, Current!.Metadata?[i]));
         return schema.AsReadOnly();
+    }
+    // Parameter binding expects pg_catalog base names bare and every other catalog type qualified.
+    string QualifiedTypeName(int ordinal)
+    {
+        var type = _catalog.ByOid[Column(ordinal).TypeOid];
+        return type.Namespace == "pg_catalog" ? type.Name : type.Namespace + "." + type.Name;
     }
     sealed class ResultColumn : DbColumn
     {

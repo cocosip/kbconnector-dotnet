@@ -689,3 +689,15 @@ E69 adds five source-built scenarios in all four PG-wire modes (20 cases):
 
 Offline cases cover decode/encode/streaming round trips for every added type, NULL versus empty, the zero-or-one-ASCII-character `"char"` rule, `xid`/`cid` sign and overflow rejection, the observed Kingbase `name`-with-`char`-element catalog layout, category-`A` array rejection and reader metadata/typed access. The tested servers report `pg_catalog.name` with `typelem = 18`; treat catalog category `A`, not a nonzero element type, as the array signal. MySQL-mode `information_schema.routines` still needs enum/`SET` codecs before its views are readable end to end. `int2vector`/`oidvector`, `money`, network/geometry/full-text, range/array/composite and other identifier families remain open. Keep raw LIVE records external; real-server TLS remains deferred and offline TLS required.
 
+
+## Catalog enum and SET values (E70)
+
+E70 adds eight source-built cases: one four-mode theory and four MySQL-mode facts.
+
+- All four modes count catalog rows of kind `e`/`s` and read their name, kind, category and length as `String`/`String`/`String`/`Int16`; the tested servers report 19 such types in MySQL mode and none in the other three.
+- MySQL mode reads `information_schema.routines` enum columns (`ROUTINE_TYPE`, `SQL_DATA_ACCESS`, `SECURITY_TYPE`) and its SET column (`SQL_MODE`) as `String`, with exact `FUNCTION`/`MODIFIES SQL DATA`/`INVOKER` values and a six-label comma-joined `SQL_MODE`.
+- A typed `information_schema.column_key_enum` parameter accepts the empty label and `PRI`, and rejects `NOT_A_KEY` with server `22P02` while the prepared command remains usable.
+- A typed `information_schema.sql_mode_set` parameter matches its label list and returns rows.
+- SequentialAccess returns streamed enum labels without materializing the row, and typed NULL enum/SET columns stay `DBNull`.
+
+Offline cases cover round trips for every added kind, the empty label, comma-joined SET lists, NUL/unpaired-surrogate/wrong-CLR rejection, mislabelled categories, base/element links, enum arrays, dynamic catalog rows, skipped inconsistent rows and unknown kinds retiring the session. These servers give enum and SET columns their own catalog identity rather than a base type, so mapping is by catalog kind and category. The remaining gap is `sys.binary`: MySQL-mode `information_schema.routines.EXTERNAL_NAME`/`SQL_PATH` are that base type, whose `binaryin`/`binaryout` do not produce plain text, so `SELECT *` from that view still fails. Keep raw LIVE records external; real-server TLS remains deferred and offline TLS required.

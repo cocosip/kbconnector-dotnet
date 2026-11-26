@@ -184,9 +184,9 @@ internal sealed class PgTextCodecs
     {
         // Array types are identified by their catalog category: KingbaseES reports pg_catalog.name with element type "char",
         // so a nonzero typelem alone does not mean the type is an array.
-        if (!_catalog.ByOid.TryGetValue(oid, out var type) || type.Category == 'A' ||
-            (!SupportedNativeDomain(type) && (type.Kind != 'b' || type.BaseTypeOid != 0)))
-            throw Unsupported();
+        if (!_catalog.ByOid.TryGetValue(oid, out var type) || type.Category == 'A' || !Supported(type)) throw Unsupported();
+        // Enum and SET values are their server text form; the server owns the label vocabulary, including empty labels.
+        if (type.Kind is 'e' or 's') return ("text", typeof(string));
         if (type.CodecName is "sbyte" or "byte" or "uint4" or "uint8" or "int16" && type.Category != 'N') throw Unsupported();
         if (type.CodecName is "bit" or "varbit" && type.Category != 'V') throw Unsupported();
         if (PgNativeTemporalText.Supports(type.CodecName) && type.Category != (type.CodecName == "mysql_year" ? 'N' : 'D')) throw Unsupported();
@@ -229,6 +229,14 @@ internal sealed class PgTextCodecs
         if (type.Size != size) throw Unsupported();
         return (type.CodecName, clrType);
     }
+
+    bool Supported(PgTypeDescription type) => type.Kind switch
+    {
+        'b' => type.BaseTypeOid == 0,
+        // The catalog loader validates the enum/SET layout; their wire form is the server text form.
+        'e' or 's' => true,
+        _ => SupportedNativeDomain(type)
+    };
 
     bool SupportedNativeDomain(PgTypeDescription type)
     {
