@@ -67,6 +67,7 @@ internal sealed partial class PgQuerySession : IDisposable
 
     internal IReadOnlyDictionary<string, string> Parameters { get; }
     internal bool IsDisposed => Volatile.Read(ref _disposed) != 0 || _wire.IsDisposed;
+    internal bool HasActiveExchange => Volatile.Read(ref _busy) != 0;
     internal Action<KingbaseNotificationEventArgs>? NotificationHandler { get; set; }
     internal Action<KingbaseNotice>? NoticeHandler { get; set; }
     internal long WriteAttempts => _wire.WriteAttempts;
@@ -74,6 +75,7 @@ internal sealed partial class PgQuerySession : IDisposable
     internal PgServerError? CommandRejection { get; private set; }
     internal PgServerError? UncertainError { get; private set; }
     internal PgTransactionStatus TransactionStatus { get; private set; } = PgTransactionStatus.Idle;
+    internal void ResetCommandOutcome() { CommandRejection = null; UncertainError = null; }
 
     internal IReadOnlyList<PgTextResult> Execute(string sql) => ExecuteAsync(sql).GetAwaiter().GetResult();
 
@@ -112,7 +114,7 @@ internal sealed partial class PgQuerySession : IDisposable
         token.ThrowIfCancellationRequested();
         if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
             throw new InvalidOperationException("A PG query exchange is already active.");
-        try { ThrowIfDisposed(); return await operation().ConfigureAwait(false); }
+        try { ThrowIfDisposed(); ResetCommandOutcome(); return await operation().ConfigureAwait(false); }
         finally { Volatile.Write(ref _busy, 0); }
     }
 
@@ -122,8 +124,7 @@ internal sealed partial class PgQuerySession : IDisposable
         var extended = exchange != PgQueryExchange.Simple;
         var control = exchange is PgQueryExchange.Prepare or PgQueryExchange.Close;
         var describe = exchange == PgQueryExchange.Describe;
-        CommandRejection = null;
-        UncertainError = null;
+        ResetCommandOutcome();
         var started = false;
         var synchronized = false;
         byte[][]? outgoing = null;

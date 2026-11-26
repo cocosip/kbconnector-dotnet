@@ -300,7 +300,7 @@ public sealed class BatchExecutionTests
         Assert.Throws<InvalidOperationException>(() => batch.ExecuteScalar());
         using var cancel = new CancellationTokenSource(); cancel.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => batch.ExecuteNonQueryAsync(cancel.Token));
-        Assert.Throws<NotSupportedException>(() => batch.ExecuteReader(CommandBehavior.SequentialAccess));
+        Assert.Throws<NotSupportedException>(() => batch.ExecuteReader(CommandBehavior.SequentialAccess | CommandBehavior.KeyInfo));
         Assert.Equal(KingbaseBatchCommandStatus.NotExecuted, batch.BatchCommands[0].ExecutionStatus);
     }
 
@@ -439,7 +439,7 @@ public sealed class BatchExecutionTests
         using var batch = Make(connection, 2); await Assert.ThrowsAsync<KingbaseException>(() => batch.ExecuteNonQueryAsync(token));
         using var canceled = new CancellationTokenSource(); canceled.Cancel();
         if (cause == "cancel") await Assert.ThrowsAnyAsync<OperationCanceledException>(() => batch.ExecuteNonQueryAsync(canceled.Token));
-        else if (cause == "behavior") Assert.Throws<NotSupportedException>(() => batch.ExecuteReader(CommandBehavior.SequentialAccess));
+        else if (cause == "behavior") Assert.Throws<NotSupportedException>(() => batch.ExecuteReader(CommandBehavior.SequentialAccess | CommandBehavior.KeyInfo));
         else { batch.Connection = null; Assert.Throws<InvalidOperationException>(() => batch.ExecuteNonQuery()); }
         Assert.Null(batch.FailedCommandIndex);
         foreach (KingbaseBatchCommand item in batch.BatchCommands) { Assert.Equal(-1, item.RecordsAffected); Assert.Equal(KingbaseBatchCommandStatus.NotExecuted, item.ExecutionStatus); }

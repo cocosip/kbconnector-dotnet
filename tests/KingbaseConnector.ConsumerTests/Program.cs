@@ -245,8 +245,9 @@ foreach (var mode in new[] { KingbaseCompatibilityMode.Oracle, KingbaseCompatibi
 }
 Console.WriteLine("PASS: Oracle/MySQL/SQL Server mode PG-wire unpooled explicit/automatic preparation");
 foreach (var mode in new[] { KingbaseCompatibilityMode.PostgreSql, KingbaseCompatibilityMode.Oracle, KingbaseCompatibilityMode.MySql, KingbaseCompatibilityMode.SqlServer })
-    await KingbaseConnector.Tests.PoolAssetProbe.RunAsync(mode);
+    await KingbaseConnector.Tests.PoolAssetProbe.RunAsync(mode, streaming: true);
 Console.WriteLine("PASS: four-mode private pool reset, bound baseline, fresh catalog and stale preparation invalidation");
+Console.WriteLine("PASS: four-mode SequentialAccess metadata before rows, large text/binary streams, explicit/automatic preparation and two pooled borrowers");
 foreach (var mode in new[] { KingbaseCompatibilityMode.PostgreSql, KingbaseCompatibilityMode.Oracle, KingbaseCompatibilityMode.MySql, KingbaseCompatibilityMode.SqlServer })
     await KingbaseConnector.Tests.NativeScalarAssetProbe.RunAsync(mode);
 Console.WriteLine("PASS: native scalar/temporal types, MySQL calendar values, PG bits, typed NULL and fresh pooled OIDs");

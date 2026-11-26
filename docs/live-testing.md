@@ -551,3 +551,23 @@ decoded buffers. Exact-asset native probes exercise typed bytes/Unicode/NULL and
 legacy BLOB output across physical catalog reloads. These are bounded ordinary
 values: Stream/TextReader parameter input, network SequentialAccess, full LOB bounds,
 native MySQL, broader profiles/platforms and exact-package LIVE remain pending.
+
+
+E62 public streaming cases use SequentialAccess through the public command/Reader,
+not reflected internal protocol access. Four-mode rollback-isolated temporary
+columns grow beyond buffered limits; Oracle/MySQL use actual CLOB/BLOB/NCLOB,
+and the other modes use PG text/bytea. Readers verify bounded character/binary
+chunks, Unicode/NULL, forward partial offsets, explicit scalar materialization,
+unnamed/automatic/explicit preparation and completion. Separate cases verify
+normal early-close batch effects inside an explicit rolled-back transaction,
+same-backend pool reuse with stale child disposal, and canceled active leases
+being retired before the next borrower. Raw source-built LIVE records stay in
+the authorized external evidence directory.
+
+The exact-asset pool consumer probe additionally verifies streaming metadata
+before row bodies, large text/bytea fields, explicit/automatic preparation,
+partial early close and fresh OIDs over two borrowers in all four simulated
+modes. Simulated package consumers remain separate from source-built LIVE;
+these checks do not establish exact-package LIVE or other platform acceptance.
+Stream/TextReader parameter input and strong SequentialAccess+KeyInfo remain
+open; real-server TLS is still user-deferred, with offline TLS tests retained.

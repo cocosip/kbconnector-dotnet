@@ -32,9 +32,12 @@ internal sealed partial class PgWire
         if (buffer is null) throw new ArgumentNullException(nameof(buffer));
         if (offset < 0 || count <= 0 || offset > buffer.Length - count) throw new ArgumentOutOfRangeException(nameof(count));
         EnterOperation();
+        var admitted = false;
         try
         {
+            if (_rowPayloadRemaining != 0) throw new InvalidOperationException("A streaming data row has not been consumed.");
             if (_pendingRead is not null) throw new InvalidOperationException("A buffered PG frame read is still pending.");
+            admitted = true;
             if (_copyPayloadRemaining == 0)
             {
                 await ReadExactlyAsync(_header, token).ConfigureAwait(false);
@@ -54,6 +57,7 @@ internal sealed partial class PgWire
             _copyPayloadRemaining -= received;
             return new PgCopyMessage((byte)'d', received, Array.Empty<byte>());
         }
+        catch when (!admitted) { throw; }
         catch { RetireAfterFailure(); throw; }
         finally { Volatile.Write(ref _busy, 0); }
     }

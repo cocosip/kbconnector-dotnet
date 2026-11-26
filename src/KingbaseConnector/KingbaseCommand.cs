@@ -27,6 +27,7 @@ public sealed partial class KingbaseCommand : DbCommand
     UpdateRowSource _updatedRowSource = UpdateRowSource.Both;
     bool _designTimeVisible = true;
     bool _executing;
+    bool _streamingPublished;
     bool _disposed;
     CancellationTokenSource? _cancel;
     PgPreparedStatement? _prepared;
@@ -124,7 +125,9 @@ public sealed partial class KingbaseCommand : DbCommand
     public new Task<KingbaseDataReader> ExecuteReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken) => ExecuteCoreAsync(behavior, cancellationToken);
 
     async Task<KingbaseDataReader> ExecuteCoreAsync(CommandBehavior behavior, CancellationToken caller) =>
-        (await OperationCoreAsync(Operation.Execute, behavior, caller).ConfigureAwait(false))!;
+        (behavior & (CommandBehavior.SequentialAccess | CommandBehavior.SchemaOnly)) == CommandBehavior.SequentialAccess
+            ? await ExecuteStreamingCoreAsync(behavior, caller).ConfigureAwait(false)
+            : (await OperationCoreAsync(Operation.Execute, behavior & ~CommandBehavior.SequentialAccess, caller).ConfigureAwait(false))!;
 
     async Task<KingbaseDataReader?> OperationCoreAsync(Operation operation, CommandBehavior behavior, CancellationToken caller, bool scalar = false)
     {
@@ -388,7 +391,7 @@ public sealed partial class KingbaseCommand : DbCommand
     }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) lock (_sync) { _disposed = true; _prepared = null; _cancel?.Cancel(); }
+        if (disposing) lock (_sync) { _disposed = true; _prepared = null; if (!_streamingPublished) _cancel?.Cancel(); }
         base.Dispose(disposing);
     }
 }

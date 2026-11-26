@@ -92,8 +92,11 @@ internal sealed partial class PgQuerySession
         IReadOnlyList<PgQueryParameter> parameters, CancellationToken token = default) =>
         OwnAsync(() => ExecutePreparedOwnedAsync(statement, catalog, parameters, token), token);
 
-    async Task<IReadOnlyList<PgTextResult>> ExecutePreparedOwnedAsync(PgPreparedStatement statement, PgTypeCatalog catalog,
-        IReadOnlyList<PgQueryParameter> parameters, CancellationToken token)
+    Task<IReadOnlyList<PgTextResult>> ExecutePreparedOwnedAsync(PgPreparedStatement statement, PgTypeCatalog catalog,
+        IReadOnlyList<PgQueryParameter> parameters, CancellationToken token) =>
+        ExecutePlanOwnedAsync(CreatePreparedPlanOwned(statement, catalog, parameters), token);
+
+    ExecutionPlan CreatePreparedPlanOwned(PgPreparedStatement statement, PgTypeCatalog catalog, IReadOnlyList<PgQueryParameter> parameters)
     {
         CheckOwner(statement);
         if (parameters is null) throw new ArgumentNullException(nameof(parameters));
@@ -104,17 +107,7 @@ internal sealed partial class PgQuerySession
         if (snapshot.Length != statement.TypeOids.Count || snapshot.Where((p, i) => p is null || p.TypeOid != statement.TypeOids[i]).Any())
             throw InvalidSignature();
         lock (_preparedStatements) { ThrowIfDisposed(); Touch(statement); }
-        try
-        {
-            return await ExchangeAsync(() => PgExtendedQuery.EncodePrepared(statement.Name, catalog, snapshot),
-                PgQueryExchange.PreparedExecution, token).ConfigureAwait(false);
-        }
-        catch (PgQueryException error) when (error.ServerError.SqlState is "26000" or "0A000")
-        {
-            statement.Invalidate();
-            lock (_preparedStatements) RemoveAutoCandidate(statement.Sql, statement.TypeOids, statement.LexicalStatus);
-            throw;
-        }
+        return new ExecutionPlan(this, PgExtendedQuery.EncodePrepared(statement.Name, catalog, snapshot), PgQueryExchange.PreparedExecution, statement);
     }
 
     internal Task UnprepareAsync(PgPreparedStatement statement, CancellationToken token = default) => OwnAsync(async () =>

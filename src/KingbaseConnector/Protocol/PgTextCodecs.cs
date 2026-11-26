@@ -12,6 +12,18 @@ internal sealed class PgTextCodecs
 
     internal PgTextCodecs(PgTypeCatalog catalog) => _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
     internal Type GetFieldType(uint oid) => Resolve(oid).ClrType;
+    internal object DecodeStreaming(uint oid, string? text, string? dateStyle, string? intervalStyle, bool provider)
+    {
+        if (text is null) return DBNull.Value;
+        var (name, type) = Resolve(oid);
+        if (type == typeof(string) || name == "bytea")
+        {
+            if (text.IndexOf('\0') >= 0) throw InvalidText();
+            try { _ = PgBinary.Utf8.GetByteCount(text); } catch (EncoderFallbackException) { throw InvalidText(); }
+            return name == "bytea" ? DecodeBytes(text) : text;
+        }
+        return provider ? DecodeProviderSpecific(oid, text, dateStyle, intervalStyle) : Decode(oid, text, dateStyle, intervalStyle);
+    }
     internal Type GetProviderSpecificFieldType(uint oid) => Resolve(oid).Name switch
     { "numeric" => typeof(KingbaseNumeric), "date" => typeof(KingbaseDate), "timestamp" => typeof(KingbaseTimestamp),
         "timestamptz" => typeof(KingbaseTimestampTz), "oracle_date" => typeof(KingbaseTimestamp),

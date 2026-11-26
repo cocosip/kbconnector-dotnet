@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Data;
 using KingbaseConnector;
 using static KingbaseConnector.Tests.PreparedAssetProbe;
 
@@ -21,13 +22,16 @@ internal static class PoolAssetProbe
         "default_transaction_isolation", "default_transaction_read_only", "default_transaction_deferrable", "DateStyle", "IntervalStyle" }
         .Select((name, i) => "pg_catalog.set_config('" + name + "',$" + (i + 1).ToString(CultureInfo.InvariantCulture) + ",false)"));
 
-    internal static async Task RunAsync(KingbaseCompatibilityMode mode)
+    internal static async Task RunAsync(KingbaseCompatibilityMode mode, bool streaming = false)
     {
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(15)); var token = guard.Token;
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
         var wireMode = mode switch { KingbaseCompatibilityMode.Oracle => "oracle", KingbaseCompatibilityMode.MySql => "mysql", KingbaseCompatibilityMode.SqlServer => "sqlserver", _ => "pg" };
         string[] baseline = ["db", "user", "user", wireMode, "UTF8", "on", "pool';--\\", "\"kb_汉\", pg_catalog, public", "Asia/Shanghai",
             "read committed", "off", "off", "ISO, MDY", "postgres", "read committed", "off", ""];
+        var text = streaming ? string.Concat(Enumerable.Repeat("文字😀", 120000)) : "";
+        var bytes = streaming ? Enumerable.Range(0, 600017).Select(i => (byte)(i % 251)).ToArray() : Array.Empty<byte>();
+        var published = Enumerable.Range(0, 4).Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
         var peer = Task.Run(async () =>
         {
             using var socket = await listener.AcceptTcpClientAsync(token); using var stream = socket.GetStream();
@@ -60,6 +64,22 @@ internal static class PoolAssetProbe
                 var bind = execute[borrower == 0 ? 0 : 1]; var value = borrower == 0 ? "42" : "43";
                 Check(bind.SequenceEqual(Frame('B', Join(Encoding.UTF8.GetBytes(borrower == 0 ? "\0kbp_1\0" : "\0\0"), Count(0), Count(1), Int32(2), Encoding.UTF8.GetBytes(value), Count(0)))));
                 await stream.WriteAsync(Join(borrower == 0 ? [] : Frame('1'), Frame('2'), Description(1, oid, 4), Row(value), Complete(), Ready()), token);
+                if (streaming)
+                {
+                    if (borrower == 0) await PrepareStream(stream);
+                    for (var iteration = 0; iteration < 2; iteration++)
+                    {
+                        var named = borrower == 0 || iteration != 0;
+                        if (borrower != 0 && iteration != 0) await PrepareStream(stream);
+                        await ReadFrames(stream, named ? "BDES" : "PBDES", token);
+                        var columns = Frame('T', Join(Count(3), Description(1, oid + 2)[7..], Description(1, oid + 3)[7..], Description(1, oid + 2)[7..]));
+                        await stream.WriteAsync(Join(named ? [] : Frame('1'), Frame('2'), columns), token);
+                        await published[borrower * 2 + iteration].Task.WaitAsync(token);
+                        await stream.WriteAsync(Join(Row(text, "\\x" + Convert.ToHexString(bytes), null), Complete(), Ready()), token);
+                    }
+                    await ReadFrames(stream, "PBDES", token);
+                    await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(1, oid + 2), Row("early"), Row("unread"), Complete(), Ready()), token);
+                }
                 await Query(stream, "DISCARD ALL"); await stream.WriteAsync(Join(Frame('C', Encoding.ASCII.GetBytes("DISCARD ALL\0")), Ready()), token);
                 var fresh = 22000 + borrower * 10000; await Catalog(stream, fresh);
                 var restore = await ReadFrames(stream, "PBDES", token);
@@ -77,16 +97,45 @@ internal static class PoolAssetProbe
             SslMode = KingbaseSslMode.Disable, CompatibilityMode = mode, Pooling = true, MaxPoolSize = 1,
             ApplicationName = baseline[6], SearchPath = baseline[7], Timezone = baseline[8]
         };
+        if (streaming) { settings.MaxAutoPrepare = 2; settings.AutoPrepareMinUsages = 2; }
         using var source = new KingbaseDataSourceBuilder(settings.ConnectionString).Build();
         using var connection = source.CreateConnection(); using var command = new KingbaseCommand("SELECT :p", connection);
         command.Parameters.AddWithValue("p", 42);
+        using var streamCommand = new KingbaseCommand("SELECT stream_values", connection); var stale = new List<TextReader>();
         for (var borrower = 0; borrower < 2; borrower++)
         {
             await connection.OpenAsync(token); if (borrower == 0) await command.PrepareAsync(token);
             command.Parameters[0].Value = 42 + borrower; Check(Equals(42 + borrower, await command.ExecuteScalarAsync(token)));
+            if (streaming)
+            {
+                foreach (var old in stale) old.Dispose();
+                if (borrower == 0) await streamCommand.PrepareAsync(token);
+                for (var iteration = 0; iteration < 2; iteration++)
+                {
+                    using var reader = await streamCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, token);
+                    Check(reader.FieldCount == 3); published[borrower * 2 + iteration].SetResult(); Check(reader.HasRows && await reader.ReadAsync(token));
+                    using var chars = reader.GetTextReader(0); var characters = new char[4093]; var position = 0; int count;
+                    while ((count = await chars.ReadAsync(characters.AsMemory(), token)) != 0)
+                    { Check(text.AsSpan(position, count).SequenceEqual(characters.AsSpan(0, count))); position += count; }
+                    Check(position == text.Length);
+                    using var binary = reader.GetStream(1); var buffer = new byte[7919]; position = 0;
+                    while ((count = await binary.ReadAsync(buffer, 0, buffer.Length, token)) != 0)
+                    { Check(bytes.AsSpan(position, count).SequenceEqual(buffer.AsSpan(0, count))); position += count; }
+                    Check(position == bytes.Length && reader.IsDBNull(2) && !await reader.ReadAsync(token));
+                }
+                using var early = new KingbaseCommand("SELECT early_stream", connection);
+                using var closing = await early.ExecuteReaderAsync(CommandBehavior.SequentialAccess, token); Check(closing.Read());
+                var child = closing.GetTextReader(0); Check(child.Read() == 'e'); stale.Add(child); await closing.CloseAsync();
+            }
             await connection.CloseAsync();
         }
         source.Dispose(); await peer.WaitAsync(token);
+
+        async Task PrepareStream(Stream stream)
+        {
+            var frames = await ReadFrames(stream, "PS", token); Check(Encoding.UTF8.GetString(frames[0]).Contains("SELECT stream_values", StringComparison.Ordinal));
+            await stream.WriteAsync(Join(Frame('1'), Ready()), token);
+        }
 
         async Task Query(Stream stream, string expected)
         {

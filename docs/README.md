@@ -15,7 +15,9 @@ Use the design to understand the intended behavior, the matrix to identify a fea
 
 E60 OID manager/streams have passed final offline/package/static/review and source-built LIVE gates; broader privilege/profile/platform acceptance remains pending. B05 ordinary BLOB/CLOB/NCLOB binding is separate. Read the tracker's current delivery section for the distinction between verified behavior and full acceptance; do not interpret the parent-feature closure count as a completion percentage.
 
-E61 adds typed ordinary BLOB/CLOB/NCLOB input and buffered partial Reader access on verified Oracle/MySQL PG-wire domains. Its final validation is recorded in the tracker. Network SequentialAccess, Stream/TextReader parameter input and full B05 acceptance remain open; the OID API does not satisfy those contracts.
+E61 adds typed ordinary BLOB/CLOB/NCLOB input and buffered partial Reader access on verified Oracle/MySQL PG-wire domains. Its final validation is recorded in the tracker. E62 adds network SequentialAccess output. Stream/TextReader parameter input and full B05 acceptance remain open; the OID API does not satisfy those contracts.
+
+E62 adds public PG-wire SequentialAccess, bounded binary/text field readers, lazy batches and Reader lifetime/cleanup ownership. Final checks pass 8,439 offline executions, five exact package assets, .NET analyzers and 1,023 source-built LIVE executions. Q15 is Implemented with broader acceptance pending; Stream/TextReader parameter input and strong streaming KeyInfo remain open. See the tracker's functional delivery table and next-work section; the 122 parent rows are neither a test backlog nor an overall development percentage.
 
 PG remains the default connection protocol in all compatibility modes. The explicit MySQL backend is designed for exceptional installations exposing only MySQL protocol. WireProtocol selects the backend; CompatibilityMode selects database semantics. Both backends use built-in provider pooling with protocol-isolated sessions. These are intended contracts, not implemented capabilities.
 

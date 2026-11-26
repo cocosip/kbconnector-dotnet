@@ -49,9 +49,12 @@ internal sealed partial class PgWire : IDisposable
         if (maxPayloadLength < 0) throw new ArgumentOutOfRangeException(nameof(maxPayloadLength));
         if (timeoutMilliseconds < -1) throw new ArgumentOutOfRangeException(nameof(timeoutMilliseconds));
         EnterOperation();
+        var admitted = false;
         try
         {
+            if (_rowPayloadRemaining != 0) throw new InvalidOperationException("A streaming data row has not been consumed.");
             if (_copyPayloadRemaining != 0) throw new InvalidOperationException("A streaming COPY payload has not been consumed.");
+            admitted = true;
             var elapsed = Stopwatch.StartNew();
             if (_pendingRead is null)
             {
@@ -79,6 +82,7 @@ internal sealed partial class PgWire : IDisposable
             _pendingRead = null;
             return message;
         }
+        catch when (!admitted) { throw; }
         catch (OperationCanceledException) when (preserveCancellation && cancellationToken.IsCancellationRequested && !IsDisposed) { throw; }
         catch { RetireAfterFailure(); throw; }
         finally { Volatile.Write(ref _busy, 0); }

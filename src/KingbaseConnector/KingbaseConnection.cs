@@ -67,6 +67,7 @@ public sealed partial class KingbaseConnection : DbConnection
     public override string DataSource { get { lock (_sync) return _settings.Host; } }
     public override int ConnectionTimeout { get { lock (_sync) return _settings.Timeout; } }
     internal int DefaultCommandTimeout { get { lock (_sync) return _settings.CommandTimeout; } }
+    internal int CleanupTimeout { get { lock (_sync) return _settings.CleanupTimeout; } }
     public override string ServerVersion { get { lock (_sync) return OpenSession().Identity.Version.RawText; } }
     public override ConnectionState State { get { lock (_sync) return _state; } }
     protected override DbProviderFactory DbProviderFactory => KingbaseFactory.Instance;
@@ -191,7 +192,12 @@ public sealed partial class KingbaseConnection : DbConnection
             {
                 try { opening?.Cancel(); } catch (ObjectDisposedException) { }
                 try { operationCancel?.Cancel(); } catch (ObjectDisposedException) { }
-                reader?.Close();
+                if (reader?.IsStreaming == true)
+                {
+                    if (hadCommand) physical?.Dispose();
+                    reader.CloseFromConnection();
+                }
+                else reader?.Close();
             }
             catch (Exception error) { reusable = false; failure = error; }
             try
@@ -305,6 +311,7 @@ public sealed partial class KingbaseConnection : DbConnection
             else if ((transaction is not null && !ReferenceEquals(transaction, _transaction)) ||
                 (operation != KingbaseTransactionOperation.None && transaction is null))
                 throw new InvalidOperationException("The command transaction is not the active transaction on this connection.");
+            physical.Queries.ResetCommandOutcome();
             _command = command;
             _operationCancel = operationCancel;
             _callbackFailure = null;
@@ -333,19 +340,47 @@ public sealed partial class KingbaseConnection : DbConnection
             }
         }
     }
-    internal void PublishReader(KingbaseCommand command, PgPhysicalSession session, long generation, KingbaseDataReader reader)
+    internal void ObserveReaderTransaction(KingbaseCommand command, PgPhysicalSession session, long generation,
+        bool completed, PgTransactionStatus status, bool endsTransaction, bool rawRollback, bool rawScopeControl)
+    {
+        lock (_sync)
+        {
+            if (!ReferenceEquals(_session, session) || _generation != generation || !ReferenceEquals(_command, command)) return;
+            ObserveTransaction(command, session, generation, KingbaseTransactionOperation.None, completed, status,
+                endsTransaction, rawRollback: rawRollback, rawScopeControl: rawScopeControl);
+        }
+    }
+    internal void PublishReader(KingbaseCommand command, PgPhysicalSession session, long generation, KingbaseDataReader reader, bool keepExecuting = false)
     {
         lock (_sync)
         {
             if (_state != ConnectionState.Open || !ReferenceEquals(_session, session) || _generation != generation || !ReferenceEquals(_command, command))
                 throw new InvalidOperationException("The Kingbase command no longer owns its connection.");
+            _reader = reader;
+            if (keepExecuting) return;
             _command = null;
             _operationCancel = null;
-            _reader = reader;
             session.Queries.NotificationHandler = null;
             session.Queries.NoticeHandler = null;
             _callbackFailure = null;
         }
+    }
+    internal void ValidateReaderOwner(KingbaseCommand command, PgPhysicalSession session, long generation, KingbaseDataReader? reader)
+    {
+        if (!OwnsReaderExecution(command, session, generation, reader))
+            throw new InvalidOperationException("The Kingbase reader no longer owns its connection.");
+    }
+    internal bool OwnsReaderExecution(KingbaseCommand command, PgPhysicalSession session, long generation, KingbaseDataReader? reader)
+    {
+        lock (_sync)
+            return _state == ConnectionState.Open && ReferenceEquals(_session, session) && _generation == generation &&
+                (reader is null ? ReferenceEquals(_command, command) : ReferenceEquals(_reader, reader));
+    }
+    internal void SuppressReaderCallbacks(KingbaseCommand command, PgPhysicalSession session, long generation)
+    {
+        lock (_sync)
+            if (ReferenceEquals(_session, session) && _generation == generation && ReferenceEquals(_command, command) && session.IsUsable)
+            { session.Queries.NotificationHandler = null; session.Queries.NoticeHandler = null; }
     }
     internal void EndExecution(KingbaseCommand command, PgPhysicalSession session, long generation)
     {

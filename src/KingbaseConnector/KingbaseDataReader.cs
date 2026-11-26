@@ -9,7 +9,7 @@ using KingbaseConnector.Protocol;
 namespace KingbaseConnector;
 
 /// <summary>Reads supported scalar values from a completed, bounded PG text exchange.</summary>
-public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
+public sealed partial class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
 {
     IReadOnlyList<PgTextResult>? _results;
     readonly PgTypeCatalog _catalog;
@@ -21,6 +21,10 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     int _resultIndex;
     int _rowIndex = -1;
     Dictionary<int, object>? _partialValues;
+    readonly KingbaseReaderExecution? _streaming;
+
+    internal KingbaseDataReader(KingbaseReaderExecution execution, PgTypeCatalog catalog, CommandBehavior behavior, Action<KingbaseDataReader> onClose)
+        : this(new[] { execution.Header! }, catalog, behavior, onClose) => _streaming = execution;
 
     internal KingbaseDataReader(IReadOnlyList<PgTextResult> results, PgTypeCatalog catalog,
         CommandBehavior behavior = CommandBehavior.Default, Action<KingbaseDataReader>? onClose = null)
@@ -53,18 +57,22 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
 
     PgTextResult? Current
     {
-        get { EnsureOpen(); return _resultIndex < _results!.Count ? _results[_resultIndex] : null; }
+        get { EnsureOpen(); return _streaming is not null ? _streaming.Header : _resultIndex < _results!.Count ? _results[_resultIndex] : null; }
     }
     public override int FieldCount => Current?.Columns.Count ?? 0;
     public override int Depth { get { EnsureOpen(); return 0; } }
-    public override bool HasRows => Current?.Rows.Count > 0;
+    public override bool HasRows { get { EnsureOpen(); return _streaming is not null ? _streaming.HasRowsAsync().GetAwaiter().GetResult() : Current?.Rows.Count > 0; } }
     public override bool IsClosed => _results is null;
-    public override int RecordsAffected => _recordsAffected;
+    internal bool IsStreaming => _streaming is not null;
+    internal void CloseFromConnection()
+    { try { _streaming!.InvalidateFromConnection(); } finally { CloseBuffered(); } }
+    public override int RecordsAffected => _streaming?.RecordsAffected ?? _recordsAffected;
     public override object this[int ordinal] => GetValue(ordinal);
     public override object this[string name] => GetValue(GetOrdinal(name));
 
     public override bool Read()
     {
+        if (_streaming is not null) { EnsureOpen(); return _streaming.ReadAsync(CancellationToken.None).GetAwaiter().GetResult(); }
         var current = Current;
         _partialValues = null;
         if (current is null) return false;
@@ -75,6 +83,7 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     public override bool NextResult()
     {
         EnsureOpen();
+        if (_streaming is not null) return _streaming.NextResultAsync(CancellationToken.None).GetAwaiter().GetResult();
         _partialValues = null;
         if (_resultIndex < _results!.Count) _resultIndex = _singleResult ? _results.Count : _resultIndex + 1;
         _rowIndex = -1;
@@ -97,31 +106,35 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     public override string GetDataTypeName(int ordinal) => _catalog.ByOid[Column(ordinal).TypeOid].Name;
     public override Type GetFieldType(int ordinal) => _codecs.GetFieldType(Column(ordinal).TypeOid);
     public override Type GetProviderSpecificFieldType(int ordinal) => _codecs.GetProviderSpecificFieldType(Column(ordinal).TypeOid);
-    public override object GetValue(int ordinal) => _codecs.Decode(Column(ordinal).TypeOid, RawValue(ordinal), Current!.DateStyle, Current.IntervalStyle);
-    public override object GetProviderSpecificValue(int ordinal) => _codecs.DecodeProviderSpecific(Column(ordinal).TypeOid, RawValue(ordinal), Current!.DateStyle, Current.IntervalStyle);
+    public override object GetValue(int ordinal) => _streaming is not null ? StreamingValueAsync(ordinal, false, CancellationToken.None).GetAwaiter().GetResult() : _codecs.Decode(Column(ordinal).TypeOid, RawValue(ordinal), Current!.DateStyle, Current.IntervalStyle);
+    public override object GetProviderSpecificValue(int ordinal) => _streaming is not null ? StreamingValueAsync(ordinal, true, CancellationToken.None).GetAwaiter().GetResult() : _codecs.DecodeProviderSpecific(Column(ordinal).TypeOid, RawValue(ordinal), Current!.DateStyle, Current.IntervalStyle);
+    Task<object> StreamingValueAsync(int ordinal, bool provider, CancellationToken token) { Column(ordinal); return _streaming!.ValueAsync(ordinal, _codecs, provider, token); }
     public override T GetFieldValue<T>(int ordinal)
     {
-        if (typeof(T) == typeof(uint) && _catalog.ByOid[Column(ordinal).TypeOid].CodecName == "int8")
-            return (T)(object)checked((uint)GetFieldValue<long>(ordinal));
-        if (typeof(T) == typeof(ulong) && _catalog.ByOid[Column(ordinal).TypeOid].CodecName == "int16")
-            return (T)(object)(ulong)GetFieldValue<BigInteger>(ordinal);
-        if (typeof(T) == typeof(DateTimeOffset)) return (T)(object)GetFieldValue<KingbaseTimestampTz>(ordinal).ToDateTimeOffset();
-        if (typeof(T) == typeof(TimeSpan) && _catalog.ByOid[Column(ordinal).TypeOid].Name == "interval")
-            return (T)(object)GetFieldValue<KingbaseInterval>(ordinal).ToTimeSpan();
+        var type = _catalog.ByOid[Column(ordinal).TypeOid];
+        if (_streaming is not null) return _streaming.TypedValueAsync<T>(ordinal, _codecs, type, CancellationToken.None).GetAwaiter().GetResult();
+        return ConvertFieldValue<T>(type, provider => provider ? GetProviderSpecificValue(ordinal) : GetValue(ordinal));
+    }
+    internal static T ConvertFieldValue<T>(PgTypeDescription type, Func<bool, object> value)
+    {
+        if (typeof(T) == typeof(uint) && type.CodecName == "int8") return (T)(object)checked((uint)(long)value(false));
+        if (typeof(T) == typeof(ulong) && type.CodecName == "int16") return (T)(object)(ulong)(BigInteger)value(false);
+        if (typeof(T) == typeof(DateTimeOffset)) return (T)(object)((KingbaseTimestampTz)value(true)).ToDateTimeOffset();
+        if (typeof(T) == typeof(TimeSpan) && type.Name == "interval") return (T)(object)((KingbaseInterval)value(false)).ToTimeSpan();
 #if NET6_0_OR_GREATER
-        if (typeof(T) == typeof(DateOnly)) return (T)(object)(_catalog.ByOid[Column(ordinal).TypeOid].CodecName == "mysql_date"
-            ? DateOnly.FromDateTime(GetFieldValue<KingbaseMySqlDate>(ordinal).ToDateTime()) : GetFieldValue<KingbaseDate>(ordinal).ToDateOnly());
+        if (typeof(T) == typeof(DateOnly)) return (T)(object)(type.CodecName == "mysql_date"
+            ? DateOnly.FromDateTime(((KingbaseMySqlDate)value(true)).ToDateTime()) : ((KingbaseDate)value(true)).ToDateOnly());
         if (typeof(T) == typeof(TimeOnly))
         {
-            if (_catalog.ByOid[Column(ordinal).TypeOid].Name != "time")
+            if (type.Name != "time")
                 throw new InvalidCastException("TimeOnly access requires a TIME column.");
-            var time = GetFieldValue<TimeSpan>(ordinal);
+            var time = (TimeSpan)value(false);
             if (time.Ticks < 0 || time.Ticks >= TimeSpan.TicksPerDay) throw new OverflowException("This TIME duration cannot be represented by TimeOnly.");
             return (T)(object)TimeOnly.FromTimeSpan(time);
         }
 #endif
         return (T)(typeof(T) == typeof(KingbaseNumeric) || typeof(T) == typeof(KingbaseDate) || typeof(T) == typeof(KingbaseMySqlDate) || typeof(T) == typeof(KingbaseMySqlDateTime) ||
-            typeof(T) == typeof(KingbaseTimestamp) || typeof(T) == typeof(KingbaseTimestampTz) ? GetProviderSpecificValue(ordinal) : GetValue(ordinal));
+            typeof(T) == typeof(KingbaseTimestamp) || typeof(T) == typeof(KingbaseTimestampTz) ? value(true) : value(false));
     }
     public override int GetValues(object[] values) => CopyValues(values, provider: false);
     public override int GetProviderSpecificValues(object[] values) => CopyValues(values, provider: true);
@@ -133,7 +146,7 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
         for (var i = 0; i < count; i++) values[i] = provider ? GetProviderSpecificValue(i) : GetValue(i);
         return count;
     }
-    public override bool IsDBNull(int ordinal) => RawValue(ordinal) is null;
+    public override bool IsDBNull(int ordinal) => _streaming is not null ? IsDBNullAsync(ordinal, CancellationToken.None).GetAwaiter().GetResult() : RawValue(ordinal) is null;
     public override bool GetBoolean(int ordinal) => GetFieldValue<bool>(ordinal);
     public override byte GetByte(int ordinal) => GetFieldValue<byte>(ordinal);
     public override char GetChar(int ordinal) => GetFieldValue<char>(ordinal);
@@ -150,6 +163,7 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     /// <summary>Copies buffered bytes. A null buffer returns the full length.</summary>
     public override long GetBytes(int ordinal, long dataOffset, byte[]? buffer, int bufferOffset, int length)
     {
+        if (_streaming is not null) { Column(ordinal); ValidateSlice(dataOffset, buffer, bufferOffset, length); return _streaming.CopyBytesAsync(ordinal, dataOffset, buffer, bufferOffset, length, _codecs).GetAwaiter().GetResult(); }
         var source = PartialValue<byte[]>(ordinal);
         ValidateSlice(dataOffset, buffer, bufferOffset, length);
         if (buffer is null) return source.Length;
@@ -160,6 +174,7 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     /// <summary>Copies buffered UTF16 characters. A null buffer returns the full length.</summary>
     public override long GetChars(int ordinal, long dataOffset, char[]? buffer, int bufferOffset, int length)
     {
+        if (_streaming is not null) { Column(ordinal); ValidateSlice(dataOffset, buffer, bufferOffset, length); return _streaming.CopyCharsAsync(ordinal, dataOffset, buffer, bufferOffset, length, _codecs).GetAwaiter().GetResult(); }
         var source = PartialValue<string>(ordinal);
         ValidateSlice(dataOffset, buffer, bufferOffset, length);
         if (buffer is null) return source.Length;
@@ -167,8 +182,8 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
         if (count != 0) source.CopyTo((int)dataOffset, buffer, bufferOffset, count);
         return count;
     }
-    public override Stream GetStream(int ordinal) => new MemoryStream(GetFieldValue<byte[]>(ordinal), writable: false);
-    public override TextReader GetTextReader(int ordinal) => new StringReader(GetString(ordinal));
+    public override Stream GetStream(int ordinal) { Column(ordinal); return _streaming is not null ? _streaming.StreamAsync(ordinal, _codecs).GetAwaiter().GetResult() : new MemoryStream(GetFieldValue<byte[]>(ordinal), writable: false); }
+    public override TextReader GetTextReader(int ordinal) { Column(ordinal); return _streaming is not null ? _streaming.TextReaderAsync(ordinal, _codecs).GetAwaiter().GetResult() : new StringReader(GetString(ordinal)); }
     T PartialValue<T>(int ordinal) where T : class
     {
         EnsureRow();
@@ -278,10 +293,12 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
         return table;
     }
 
-    public override Task<bool> ReadAsync(CancellationToken cancellationToken) => BufferedAsync(Read, cancellationToken);
-    public override Task<bool> NextResultAsync(CancellationToken cancellationToken) => BufferedAsync(NextResult, cancellationToken);
-    public override Task<bool> IsDBNullAsync(int ordinal, CancellationToken cancellationToken) => BufferedAsync(() => IsDBNull(ordinal), cancellationToken);
-    public override Task<T> GetFieldValueAsync<T>(int ordinal, CancellationToken cancellationToken) => BufferedAsync(() => GetFieldValue<T>(ordinal), cancellationToken);
+    public override Task<bool> ReadAsync(CancellationToken cancellationToken) { if (_streaming is null) return BufferedAsync(Read, cancellationToken); EnsureOpen(); return _streaming.ReadAsync(cancellationToken); }
+    public override Task<bool> NextResultAsync(CancellationToken cancellationToken) { if (_streaming is null) return BufferedAsync(NextResult, cancellationToken); EnsureOpen(); return _streaming.NextResultAsync(cancellationToken); }
+    public override Task<bool> IsDBNullAsync(int ordinal, CancellationToken cancellationToken) { if (_streaming is null) return BufferedAsync(() => IsDBNull(ordinal), cancellationToken); Column(ordinal); return _streaming.IsDBNullAsync(ordinal, cancellationToken); }
+    public override Task<T> GetFieldValueAsync<T>(int ordinal, CancellationToken cancellationToken) => _streaming is null ? BufferedAsync(() => GetFieldValue<T>(ordinal), cancellationToken) : StreamingFieldValueAsync<T>(ordinal, cancellationToken);
+    Task<T> StreamingFieldValueAsync<T>(int ordinal, CancellationToken token) =>
+        _streaming!.TypedValueAsync<T>(ordinal, _codecs, _catalog.ByOid[Column(ordinal).TypeOid], token);
     static Task<T> BufferedAsync<T>(Func<T> operation, CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested) return Task.FromCanceled<T>(cancellationToken);
@@ -290,6 +307,16 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     }
     public override void Close()
     {
+        if (_streaming is not null && !IsClosed)
+        {
+            _streaming.CheckAccess();
+            _streaming.CloseAsync(CloseBuffered).GetAwaiter().GetResult();
+            return;
+        }
+        CloseBuffered();
+    }
+    void CloseBuffered()
+    {
         if (Interlocked.Exchange(ref _results, null) is null) return;
         _partialValues = null;
         _rowIndex = -1;
@@ -297,8 +324,13 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     }
     protected override void Dispose(bool disposing) { if (disposing) Close(); base.Dispose(disposing); }
 #if !NETSTANDARD2_0
-    public override Task CloseAsync() { Close(); return Task.CompletedTask; }
-    public override ValueTask DisposeAsync() { Dispose(); return default; }
+    public override async Task CloseAsync()
+    {
+        if (_streaming is null || IsClosed) { Close(); return; }
+        _streaming.CheckAccess();
+        await _streaming.CloseAsync(CloseBuffered).ConfigureAwait(false);
+    }
+    public override async ValueTask DisposeAsync() { await CloseAsync().ConfigureAwait(false); GC.SuppressFinalize(this); }
 #endif
 
     PgColumnDescription Column(int ordinal)
@@ -311,11 +343,12 @@ public sealed class KingbaseDataReader : DbDataReader, IDbColumnSchemaGenerator
     string? RawValue(int ordinal) { Column(ordinal); EnsureRow(); return Current!.Rows[_rowIndex][ordinal]; }
     void EnsureRow()
     {
+        if (_streaming is not null) { EnsureOpen(); if (!_streaming.OnRow) throw new InvalidOperationException("The Kingbase reader is not positioned on a row."); return; }
         var current = Current;
         if (current is null || _rowIndex < 0 || _rowIndex >= current.Rows.Count || (_singleRow && _rowIndex >= 1))
             throw new InvalidOperationException("The Kingbase reader is not positioned on a row.");
     }
-    void EnsureOpen() { if (IsClosed) throw new InvalidOperationException("The Kingbase reader is closed."); }
+    void EnsureOpen() { _streaming?.CheckAccess(); if (IsClosed) throw new InvalidOperationException("The Kingbase reader is closed."); }
     internal static int? AffectedCount(string? tag)
     {
         if (tag is null) return null;
