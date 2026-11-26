@@ -593,3 +593,28 @@ rejection, unsent batches and execution-write failure accounting. Exact-asset
 native scalar probes add ordinary LOB streaming values and large base-type
 inputs across two pooled borrowers in all four simulated modes. Real TLS,
 exact-package LIVE and broader platform/profile acceptance remain separate.
+
+E65 adds twenty source-built typed binary COPY cases across the four PG-wire
+modes: core twelve-type import/export with independent ordinary text Reader
+verification; server-generated binary exports independent of the importer;
+incomplete import cancellation with and without an enclosing transaction; and
+copies exceeding 1MiB cumulatively under two same-PID pooled borrowers, including
+stale exporter disposal during the next import. NULL, empty values, integer
+extrema, IEEE values, Unicode, bytea and UUID use explicit base column selectors.
+Four additional WHERE-filtered imports, for twenty-four total, verify that fewer inserted rows are
+reported successfully and ordinary Reader access reuses the connection afterward.
+Fixture discovery found unavailable decode overloads in Oracle/MySQL, an
+unsupported numeric-to-oid cast in SQL Server and different MySQL bpchar padding.
+The corrected fixtures use NULL bytea (nonempty/empty remain independently
+covered), text-to-oid and mode-specific server padding; these are SQL fixture
+assumptions, not accepted driver defects. Preserve earlier failed run records
+in the private evidence directory alongside the final passing runs.
+
+Loopback tests independently validate literal network bytes, fragmented rows,
+wrong catalog layouts, flags/extensions/lengths/trailers/counts, invalid UTF8 and
+boolean values, exact row and column bounds, pre-dispatch rejection, concurrent
+operations, callbacks and close/cancel/deadline revocation. Five exact-package
+consumers add typed int4/text import/export with NULL/empty values over two
+borrowers in all four simulated modes. Numeric/temporal/complex codecs, native
+MySQL wire, exact-package LIVE, other profiles/platforms and real TLS remain
+outside this increment's evidence. Offline TLS tests remain required.

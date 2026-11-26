@@ -51,6 +51,7 @@ public sealed class KingbaseCopyStream : Stream
     public bool IsBinary => _exchange?.IsBinary == true;
     public int ColumnCount => _exchange?.ColumnCount ?? 0;
     public ulong? RowsCopied => _completed ? _exchange?.RowsCopied : null;
+    internal Action<ulong>? CompletionValidator { get; set; }
     internal bool HasFinished => Volatile.Read(ref _finished) != 0;
     public override bool CanRead => !_disposed && _finished == 0 && !IsImport && _session.IsUsable;
     public override bool CanWrite => !_disposed && _finished == 0 && IsImport && _session.IsUsable;
@@ -205,6 +206,8 @@ public sealed class KingbaseCopyStream : Stream
 
     void CompleteAcknowledged()
     {
+        try { CompletionValidator?.Invoke(_exchange!.RowsCopied!.Value); }
+        catch { Abort(); throw; }
         _completed = true; Observe();
         try { _connection.ThrowCallbackFailure(_session, _generation); }
         finally { Finish(); }
@@ -237,6 +240,7 @@ public sealed class KingbaseCopyStream : Stream
     void Finish()
     {
         if (Interlocked.Exchange(ref _finished, 1) != 0) return;
+        CompletionValidator = null;
         _exchange?.Release(); _abort.Dispose(); _stopTimer.Cancel();
         _connection.EndExecution(_marker, _session, _generation); _connection.RetireIfBroken(_session);
         _marker.Dispose(); _lifetime.Dispose(); _stopTimer.Dispose();

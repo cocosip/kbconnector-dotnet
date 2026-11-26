@@ -59,7 +59,29 @@ Only a single client COPY statement with FROM STDIN or TO STDOUT is accepted. Se
 
 Command Timeout is one lifetime deadline, including application pauses; zero is unlimited. The token supplied to Begin remains applicable for that resource's lifetime. An in-flight I/O cancellation or connection Close retires the physical session; pre-canceled calls do no I/O. Explicit import cancellation uses the separate Cleanup Timeout and consumes only its own acknowledged 57014; known earlier server/receive failures remain visible. It does not roll back an enclosing transaction: the tested profiles report a failed outer transaction, which the application must explicitly roll back. Concurrent operations on the same COPY resource reject, including cancellation during unacknowledged completion; use an I/O token or connection Close to interrupt pending work.
 
-COPY data streams beyond the buffered query's 1 MiB total limit. Frames remain bounded to 64 MiB and total control/empty-message traffic to 4096 frames/1 MiB. Shared byte-array I/O and the declared modern Span/Memory overrides split data into chunks of at most 64 KiB; Span/Memory adaptation may stage one additional chunk. The netstandard2.0 asset exposes the shared byte-array contract; later host BCL adapters are outside that memory guarantee. TextReader.ReadToEnd and application destination buffers can deliberately materialize the result. Text COPY validates lifetime and connection ownership before accessing its own buffers: Close, Begin-token cancellation and the total deadline revoke cached reads and writes. An export with an acknowledged final tail can still report EOF after its connection closes. Typed binary COPY, broader platforms/profiles, native MySQL wire and real-server TLS remain separate acceptance work.
+COPY data streams beyond the buffered query's 1 MiB total limit. Frames remain bounded to 64 MiB and total control/empty-message traffic to 4096 frames/1 MiB. Shared byte-array I/O and the declared modern Span/Memory overrides split data into chunks of at most 64 KiB; Span/Memory adaptation may stage one additional chunk. The netstandard2.0 asset exposes the shared byte-array contract; later host BCL adapters are outside that memory guarantee. TextReader.ReadToEnd and application destination buffers can deliberately materialize the result. Text COPY validates lifetime and connection ownership before accessing its own buffers: Close, Begin-token cancellation and the total deadline revoke cached reads and writes. An export with an acknowledged final tail can still report EOF after its connection closes. Broader platforms/profiles, native MySQL wire and real-server TLS remain separate acceptance work.
+
+Typed binary COPY uses explicit base column types and bounded whole rows:
+
+```csharp
+using (var input = await connection.BeginBinaryImportAsync(
+    "COPY app_items (id, description) FROM STDIN (FORMAT BINARY)",
+    new[] { KingbaseDbType.Integer, KingbaseDbType.Text }, cancellationToken))
+{
+    await input.WriteRowAsync(new object?[] { 1, "first item" }, cancellationToken);
+    await input.WriteRowAsync(new object?[] { 2, DBNull.Value }, cancellationToken);
+    ulong rows = await input.CompleteAsync(cancellationToken);
+}
+
+using var output = await connection.BeginBinaryExportAsync(
+    "COPY app_items (id, description) TO STDOUT (FORMAT BINARY)",
+    new[] { KingbaseDbType.Integer, KingbaseDbType.Text }, cancellationToken);
+object[]? nextRow = await output.ReadRowAsync(cancellationToken);
+```
+
+`KingbaseBinaryImporter` and `KingbaseBinaryExporter` support sync/async operations and disposal. Supported actual `pg_catalog` base types are bool, int2, int4, int8, oid, float4, float8, text, varchar, bpchar, bytea and uuid. Inputs require their exact CLR types (including UInt32 for oid); null/DBNull represents SQL NULL. Returned SQL NULL is DBNull; a null row means the trailer, COPY count and ReadyForQuery have all been validated. Explicit Complete is required for import success; disposing beforehand cancels. Columns must match the actual COPY types and order: the response confirms count and formats but supplies no type OIDs. Selectors are snapshotted and checked against the actual catalog before sending COPY.
+
+Each row accepts 0–1024 columns and at most 1 MiB of encoded value bytes, excluding framing. Cumulative length has no aggregate cap. Every outgoing value is validated and mutable byte arrays are copied before row transmission; invalid local values leave the import active for correction or cancellation. Import reports the server's inserted count, which can be smaller than the sent count when WHERE or triggers skip rows. Export validates the KBCOPY header, critical flags, at most 64 KiB of extension, lengths, fixed widths, strict UTF8, trailer and acknowledged row count before releasing ownership. Malformed output retires the session. The existing COPY lifetime, callback and operation gates apply. Numeric, temporal, native/domain/complex codecs and streaming individual fields remain open; use the raw API only with independently matched binary formats. These APIs do not promise cross-version restore.
 
 OID large objects use an explicit local transaction on the four tested PG-wire modes:
 

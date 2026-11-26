@@ -16,6 +16,7 @@ internal static class CopyAssetProbe
         var wireMode = mode switch { KingbaseCompatibilityMode.Oracle => "oracle", KingbaseCompatibilityMode.MySql => "mysql", KingbaseCompatibilityMode.SqlServer => "sqlserver", _ => "pg" };
         string[] baseline = ["db", "user", "user", wireMode, "UTF8", "on", "copy_probe", "pg_catalog, public", "UTC", "read committed", "off", "off", "ISO, MDY", "postgres", "read committed", "off", ""];
         var raw = Enumerable.Range(0, 131079).Select(i => (byte)(i % 251)).ToArray(); var text = "1\t文字😀\n2\t\\N\n";
+        var typed = Join(new byte[] {75,66,67,79,80,89,10,255,13,10,0,0,0,0,0,0,0,0,0}, new byte[] {0,2}, Int32(4), Int32(-42), Int32(3), new byte[] {231,149,140}, new byte[] {0,2}, Int32(-1), Int32(0), new byte[] {255,255});
         var peer = Task.Run(async () =>
         {
             using var socket = await listener.AcceptTcpClientAsync(token); using var stream = socket.GetStream();
@@ -28,6 +29,9 @@ internal static class CopyAssetProbe
                 await Query(stream, "COPY items FROM STDIN (FORMAT BINARY)"); await stream.WriteAsync(Join(Response(true, true), Notice("import")), token);
                 Check((await Import(stream)).SequenceEqual(raw)); await stream.WriteAsync(Tail(1), token);
                 await Query(stream, "COPY items TO STDOUT (FORMAT BINARY)"); await stream.WriteAsync(Join(Response(false, true), Frame('d', raw), Frame('c'), Tail(1)), token);
+                await Query(stream, "COPY typed FROM STDIN (FORMAT BINARY)"); await stream.WriteAsync(Response(true, true), token);
+                Check((await Import(stream)).SequenceEqual(typed)); await stream.WriteAsync(Tail(2), token);
+                await Query(stream, "COPY typed TO STDOUT (FORMAT BINARY)"); await stream.WriteAsync(Join(Response(false, true), Frame('d', typed[..17]), Frame('d', typed[17..]), Frame('c'), Tail(2)), token);
                 await Query(stream, "COPY items FROM STDIN"); await stream.WriteAsync(Response(true, false), token); Check(Encoding.UTF8.GetString(await Import(stream)) == text); await stream.WriteAsync(Tail(2), token);
                 await Query(stream, "COPY items TO STDOUT"); var utf8 = Encoding.UTF8.GetBytes(text); await stream.WriteAsync(Join(Response(false, false), Frame('d', utf8[..6]), Frame('d', utf8[6..]), Frame('c'), Tail(2)), token);
                 await Query(stream, "COPY items FROM STDIN (FORMAT BINARY)"); await stream.WriteAsync(Response(true, true), token); Check((await Frontend(stream)).Code == 'f');
@@ -53,6 +57,10 @@ internal static class CopyAssetProbe
             { Check(copy.IsImport && copy.IsBinary && copy.ColumnCount == 2 && copy.RowsCopied is null); await copy.WriteAsync(raw, 0, raw.Length, token); Check(await copy.CompleteAsync(token) == 1 && copy.RowsCopied == 1); }
             using (var copy = await connection.BeginRawBinaryCopyAsync("COPY items TO STDOUT (FORMAT BINARY)", token))
             { using var actual = new MemoryStream(); await copy.CopyToAsync(actual, 7919, token); Check(actual.ToArray().SequenceEqual(raw) && copy.RowsCopied == 1); }
+            using (var input = await connection.BeginBinaryImportAsync("COPY typed FROM STDIN (FORMAT BINARY)", new[] {KingbaseDbType.Integer, KingbaseDbType.Text}, token))
+            { await input.WriteRowAsync(new object?[] {-42, "界"}, token); input.WriteRow(DBNull.Value, ""); Check(input.RowsCopied is null && await input.CompleteAsync(token) == 2); }
+            using (var output = await connection.BeginBinaryExportAsync("COPY typed TO STDOUT (FORMAT BINARY)", new[] {KingbaseDbType.Integer, KingbaseDbType.Text}, token))
+            { Check((await output.ReadRowAsync(token))!.SequenceEqual(new object[] {-42, "界"})); Check(output.ReadRow()!.SequenceEqual(new object[] {DBNull.Value, ""})); Check(await output.ReadRowAsync(token) is null && output.RowsCopied == 2); }
             using (var writer = await connection.BeginTextImportAsync("COPY items FROM STDIN", token)) { writer.Write(text); Check(await writer.CompleteAsync(token) == 2); }
             using (var reader = await connection.BeginTextExportAsync("COPY items TO STDOUT", token)) Check(await reader.ReadToEndAsync() == text);
             using (var copy = await connection.BeginRawBinaryCopyAsync("COPY items FROM STDIN (FORMAT BINARY)", token))
