@@ -37,6 +37,9 @@ internal static class CopyAssetProbe
                 await Catalog(stream); await ReadFrames(stream, "PBDES", token); await stream.WriteAsync(Join(Frame('1'), Frame('2'), Description(10), Row(baseline[4..14]), Complete(), Ready()), token);
                 await State(stream); await Identity(stream);
             }
+            await Query(stream, "SELECT 1"); await stream.WriteAsync(Join(Description(1, 15002, 4), Row("1"), Complete(), Ready()), token);
+            await Query(stream, "COPY items TO STDOUT");
+            await stream.WriteAsync(Join(Response(false, false), Frame('d', Encoding.ASCII.GetBytes("ab"))), token);
             Check(await stream.ReadAsync(new byte[1], token) == 0);
         }, token);
         var settings = new KingbaseConnectionStringBuilder { Host = "127.0.0.1", Port = ((IPEndPoint)listener.LocalEndpoint).Port, Username = "user", Database = "db", SslMode = KingbaseSslMode.Disable,
@@ -56,7 +59,15 @@ internal static class CopyAssetProbe
             { try { await copy.CancelAsync(token); throw new Exception("COPY callback failure was lost."); } catch (InvalidOperationException error) { Check(ReferenceEquals(error, failure)); } }
             using var command = new KingbaseCommand("SELECT 42", connection); Check(Equals(42, await command.ExecuteScalarAsync(token))); await connection.CloseAsync();
         }
-        Check(notices.SequenceEqual(new[] { 2, 2 })); source.Dispose(); await peer.WaitAsync(token);
+        Check(notices.SequenceEqual(new[] { 2, 2 }));
+        using (var connection = await source.OpenConnectionAsync(token))
+        {
+            using var reader = await connection.BeginTextExportAsync("COPY items TO STDOUT", token); Check(reader.Read() == 'a'); connection.Close();
+            var canceled = false;
+            try { reader.Read(); } catch (OperationCanceledException) { canceled = true; }
+            Check(canceled);
+        }
+        source.Dispose(); await peer.WaitAsync(token);
 
         async Task Query(Stream stream, string sql) { var request = await ReadFrames(stream, "Q", token); Check(Encoding.UTF8.GetString(request[0].AsSpan(5)) == sql + '\0'); }
         async Task Identity(Stream stream) { await Query(stream, "SELECT pg_catalog.version();"); await stream.WriteAsync(Join(Description(1), Row("KingbaseES V009R001C001B0001"), Complete(), Ready()), token); }

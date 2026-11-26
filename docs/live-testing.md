@@ -18,7 +18,7 @@ variables from a private external configuration:
 All four bootstrap cases use the PostgreSql wire protocol. A MySql compatibility
 mode pass does not establish native MySQL protocol support. Set the transport
 and TLS policy explicitly in each private connection string; there is no TLS
-downgrade or endpoint fallback. Public execution cases currently require PG mode.
+downgrade or endpoint fallback. Public execution cases include bounded four-mode PG-wire coverage; individual metadata cases retain their PG-only scope.
 
 ```powershell
 # Load process environment from your private configuration first.
@@ -571,3 +571,11 @@ modes. Simulated package consumers remain separate from source-built LIVE;
 these checks do not establish exact-package LIVE or other platform acceptance.
 Stream/TextReader parameter input and strong SequentialAccess+KeyInfo remain
 open; real-server TLS is still user-deferred, with offline TLS tests retained.
+
+Text COPY lifetime regressions exercise buffered import and export after Close,
+Begin-token cancellation and the total command deadline in all four PG-wire
+modes. They use dedicated connections and only a temporary import table. Cached
+characters and unflushed writes must reject with cancellation/timeout rather
+than surviving the revoked operation. Loopback tests separately cover normal
+acknowledged EOF, asynchronous overloads and repeated disposal; exact-package
+probes exercise cached export rejection after Close.

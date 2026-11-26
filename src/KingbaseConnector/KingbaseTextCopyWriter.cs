@@ -13,7 +13,7 @@ public sealed class KingbaseTextCopyWriter : TextWriter
     internal KingbaseTextCopyWriter(KingbaseCopyStream copy) { _copy = copy; _writer = new StreamWriter(copy, PgBinary.Utf8, 4096, leaveOpen: true); }
     public override Encoding Encoding => PgBinary.Utf8;
     public ulong? RowsCopied => _copy.RowsCopied;
-    void Check() { _copy.RejectCallbackReentry(); if (Volatile.Read(ref _terminalBusy) != 0) throw new InvalidOperationException("A text COPY terminal operation is already active."); if (_closed) throw new ObjectDisposedException(nameof(KingbaseTextCopyWriter)); }
+    void Check() { _copy.RejectCallbackReentry(); if (Volatile.Read(ref _terminalBusy) != 0) throw new InvalidOperationException("A text COPY terminal operation is already active."); if (_closed) throw new ObjectDisposedException(nameof(KingbaseTextCopyWriter)); _copy.CheckBufferedAccess(); }
     public override void Write(char value) { Check(); _writer.Write(value); }
     public override void Write(string? value) { Check(); _writer.Write(value); }
     public override void Write(char[] buffer, int index, int count) { Check(); _writer.Write(buffer, index, count); }
@@ -44,6 +44,7 @@ public sealed class KingbaseTextCopyWriter : TextWriter
         {
             if (_closed) return RowsCopied ?? (disposing ? 0UL : throw new ObjectDisposedException(nameof(KingbaseTextCopyWriter)));
             _closed = true; close = true;
+            if (disposing && _copy.HasFinished) return RowsCopied ?? 0UL;
             using (cancellationToken.Register(_copy.Abort)) await _writer.FlushAsync().ConfigureAwait(false);
             return await _copy.CompleteAsync(cancellationToken).ConfigureAwait(false);
         }

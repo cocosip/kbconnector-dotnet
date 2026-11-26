@@ -184,6 +184,25 @@ public sealed class KingbaseCopyStream : Stream
         if (_connection.IsInsideCallback) throw new InvalidOperationException("A COPY callback cannot reenter its COPY resource.");
     }
 
+    internal void CheckBufferedAccess()
+    {
+        RejectCallbackReentry();
+        if (_disposed) throw new ObjectDisposedException(nameof(KingbaseCopyStream));
+        if (_completed && !IsImport) return;
+        try
+        {
+            _lifetimeToken.ThrowIfCancellationRequested();
+            if (HasFinished) throw new ObjectDisposedException(nameof(KingbaseCopyStream));
+            if (!_session.IsUsable)
+            {
+                _exchange?.ThrowIfReceiveEnded();
+                throw new IOException("The COPY session is no longer usable.");
+            }
+            _connection.ValidateReaderOwner(_marker, _session, _generation, null);
+        }
+        catch (Exception error) { throw Failure(error, CancellationToken.None); }
+    }
+
     void CompleteAcknowledged()
     {
         _completed = true; Observe();

@@ -8,7 +8,7 @@ internal sealed class KingbaseTextCopyReader : TextReader
     readonly StreamReader _reader;
     internal KingbaseTextCopyReader(KingbaseCopyStream copy)
     { _copy = copy; _reader = new StreamReader(copy, PgBinary.Utf8, detectEncodingFromByteOrderMarks: false, bufferSize: 4096, leaveOpen: true); }
-    void Check() => _copy.RejectCallbackReentry();
+    void Check() => _copy.CheckBufferedAccess();
     public override int Peek() { Check(); return _reader.Peek(); }
     public override int Read() { Check(); return _reader.Read(); }
     public override int Read(char[] buffer, int index, int count) { Check(); return _reader.Read(buffer, index, count); }
@@ -31,7 +31,7 @@ internal sealed class KingbaseTextCopyReader : TextReader
 #endif
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { Check(); _copy.Dispose(); _reader.Dispose(); }
+        if (disposing) { _copy.RejectCallbackReentry(); _copy.Dispose(); _reader.Dispose(); }
         base.Dispose(disposing);
     }
 }
