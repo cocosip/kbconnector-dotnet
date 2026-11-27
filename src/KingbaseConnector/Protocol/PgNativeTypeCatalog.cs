@@ -47,14 +47,26 @@ internal static class PgNativeTypeCatalog
         PgTypeCatalog.CheckMode(session, identity);
         uint? namespaceOid = null;
         var seenNames = new HashSet<string>(StringComparer.Ordinal);
+        var nativeOids = new HashSet<uint>();
         foreach (var row in results[0].Rows)
         {
             if (row.Count != 16 || row.Any(value => value is null) || !Names.Contains(row[3], StringComparer.Ordinal)) throw PgTypeCatalog.InvalidCatalog();
             var lob = row[3] is "blob" or "clob" or "nclob";
             var schema = identity.EffectiveMode == KingbaseCompatibilityMode.Oracle && lob && row[2] == "pg_catalog" ? "pg_catalog" : "sys";
             var type = PgTypeCatalog.ReadType(row, schema); var pgNamespace = byName["pg_catalog.text"].NamespaceOid;
-            if ((schema == "pg_catalog" ? type.NamespaceOid != pgNamespace : type.NamespaceOid == pgNamespace || (namespaceOid.HasValue && namespaceOid.Value != type.NamespaceOid)) ||
-                byOid.ContainsKey(type.Oid) || !seenOids.Add(type.Oid) || !seenNames.Add(schema + "." + type.Name)) throw PgTypeCatalog.InvalidCatalog();
+            if ((schema == "pg_catalog" ? type.NamespaceOid != pgNamespace : type.NamespaceOid == pgNamespace || (namespaceOid.HasValue && namespaceOid.Value != type.NamespaceOid)))
+                throw PgTypeCatalog.InvalidCatalog();
+            // The base catalog now lists every base, domain and composite type by text; a native row refines that entry.
+            var name = schema + "." + type.Name;
+            if (byOid.TryGetValue(type.Oid, out var loaded) &&
+                (loaded.Kind != type.Kind || loaded.BaseTypeOid != type.BaseTypeOid || loaded.ElementTypeOid != type.ElementTypeOid ||
+                 loaded.Size != type.Size || loaded.NamespaceOid != type.NamespaceOid || loaded.Name != type.Name))
+                throw PgTypeCatalog.InvalidCatalog();
+            if (byName.TryGetValue(name, out var named) && named.Oid != type.Oid) throw PgTypeCatalog.InvalidCatalog();
+            // The base catalog reserves every OID it reported, including rows it skipped for a mismatched layout.
+            if (!byOid.ContainsKey(type.Oid) && !seenOids.Add(type.Oid)) throw PgTypeCatalog.InvalidCatalog();
+            if (!nativeOids.Add(type.Oid)) throw PgTypeCatalog.InvalidCatalog();
+            if (!seenNames.Add(name)) throw PgTypeCatalog.InvalidCatalog();
             if (schema == "sys") namespaceOid = type.NamespaceOid;
             if (identity.EffectiveMode == KingbaseCompatibilityMode.Oracle && lob && schema != "pg_catalog") continue;
             var internalIo = Flag(row[14]!); var trustedOwner = Flag(row[15]!);
@@ -68,7 +80,7 @@ internal static class PgNativeTypeCatalog
             }
             else if (type.BaseTypeOid != 0) continue;
             type = PgTypeCatalog.ReadType(row, schema, supported.Codec);
-            byOid.Add(type.Oid, type); byName.Add(schema + "." + type.Name, type);
+            byOid[type.Oid] = type; byName[name] = type;
         }
     }
 

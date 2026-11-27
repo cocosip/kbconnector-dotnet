@@ -34,7 +34,9 @@ internal sealed class PgTypeCatalog
         "FROM sys_catalog.sys_type AS t JOIN sys_catalog.sys_namespace AS n ON n.oid OPERATOR(pg_catalog.=) t.typnamespace " +
         "WHERE t.typisdefined AND ((n.nspname OPERATOR(pg_catalog.=) 'pg_catalog'::pg_catalog.name AND (" +
         string.Join(" OR ", Names.Select(name => "pg_catalog.nameeq(t.typname,'" + name + "'::pg_catalog.name)")) +
-        ")) OR ((t.typtype OPERATOR(pg_catalog.=) 'e' OR t.typtype OPERATOR(pg_catalog.=) 's') AND " +
+        ")) OR ((t.typtype OPERATOR(pg_catalog.=) 'e' OR t.typtype OPERATOR(pg_catalog.=) 's' OR " +
+        "t.typtype OPERATOR(pg_catalog.=) 'b' OR t.typtype OPERATOR(pg_catalog.=) 'd' OR " +
+        "t.typtype OPERATOR(pg_catalog.=) 'm') AND " +
         "NOT pg_catalog.pg_is_other_temp_schema(t.typnamespace)))";
 
     PgTypeCatalog(Dictionary<uint, PgTypeDescription> byOid, Dictionary<string, PgTypeDescription> byName)
@@ -75,26 +77,27 @@ internal sealed class PgTypeCatalog
                 if (row.Count != 12) throw InvalidCatalog();
                 // A same-named type outside pg_catalog is a user type, not the built-in one it resembles.
                 var fixedName = Names.Contains(row[3], StringComparer.Ordinal) && row[2] == "pg_catalog";
-                if (!fixedName && row[5] is not ("e" or "s")) throw InvalidCatalog();
-                var type = ReadType(row, fixedName ? "pg_catalog" : row[2]!);
+                if (!fixedName && row[5] is not ("e" or "s" or "b" or "d" or "m")) throw InvalidCatalog();
+                // Dynamic rows keep the explicit text codec (no scalar name) until native discovery refines them.
+                var type = ReadType(row, fixedName ? "pg_catalog" : row[2]!, fixedName ? null : "string");
                 if (fixedName)
                 {
                     if (namespaceOid.HasValue && namespaceOid.Value != type.NamespaceOid) throw InvalidCatalog();
                     namespaceOid = type.NamespaceOid;
                 }
-                else if (type.Kind == 'e' ? type.Category != 'E' || type.Size <= 0 || type.BaseTypeOid != 0 || type.ElementTypeOid != 0 :
-                    type.Kind != 's' || type.Category != 'M' || type.Size <= 0 || type.BaseTypeOid != 0 || type.ElementTypeOid != 0) continue;
+                else if (!AcceptedDynamic(type)) continue;
                 var name = type.Namespace + "." + type.Name;
                 // Dedupe on the namespace OID: dots are legal in schema and type names, so the pair is not a key.
                 if (!seenOids.Add(type.Oid) ||
                     !seenNames.Add(type.NamespaceOid.ToString(CultureInfo.InvariantCulture) + "." + type.Name)) throw InvalidCatalog();
-                if (type.Name is "int16" or "tinyint")
+                // The Oracle int16/tinyint fixups describe the built-in rows only; native rows arrive by schema.
+                if (fixedName && type.Name is "int16" or "tinyint")
                 {
                     if (type.Kind != 'b' || type.Category != 'N' || type.BaseTypeOid != 0 || type.ElementTypeOid != 0 ||
                         (type.Name == "int16" ? type.Size != 16 : type.Size != 1 || identity.EffectiveMode != KingbaseCompatibilityMode.Oracle)) continue;
                     if (type.Name == "tinyint") type = ReadType(row, "pg_catalog", "sbyte");
                 }
-                if (type.Name is "bit" or "varbit" && (type.Kind != 'b' || type.Category != 'V' || type.Size != -1 || type.BaseTypeOid != 0 || type.ElementTypeOid != 0)) continue;
+                if (fixedName && type.Name is "bit" or "varbit" && (type.Kind != 'b' || type.Category != 'V' || type.Size != -1 || type.BaseTypeOid != 0 || type.ElementTypeOid != 0)) continue;
                 byOid.Add(type.Oid, type);
                 // A dotted name collision between distinct types keeps the first entry; both stay readable by OID.
                 if (!byName.ContainsKey(name)) byName.Add(name, type);
@@ -131,6 +134,15 @@ internal sealed class PgTypeCatalog
             ParseInt(row[11]!), namespaceName, codecName);
     }
 
+    // Rows outside the fixed built-in list keep the explicit text path: enums/SETs by kind, other shapes by layout.
+    static bool AcceptedDynamic(PgTypeDescription type) => type.Kind switch
+    {
+        'e' => type.Category == 'E' && type.Size > 0 && type.BaseTypeOid == 0 && type.ElementTypeOid == 0,
+        's' => type.Category == 'M' && type.Size > 0 && type.BaseTypeOid == 0 && type.ElementTypeOid == 0,
+        'b' or 'm' => type.BaseTypeOid == 0,
+        'd' => type.BaseTypeOid != 0,
+        _ => false
+    };
     static uint ParseOid(string value, bool allowZero)
     {
         if (!uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var result) || (!allowZero && result == 0))

@@ -125,19 +125,25 @@ internal sealed class PgParameterBindings
         else if (provider == KingbaseDbType.UnsignedTinyint)
         {
             if (catalog.ByName.TryGetValue("sys.tinyint", out var unsigned) && EligibleTiny(unsigned, "byte")) return unsigned;
-            if (catalog.ByName.TryGetValue("sys.uint4", out unsigned)) return unsigned;
+            if (Proven(catalog, "sys.uint4", "uint4")) return catalog.ByName["sys.uint4"];
             name = "int2";
         }
-        if (provider == KingbaseDbType.UnsignedInteger && !catalog.ByName.ContainsKey("sys.uint4"))
+        if (provider == KingbaseDbType.UnsignedInteger && !Proven(catalog, "sys.uint4", "uint4"))
             return catalog.ByName["pg_catalog.int8"];
-        if (provider == KingbaseDbType.UnsignedBigint && !catalog.ByName.ContainsKey("sys.uint8"))
+        if (provider == KingbaseDbType.UnsignedBigint && !Proven(catalog, "sys.uint8", "uint8"))
             return catalog.ByName.TryGetValue("pg_catalog.int16", out var wide) ? wide : throw KingbaseParameterTypes.Unsupported();
         var native = provider is KingbaseDbType.UnsignedInteger or KingbaseDbType.UnsignedBigint or KingbaseDbType.VarcharByte or
             KingbaseDbType.CharByte or KingbaseDbType.NChar or KingbaseDbType.NVarchar or KingbaseDbType.SqlServerBit or
             KingbaseDbType.Binary or KingbaseDbType.VarBinary or KingbaseDbType.SqlServerMoney;
         if (provider == KingbaseDbType.SqlServerBit) name = "bit";
-        return catalog.ByName.TryGetValue((native ? "sys." : "pg_catalog.") + name, out var type) ? type : throw KingbaseParameterTypes.Unsupported();
+        // A catalogued row that still carries the placeholder text codec has no proven native contract.
+        return catalog.ByName.TryGetValue((native ? "sys." : "pg_catalog.") + name, out var type) &&
+            type.CodecName != PgTextCodecs.PlaceholderText
+            ? type
+            : throw KingbaseParameterTypes.Unsupported();
     }
+    static bool Proven(PgTypeCatalog catalog, string key, string codec) =>
+        catalog.ByName.TryGetValue(key, out var type) && type.CodecName == codec;
     static bool EligibleTiny(PgTypeDescription type, string codec) => type.CodecName == codec && type.Kind == 'b' && type.Category == 'N' &&
         type.Size == 1 && type.BaseTypeOid == 0 && type.ElementTypeOid == 0;
     // Catalog/identifier codecs have no provider enum member, so their DbType constraint is checked against the

@@ -101,7 +101,15 @@ public sealed class BinaryCopyExtendedProtocolTests
         if (fault == "element") row[9] = "10002";
         if (fault == "schema") { row[1] = "91"; row[2] = "public"; }
         rows.Add(row);
-        if (fault == "schema") { await Assert.ThrowsAsync<IOException>(() => NativeScalarTests.Load(KingbaseCompatibilityMode.PostgreSql, baseRows: rows)); return; }
+        if (fault == "schema")
+        {
+            // A same-named user type no longer invalidates the catalog; it is a text-path type, not the built-in one.
+            var userCatalog = await NativeScalarTests.Load(KingbaseCompatibilityMode.PostgreSql, baseRows: rows);
+            Assert.Equal(typeof(string), new PgTextCodecs(userCatalog).GetFieldType(17000));
+            Assert.True(userCatalog.ByName.ContainsKey("public." + name));
+            Assert.Throws<NotSupportedException>(() => PgBinaryCopyCodec.Resolve(userCatalog, [selector]));
+            return;
+        }
         var catalog = await NativeScalarTests.Load(KingbaseCompatibilityMode.PostgreSql, baseRows: rows);
         if (fault == "valid") Assert.Equal(new[] {name}, PgBinaryCopyCodec.Resolve(catalog, [selector]));
         else Assert.Throws<NotSupportedException>(() => PgBinaryCopyCodec.Resolve(catalog, [selector]));

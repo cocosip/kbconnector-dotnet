@@ -13,7 +13,15 @@ internal sealed class PgTextCodecs
     internal PgTextCodecs(PgTypeCatalog catalog) => _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
     internal Type GetFieldType(uint oid) => Resolve(oid).ClrType;
     // sys.binary/sys.varbinary text is 0x-prefixed hex, which the bytea field decoder cannot stream.
-    internal bool NeedsMaterializedBytes(uint oid) => _catalog.ByOid.TryGetValue(oid, out var type) && type.CodecName is "binary" or "varbinary";
+    internal bool NeedsMaterializedBytes(uint oid) =>
+        _catalog.ByOid.TryGetValue(oid, out var type) && EffectiveCodec(type) is "binary" or "varbinary";
+    // The placeholder marks a catalogued row whose scalar meaning the driver has not proven.
+    internal const string PlaceholderText = "string";
+    // Only a non-native domain borrows its base codec; a native alias keeps text until its spec proves a codec.
+    internal string EffectiveCodec(PgTypeDescription type) =>
+        type.CodecName == PlaceholderText && type.Kind == 'd' && type.Namespace != "sys" &&
+        !(type.Namespace == "pg_catalog" && type.Name is "blob" or "clob" or "nclob") &&
+        _catalog.ByOid.TryGetValue(type.BaseTypeOid, out var baseType) ? baseType.CodecName : type.CodecName;
     internal object DecodeStreaming(uint oid, string? text, string? dateStyle, string? intervalStyle, bool provider)
     {
         if (text is null) return DBNull.Value;
@@ -196,12 +204,14 @@ internal sealed class PgTextCodecs
         if (!_catalog.ByOid.TryGetValue(oid, out var type) || type.Category == 'A' || !Supported(type)) throw Unsupported();
         // Enum and SET values are their server text form; the server owns the label vocabulary, including empty labels.
         if (type.Kind is 'e' or 's') return ("text", typeof(string));
-        if (type.CodecName is "sbyte" or "byte" or "uint4" or "uint8" or "int16" && type.Category != 'N') throw Unsupported();
-        if (type.CodecName is "bit" or "varbit" && type.Category != 'V') throw Unsupported();
-        if (type.CodecName is "binary" or "varbinary" && type.Category is not ('S' or 'U')) throw Unsupported();
-        if (type.CodecName is "money" or "sqlserver_money" && type.Category != 'N') throw Unsupported();
-        if (PgNativeTemporalText.Supports(type.CodecName) && type.Category != (type.CodecName == "mysql_year" ? 'N' : 'D')) throw Unsupported();
-        var (clrType, size) = type.CodecName switch
+        // A dynamic domain borrows its catalogued base codec; a native alias keeps text until its spec proves a codec.
+        var codec = EffectiveCodec(type);
+        if (codec is "sbyte" or "byte" or "uint4" or "uint8" or "int16" && type.Category != 'N') throw Unsupported();
+        if (codec is "bit" or "varbit" && type.Category != 'V') throw Unsupported();
+        if (codec is "binary" or "varbinary" && type.Category is not ('S' or 'U')) throw Unsupported();
+        if (codec is "money" or "sqlserver_money" && type.Category != 'N') throw Unsupported();
+        if (PgNativeTemporalText.Supports(codec) && type.Category != (codec == "mysql_year" ? 'N' : 'D')) throw Unsupported();
+        var (clrType, size) = codec switch
         {
             "bool" => (typeof(bool), 1),
             "sqlserver_bit" => (typeof(bool), 1),
@@ -238,10 +248,11 @@ internal sealed class PgTextCodecs
             "regproc" or "regprocedure" or "regoper" or "regoperator" or "regclass" or "regtype" or "regconfig" or
                 "regdictionary" or "regnamespace" or "regrole" => (typeof(string), 4),
             "xid" or "cid" => (typeof(uint), 4),
-            _ => throw Unsupported()
+            // A catalogued type without a codec keeps the explicit text path; binary formats stay unsupported.
+            _ => (typeof(string), type.Size)
         };
         if (type.Size != size) throw Unsupported();
-        return (type.CodecName, clrType);
+        return (codec, clrType);
     }
 
     bool Supported(PgTypeDescription type) => type.Kind switch
@@ -249,7 +260,11 @@ internal sealed class PgTextCodecs
         'b' => type.BaseTypeOid == 0,
         // The catalog loader validates the enum/SET layout; their wire form is the server text form.
         'e' or 's' => true,
-        _ => SupportedNativeDomain(type)
+        // A catalogued multirange keeps the explicit text path; a domain needs a catalogued base.
+        'm' => type.BaseTypeOid == 0,
+        'd' => SupportedNativeDomain(type) || (_catalog.ByOid.TryGetValue(type.BaseTypeOid, out var domainBase) &&
+            domainBase.Kind is 'b' or 'd' or 'e' or 's'),
+        _ => false
     };
 
     bool SupportedNativeDomain(PgTypeDescription type)

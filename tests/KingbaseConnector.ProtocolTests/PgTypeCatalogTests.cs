@@ -12,7 +12,9 @@ public sealed class PgTypeCatalogTests
         "WHERE t.typisdefined AND ((n.nspname OPERATOR(pg_catalog.=) 'pg_catalog'::pg_catalog.name AND (" +
         string.Join(" OR ", PgTypeCatalog.Names
             .Select(name => "pg_catalog.nameeq(t.typname,'" + name + "'::pg_catalog.name)")) +
-        ")) OR ((t.typtype OPERATOR(pg_catalog.=) 'e' OR t.typtype OPERATOR(pg_catalog.=) 's') AND " +
+        ")) OR ((t.typtype OPERATOR(pg_catalog.=) 'e' OR t.typtype OPERATOR(pg_catalog.=) 's' OR " +
+        "t.typtype OPERATOR(pg_catalog.=) 'b' OR t.typtype OPERATOR(pg_catalog.=) 'd' OR " +
+        "t.typtype OPERATOR(pg_catalog.=) 'm') AND " +
         "NOT pg_catalog.pg_is_other_temp_schema(t.typnamespace)))";
 
     static readonly string[] Required = ["bool", "int2", "int4", "int8", "text", "bytea"];
