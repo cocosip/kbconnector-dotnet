@@ -14,6 +14,8 @@ internal sealed partial class KingbaseReaderExecution
     async Task<FieldCursor> FieldAsync(int ordinal, bool binary, PgTextCodecs codecs, CancellationToken token)
     {
         ValidateField(ordinal, binary, codecs);
+        // The field decoders stream the bytea escape, so a 0x-hex native binary value must be materialized first.
+        if (!_materialized && codecs.NeedsMaterializedBytes(Header!.Columns[ordinal].TypeOid)) await MaterializeAsync(ordinal, token).ConfigureAwait(false);
         var length = await SelectAsync(ordinal, token).ConfigureAwait(false);
         if (length == -1) throw new InvalidCastException("A NULL column has no field reader.");
         if (_field is null)

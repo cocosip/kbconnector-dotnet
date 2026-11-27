@@ -41,6 +41,7 @@ internal static class KingbaseParameterTypes
         KingbaseDbType.Timestamp => "timestamp", KingbaseDbType.TimestampTz => "timestamptz",
         KingbaseDbType.Interval => "interval", KingbaseDbType.Xml => "xml",
         KingbaseDbType.Blob => "blob", KingbaseDbType.Clob => "clob", KingbaseDbType.NClob => "nclob",
+        KingbaseDbType.Binary => "binary", KingbaseDbType.VarBinary => "varbinary",
         KingbaseDbType.SignedTinyint => "tinyint", KingbaseDbType.UnsignedTinyint => "tinyint_unsigned",
         KingbaseDbType.UnsignedInteger => "uint4", KingbaseDbType.UnsignedBigint => "uint8", KingbaseDbType.Int128 => "int16",
         KingbaseDbType.VarcharByte => "varcharbyte", KingbaseDbType.CharByte => "bpcharbyte", KingbaseDbType.NChar => "nchar",
@@ -58,6 +59,7 @@ internal static class KingbaseParameterTypes
         KingbaseDbType.Boolean => DbType.Boolean, KingbaseDbType.Smallint => DbType.Int16, KingbaseDbType.Integer => DbType.Int32,
         KingbaseDbType.Bigint => DbType.Int64, KingbaseDbType.Oid => DbType.UInt32, KingbaseDbType.Real => DbType.Single,
         KingbaseDbType.Double => DbType.Double, KingbaseDbType.Numeric => DbType.Decimal, KingbaseDbType.Bytea => DbType.Binary,
+        KingbaseDbType.Binary or KingbaseDbType.VarBinary => DbType.Binary,
         KingbaseDbType.Uuid => DbType.Guid, KingbaseDbType.Char => DbType.StringFixedLength, KingbaseDbType.Date => DbType.Date,
         KingbaseDbType.Time or KingbaseDbType.TimeTz => DbType.Time,
         KingbaseDbType.Timestamp => DbType.DateTime, KingbaseDbType.TimestampTz => DbType.DateTimeOffset,
@@ -94,7 +96,7 @@ internal static class KingbaseParameterTypes
     {
         DbType.String => selected is KingbaseDbType.Text or KingbaseDbType.Varchar or KingbaseDbType.Char or KingbaseDbType.Json or KingbaseDbType.Jsonb or KingbaseDbType.Xml or
             KingbaseDbType.VarcharByte or KingbaseDbType.CharByte or KingbaseDbType.NChar or KingbaseDbType.NVarchar or KingbaseDbType.Clob or KingbaseDbType.NClob,
-        DbType.Binary => selected is KingbaseDbType.Bytea or KingbaseDbType.Blob,
+        DbType.Binary => selected is KingbaseDbType.Bytea or KingbaseDbType.Blob or KingbaseDbType.Binary or KingbaseDbType.VarBinary,
         DbType.StringFixedLength => selected is KingbaseDbType.Char or KingbaseDbType.CharByte or KingbaseDbType.NChar,
         DbType.SByte => selected is KingbaseDbType.SignedTinyint or KingbaseDbType.Smallint,
         DbType.Byte => selected is KingbaseDbType.UnsignedTinyint or KingbaseDbType.UnsignedInteger or KingbaseDbType.Smallint,

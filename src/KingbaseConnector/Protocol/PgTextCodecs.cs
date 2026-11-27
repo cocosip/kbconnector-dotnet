@@ -12,6 +12,8 @@ internal sealed class PgTextCodecs
 
     internal PgTextCodecs(PgTypeCatalog catalog) => _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
     internal Type GetFieldType(uint oid) => Resolve(oid).ClrType;
+    // sys.binary/sys.varbinary text is 0x-prefixed hex, which the bytea field decoder cannot stream.
+    internal bool NeedsMaterializedBytes(uint oid) => _catalog.ByOid.TryGetValue(oid, out var type) && type.CodecName is "binary" or "varbinary";
     internal object DecodeStreaming(uint oid, string? text, string? dateStyle, string? intervalStyle, bool provider)
     {
         if (text is null) return DBNull.Value;
@@ -108,6 +110,8 @@ internal sealed class PgTextCodecs
                 if (text.Length == 36 && Guid.TryParseExact(text, "D", out var uuid)) return uuid;
                 throw InvalidText();
             case "bytea": return DecodeBytes(text);
+            case "binary":
+            case "varbinary": return DecodePrefixedBytes(text);
             case "char": ValidateInternalChar(text); return text;
             default: return text;
         }
@@ -166,6 +170,8 @@ internal sealed class PgTextCodecs
             "bool" => (bool)value ? "t" : "f",
             "sqlserver_bit" => (bool)value ? "1" : "0",
             "bit" or "varbit" => EncodeBits((BitArray)value),
+            // sys.binary/sys.varbinary take literal bytes as text, so their text input cannot carry raw values.
+            "binary" or "varbinary" => throw new NotSupportedException("Binary values cannot be written through the text parameter format."),
             "float4" => EncodeFloating((float)value),
             "float8" => EncodeFloating((double)value),
             "numeric" => KingbaseNumeric.FromDecimal((decimal)value).ToString(),
@@ -189,6 +195,7 @@ internal sealed class PgTextCodecs
         if (type.Kind is 'e' or 's') return ("text", typeof(string));
         if (type.CodecName is "sbyte" or "byte" or "uint4" or "uint8" or "int16" && type.Category != 'N') throw Unsupported();
         if (type.CodecName is "bit" or "varbit" && type.Category != 'V') throw Unsupported();
+        if (type.CodecName is "binary" or "varbinary" && type.Category is not ('S' or 'U')) throw Unsupported();
         if (PgNativeTemporalText.Supports(type.CodecName) && type.Category != (type.CodecName == "mysql_year" ? 'N' : 'D')) throw Unsupported();
         var (clrType, size) = type.CodecName switch
         {
@@ -218,6 +225,8 @@ internal sealed class PgTextCodecs
             "interval" => (typeof(KingbaseInterval), 16),
             "uuid" => (typeof(Guid), 16),
             "bytea" => (typeof(byte[]), -1),
+            // sys.binary/sys.varbinary present their bytes as 0x-prefixed hex in text format.
+            "binary" or "varbinary" => (typeof(byte[]), -1),
             "text" or "varchar" or "bpchar" or "json" or "jsonb" or "xml" => (typeof(string), -1),
             "name" => (typeof(string), 64),
             "char" => (typeof(string), 1),
@@ -345,6 +354,15 @@ internal sealed class PgTextCodecs
         double.IsPositiveInfinity(value) ? "Infinity" : double.IsNegativeInfinity(value) ? "-Infinity" :
         value == 0 && 1D / value == double.NegativeInfinity ? "-0" : value.ToString("R", CultureInfo.InvariantCulture);
 
+    // sys.binary/sys.varbinary text results are "0x" plus the stored bytes as hex; nothing else is legal.
+    static byte[] DecodePrefixedBytes(string text)
+    {
+        if (text.Length < 2 || text[0] != '0' || (text[1] != 'x' && text[1] != 'X') || (text.Length - 2) % 2 != 0) throw InvalidText();
+        var bytes = new byte[(text.Length - 2) / 2];
+        for (var i = 0; i < bytes.Length; i++)
+            bytes[i] = (byte)((Hex(text[2 + i * 2]) << 4) | Hex(text[3 + i * 2]));
+        return bytes;
+    }
     static byte[] DecodeBytes(string text)
     {
         if (text.StartsWith("\\x", StringComparison.Ordinal))

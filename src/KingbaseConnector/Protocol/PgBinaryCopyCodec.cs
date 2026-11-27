@@ -15,12 +15,15 @@ internal static class PgBinaryCopyCodec
             KingbaseDbType.Numeric => "numeric", KingbaseDbType.Date => "date", KingbaseDbType.Time => "time",
             KingbaseDbType.TimeTz => "timetz", KingbaseDbType.Timestamp => "timestamp", KingbaseDbType.TimestampTz => "timestamptz", KingbaseDbType.Interval => "interval",
             KingbaseDbType.Json => "json", KingbaseDbType.Jsonb => "jsonb", KingbaseDbType.Bit => "bit", KingbaseDbType.Varbit => "varbit", KingbaseDbType.Xml => "xml",
+            KingbaseDbType.Binary => "binary", KingbaseDbType.VarBinary => "varbinary",
             _ => throw new NotSupportedException("This type has no implemented binary COPY codec.") }).ToArray();
         var layouts = new PgTextCodecs(catalog);
         foreach (var name in names)
         {
             // Binary COPY takes base scalar types only, so their own catalog row must not expose an element type.
-            if (!catalog.ByName.TryGetValue("pg_catalog." + name, out var type) || type.Kind != 'b' ||
+            // sys.binary/sys.varbinary are native varlena types with the same field layout as bytea.
+            var key = name is "binary" or "varbinary" ? "sys." + name : "pg_catalog." + name;
+            if (!catalog.ByName.TryGetValue(key, out var type) || type.Kind != 'b' ||
                 type.BaseTypeOid != 0 || type.ElementTypeOid != 0 || type.CodecName != name)
                 throw new NotSupportedException("The binary COPY base type is unavailable in the actual catalog.");
             layouts.GetFieldType(type.Oid);
@@ -39,7 +42,7 @@ internal static class PgBinaryCopyCodec
             "bool" when value is bool => 1, "int2" when value is short => 2,
             "int4" when value is int => 4, "int8" when value is long => 8, "oid" when value is uint => 4,
             "float4" when value is float => 4, "float8" when value is double => 8, "uuid" when value is Guid => 16,
-            "bytea" when value is byte[] bytes => bytes.Length,
+            "bytea" or "binary" or "varbinary" when value is byte[] bytes => bytes.Length,
             "text" or "varchar" or "bpchar" or "json" or "jsonb" when value is string text && text.IndexOf('\0') < 0 => checked(PgBinary.Utf8.GetByteCount(text) + (name == "jsonb" ? 1 : 0)),
             _ => throw new InvalidCastException("Binary COPY input requires the exact supported CLR type and valid text.") };
         if (length > budget) throw new ArgumentException("Binary COPY row values exceed 1 MiB.");
@@ -78,6 +81,7 @@ internal static class PgBinaryCopyCodec
             case "float8": return BitConverter.ToDouble(Network((byte[])bytes.Clone()), 0);
             case "uuid": var uuid = (byte[])bytes.Clone(); GuidOrder(uuid); return new Guid(uuid);
             case "bytea": return (byte[])bytes.Clone();
+            case "binary": case "varbinary": return (byte[])bytes.Clone();
             case "text": case "varchar": case "bpchar": case "json": case "jsonb": case "xml":
                 string text;
                 var offset = name == "jsonb" ? 1 : 0;

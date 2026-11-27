@@ -9,5 +9,6 @@ public enum KingbaseDbType
     Bit, Varbit,
     OracleDate, SqlServerDate, SqlServerDateTime, SqlServerDateTime2, SqlServerSmallDateTime, SqlServerTime,
     MySqlDate, MySqlDateTime, MySqlTimestamp, MySqlTime, MySqlYear,
-    Blob, Clob, NClob
+    Blob, Clob, NClob,
+    Binary, VarBinary
 }
