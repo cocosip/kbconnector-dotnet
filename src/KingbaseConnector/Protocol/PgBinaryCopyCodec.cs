@@ -15,14 +15,14 @@ internal static class PgBinaryCopyCodec
             KingbaseDbType.Numeric => "numeric", KingbaseDbType.Date => "date", KingbaseDbType.Time => "time",
             KingbaseDbType.TimeTz => "timetz", KingbaseDbType.Timestamp => "timestamp", KingbaseDbType.TimestampTz => "timestamptz", KingbaseDbType.Interval => "interval",
             KingbaseDbType.Json => "json", KingbaseDbType.Jsonb => "jsonb", KingbaseDbType.Bit => "bit", KingbaseDbType.Varbit => "varbit", KingbaseDbType.Xml => "xml",
-            KingbaseDbType.Binary => "binary", KingbaseDbType.VarBinary => "varbinary",
+            KingbaseDbType.Binary => "binary", KingbaseDbType.VarBinary => "varbinary", KingbaseDbType.Money => "money", KingbaseDbType.SqlServerMoney => "sqlserver_money",
             _ => throw new NotSupportedException("This type has no implemented binary COPY codec.") }).ToArray();
         var layouts = new PgTextCodecs(catalog);
         foreach (var name in names)
         {
             // Binary COPY takes base scalar types only, so their own catalog row must not expose an element type.
             // sys.binary/sys.varbinary are native varlena types with the same field layout as bytea.
-            var key = name is "binary" or "varbinary" ? "sys." + name : "pg_catalog." + name;
+            var key = name switch { "binary" or "varbinary" => "sys." + name, "sqlserver_money" => "sys.money", _ => "pg_catalog." + name };
             if (!catalog.ByName.TryGetValue(key, out var type) || type.Kind != 'b' ||
                 type.BaseTypeOid != 0 || type.ElementTypeOid != 0 || type.CodecName != name)
                 throw new NotSupportedException("The binary COPY base type is unavailable in the actual catalog.");
@@ -34,6 +34,18 @@ internal static class PgBinaryCopyCodec
     internal static byte[]? Encode(string name, object? value, int budget)
     {
         if (value is null or DBNull) return null;
+        if (name is "money" or "sqlserver_money")
+        {
+            var money = name == "money";
+            // The negative bound is one minor unit below -max, so it maps exactly onto long.MinValue.
+            var high = money ? 92233720368547758.07m : 922337203685477.5807m;
+            var low = money ? -92233720368547758.08m : -922337203685477.5808m;
+            if (value is not decimal amount) throw new InvalidCastException("Binary COPY money input requires a decimal.");
+            if (amount < low || amount > high) throw new ArgumentException("Binary COPY money value is outside the 64-bit range.");
+            var scaled = decimal.Round(amount * (money ? 100m : 10000m), 0, MidpointRounding.AwayFromZero);
+            if (scaled is < long.MinValue or > long.MaxValue) throw new ArgumentException("Binary COPY money value is outside the 64-bit range.");
+            name = "int8"; value = (long)scaled;
+        }
         if (name == "xml") return PgBinaryCopyXml.Encode(value, budget);
         if (name == "numeric") return PgBinaryCopyNumeric.Encode(value, budget);
         if (PgBinaryCopyTemporal.Supports(name)) return PgBinaryCopyTemporal.Encode(name, value, budget);
@@ -65,6 +77,11 @@ internal static class PgBinaryCopyCodec
 
     internal static object Decode(string name, byte[] bytes)
     {
+        if (name is "money" or "sqlserver_money")
+        {
+            if (bytes.Length != 8) throw Invalid();
+            return BitConverter.ToInt64(Network((byte[])bytes.Clone()), 0) / (name == "money" ? 100m : 10000m);
+        }
         if (name == "numeric") return PgBinaryCopyNumeric.Decode(bytes);
         if (PgBinaryCopyTemporal.Supports(name)) return PgBinaryCopyTemporal.Decode(name, bytes);
         if (name is "bit" or "varbit") return PgBinaryCopyBits.Decode(bytes);

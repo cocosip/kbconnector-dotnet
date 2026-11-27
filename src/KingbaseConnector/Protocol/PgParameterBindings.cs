@@ -134,7 +134,7 @@ internal sealed class PgParameterBindings
             return catalog.ByName.TryGetValue("pg_catalog.int16", out var wide) ? wide : throw KingbaseParameterTypes.Unsupported();
         var native = provider is KingbaseDbType.UnsignedInteger or KingbaseDbType.UnsignedBigint or KingbaseDbType.VarcharByte or
             KingbaseDbType.CharByte or KingbaseDbType.NChar or KingbaseDbType.NVarchar or KingbaseDbType.SqlServerBit or
-            KingbaseDbType.Binary or KingbaseDbType.VarBinary;
+            KingbaseDbType.Binary or KingbaseDbType.VarBinary or KingbaseDbType.SqlServerMoney;
         if (provider == KingbaseDbType.SqlServerBit) name = "bit";
         return catalog.ByName.TryGetValue((native ? "sys." : "pg_catalog.") + name, out var type) ? type : throw KingbaseParameterTypes.Unsupported();
     }

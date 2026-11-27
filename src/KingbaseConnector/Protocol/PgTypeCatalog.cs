@@ -24,7 +24,7 @@ internal sealed class PgTypeDescription(uint oid, uint namespaceOid, string name
 internal sealed class PgTypeCatalog
 {
     internal static readonly string[] Names = ["bool", "int2", "int4", "int8", "oid", "float4", "float8", "numeric", "text",
-        "varchar", "bpchar", "bytea", "uuid", "date", "time", "timetz", "timestamp", "timestamptz", "interval", "json", "jsonb", "xml", "int16", "tinyint", "bit", "varbit",
+        "varchar", "bpchar", "bytea", "uuid", "date", "time", "timetz", "timestamp", "timestamptz", "interval", "json", "jsonb", "xml", "int16", "tinyint", "bit", "varbit", "money",
         "name", "char", "regproc", "regprocedure", "regoper", "regoperator", "regclass", "regtype", "regconfig", "regdictionary", "regnamespace", "regrole", "xid", "cid"];
     static readonly string[] Required = ["bool", "int2", "int4", "int8", "text", "bytea"];
     // Enum and SET types carry a user-defined name, so they are selected by kind instead of by name.

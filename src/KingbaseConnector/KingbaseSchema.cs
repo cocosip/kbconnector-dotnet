@@ -92,6 +92,8 @@ internal static class KingbaseSchema
         foreach (KingbaseDbType provider in Enum.GetValues(typeof(KingbaseDbType)))
         {
             var name = KingbaseParameterTypes.Name(provider);
+            // SQL Server mode's native money is sys.money, so the pg_catalog row must not describe it here.
+            if (provider == KingbaseDbType.SqlServerMoney) continue;
             if (!catalog.ByName.TryGetValue("pg_catalog." + name, out var type)) continue;
             Type clr;
             try { clr = codecs.GetFieldType(type.Oid); }

@@ -3,7 +3,7 @@ namespace KingbaseConnector.Protocol;
 internal static class PgNativeTypeCatalog
 {
     static readonly string[] Names = ["varcharbyte", "bpcharbyte", "nchar", "nvarchar", "bit", "tinyint", "uint4", "uint8", "binary", "varbinary",
-        "date", "datetime", "datetime2", "smalldatetime", "time", "timestamp", "year", "blob", "clob", "nclob"];
+        "date", "datetime", "datetime2", "smalldatetime", "time", "timestamp", "year", "blob", "clob", "nclob", "money"];
     const string LobPredicate = "(pg_catalog.nameeq(t.typname,'blob'::pg_catalog.name) OR pg_catalog.nameeq(t.typname,'clob'::pg_catalog.name) OR pg_catalog.nameeq(t.typname,'nclob'::pg_catalog.name))";
     readonly struct Spec(string codec, short size, char category, string input, string output, char kind = 'b', string? baseType = null)
     {
@@ -80,6 +80,7 @@ internal static class PgNativeTypeCatalog
         "binary" when mode == KingbaseCompatibilityMode.MySql => new("binary", -1, 'S', "sys.binaryin", "sys.binaryout"),
         "varbinary" when mode == KingbaseCompatibilityMode.MySql => new("varbinary", -1, 'S', "sys.varbinaryin", "sys.varbinaryout"),
         "binary" when mode == KingbaseCompatibilityMode.SqlServer => new("binary", -1, 'U', "sys.sqlserver_binaryin", "sys.sqlserver_binaryout"),
+        "money" when mode == KingbaseCompatibilityMode.SqlServer => new("sqlserver_money", 8, 'N', "sys.sqlserver_money_in", "sys.sqlserver_money_out"),
         "varbinary" when mode == KingbaseCompatibilityMode.SqlServer => new("varbinary", -1, 'U', "sys.sqlserver_varbinaryin", "sys.sqlserver_varbinaryout"),
         "bpcharbyte" => new("bpchar", -1, 'S', "sys.bpcharbytein", "sys.bpcharbyteout"),
         "nchar" when mode == KingbaseCompatibilityMode.SqlServer => new("bpchar", -1, 'S', "sys.nchar_in", "sys.nchar_out"),

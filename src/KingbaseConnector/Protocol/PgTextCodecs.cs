@@ -100,6 +100,8 @@ internal sealed class PgTextCodecs
             case "float4": return DecodeFloating(text, single: true);
             case "float8": return DecodeFloating(text, single: false);
             case "numeric": return KingbaseNumeric.Parse(text).ToDecimal();
+            case "money": return DecodeMoney(text);
+            case "sqlserver_money": return DecodePlainMoney(text);
             case "date": RequireIsoDateStyle(dateStyle); return KingbaseDate.Parse(text).ToDateTime();
             case "time": return PgTimeText.Parse(text);
             case "timetz": return KingbaseTimeTz.Parse(text);
@@ -175,6 +177,7 @@ internal sealed class PgTextCodecs
             "float4" => EncodeFloating((float)value),
             "float8" => EncodeFloating((double)value),
             "numeric" => KingbaseNumeric.FromDecimal((decimal)value).ToString(),
+            "money" or "sqlserver_money" => ((decimal)value).ToString(CultureInfo.InvariantCulture),
             "uuid" => ((Guid)value).ToString("D"),
             "bytea" => EncodeBytes((byte[])value),
             "timetz" => ((KingbaseTimeTz)value).ToString(),
@@ -196,6 +199,7 @@ internal sealed class PgTextCodecs
         if (type.CodecName is "sbyte" or "byte" or "uint4" or "uint8" or "int16" && type.Category != 'N') throw Unsupported();
         if (type.CodecName is "bit" or "varbit" && type.Category != 'V') throw Unsupported();
         if (type.CodecName is "binary" or "varbinary" && type.Category is not ('S' or 'U')) throw Unsupported();
+        if (type.CodecName is "money" or "sqlserver_money" && type.Category != 'N') throw Unsupported();
         if (PgNativeTemporalText.Supports(type.CodecName) && type.Category != (type.CodecName == "mysql_year" ? 'N' : 'D')) throw Unsupported();
         var (clrType, size) = type.CodecName switch
         {
@@ -214,6 +218,7 @@ internal sealed class PgTextCodecs
             "float4" => (typeof(float), 4),
             "float8" => (typeof(double), 8),
             "numeric" => (typeof(decimal), -1),
+            "money" or "sqlserver_money" => (typeof(decimal), 8),
             "date" => (typeof(DateTime), 4),
             "sqlserver_date" or "mysql_date" => (typeof(DateTime), 4),
             "oracle_date" or "sqlserver_datetime" or "sqlserver_datetime2" or "sqlserver_smalldatetime" or "mysql_datetime" or "mysql_timestamp" => (typeof(DateTime), 8),
@@ -354,6 +359,32 @@ internal sealed class PgTextCodecs
         double.IsPositiveInfinity(value) ? "Infinity" : double.IsNegativeInfinity(value) ? "-Infinity" :
         value == 0 && 1D / value == double.NegativeInfinity ? "-0" : value.ToString("R", CultureInfo.InvariantCulture);
 
+    // pg_catalog.money text uses lc_monetary formatting in the tested "C" locale: "$1,234.56" and "-$12.50".
+    // Only that shape is legal, so three-digit groups are enforced instead of silently reinterpreting a foreign locale.
+    static decimal DecodeMoney(string text)
+    {
+        var negative = text.StartsWith("-", StringComparison.Ordinal);
+        var body = negative ? text.Substring(1) : text;
+        if (body.StartsWith("$", StringComparison.Ordinal)) body = body.Substring(1);
+        var dot = body.IndexOf('.');
+        var integerPart = dot < 0 ? body : body.Substring(0, dot);
+        var fractionPart = dot < 0 ? string.Empty : body.Substring(dot + 1);
+        if (integerPart.Length == 0 || (dot >= 0 && fractionPart.Length == 0)) throw InvalidText();
+        var groups = integerPart.Split(',');
+        if (groups.Length > 1 && (groups[0].Length is < 1 or > 3 || groups.Skip(1).Any(group => group.Length != 3))) throw InvalidText();
+        if (groups.Any(group => group.Length == 0 || !group.All(c => c is >= '0' and <= '9'))) throw InvalidText();
+        if (fractionPart.Any(c => c is not (>= '0' and <= '9'))) throw InvalidText();
+        var plain = integerPart.Replace(",", string.Empty) + (dot >= 0 ? "." + fractionPart : string.Empty);
+        if (!decimal.TryParse(plain, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var value)) throw InvalidText();
+        return negative ? -value : value;
+    }
+
+    // SQL Server mode's sys.money text is its own numeric form with four fractional digits.
+    static decimal DecodePlainMoney(string text)
+    {
+        if (!decimal.TryParse(text, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var value)) throw InvalidText();
+        return value;
+    }
     // sys.binary/sys.varbinary text results are "0x" plus the stored bytes as hex; nothing else is legal.
     static byte[] DecodePrefixedBytes(string text)
     {
