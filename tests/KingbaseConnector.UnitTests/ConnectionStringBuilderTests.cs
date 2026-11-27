@@ -26,6 +26,18 @@ public class ConnectionStringBuilderTests
     }
 
     [Fact]
+    public void KeepAliveDefaultsToZeroAndRejectsNegativeValues()
+    {
+        Assert.Equal(0, new KingbaseConnectionStringBuilder()["Keep Alive"]);
+        var settings = new KingbaseConnectionStringBuilder("Host=h;Database=d;Username=u;KeepAlive=30");
+        Assert.Equal(30, settings.KeepAlive);
+        Assert.Contains("Keep Alive=30", settings.ConnectionString);
+        Assert.NotEqual(new KingbaseConnectionStringBuilder("Host=h;Database=d;Username=u").GetPoolKey(), settings.GetPoolKey());
+        settings.Validate();
+        Assert.Throws<ArgumentException>(() => new KingbaseConnectionStringBuilder("Host=h;Database=d;Username=u;Keep Alive=-1"));
+    }
+
+    [Fact]
     public void DefaultsAreExplicitAndDoNotPopulateTheConnectionString()
     {
         var builder = new KingbaseConnectionStringBuilder();

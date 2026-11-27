@@ -5,12 +5,13 @@ namespace KingbaseConnector.Protocol;
 /// <summary>Owns ordinary PG capacity through opening, reset and physical retirement.</summary>
 internal sealed class PgSessionPool : IDisposable
 {
-    internal enum EntryState { Opening, Leased, Resetting, Idle, Retiring, Closed }
+    internal enum EntryState { Opening, Leased, Resetting, Idle, Validating, Retiring, Closed }
     internal sealed class Entry(long generation)
     {
         internal readonly long Generation = generation;
         internal readonly long Created = Stopwatch.GetTimestamp();
         internal long IdleSince;
+        internal long CheckedAt;
         internal PgPhysicalSession? Session;
         internal EntryState State;
         internal LinkedListNode<Entry>? IdleNode;
@@ -33,7 +34,7 @@ internal sealed class PgSessionPool : IDisposable
     readonly LinkedList<Entry> _idle = new();
     readonly LinkedList<Waiter> _waiters = new();
     readonly Queue<Entry> _retiring = new();
-    readonly int _maximum, _minimum, _timeout, _idleLifetime, _lifetime, _pruningInterval;
+    readonly int _maximum, _minimum, _timeout, _idleLifetime, _lifetime, _pruningInterval, _keepAlive;
     readonly Timer _timer;
     readonly Action<PgSessionPool>? _onEmpty;
     readonly KingbasePasswordProvider? _passwordProvider;
@@ -48,9 +49,10 @@ internal sealed class PgSessionPool : IDisposable
         _configuration = settings.ConnectionString;
         _maximum = settings.MaxPoolSize; _minimum = settings.MinPoolSize; _timeout = settings.Timeout;
         _idleLifetime = settings.ConnectionIdleLifetime; _lifetime = settings.ConnectionLifetime; _pruningInterval = settings.ConnectionPruningInterval;
+        _keepAlive = settings.KeepAlive;
         _onEmpty = onEmpty;
         _passwordProvider = passwordProvider;
-        var cadence = (int)Math.Min((long)_pruningInterval * 1000, int.MaxValue);
+        var cadence = (int)Math.Min((long)(_keepAlive > 0 && _keepAlive < _pruningInterval ? _keepAlive : _pruningInterval) * 1000, int.MaxValue);
         _timer = new Timer(static state => { if (((WeakReference<PgSessionPool>)state!).TryGetTarget(out var pool)) pool.Prune(); },
             new WeakReference<PgSessionPool>(this), cadence, cadence);
     }
@@ -99,7 +101,7 @@ internal sealed class PgSessionPool : IDisposable
                     lock (_sync)
                     {
                         ThrowIfDisposed();
-                        if (entry.Generation == _generation) { entry.State = EntryState.Leased; return new Lease(this, entry); }
+                        if (entry.Generation == _generation) { entry.State = EntryState.Leased; entry.CheckedAt = Stopwatch.GetTimestamp(); return new Lease(this, entry); }
                     }
                     Retire(entry); entry = null; // A clear raced initialization; reacquire under the original deadline.
                 }
@@ -157,7 +159,7 @@ internal sealed class PgSessionPool : IDisposable
                 if (!clean || _disposed || entry.Generation != _generation || Expired(entry) || !entry.Session!.IsUsable) MarkRetiring(entry);
                 else
                 {
-                    entry.State = EntryState.Idle; entry.IdleSince = Stopwatch.GetTimestamp(); entry.IdleNode = _idle.AddLast(entry);
+                    entry.State = EntryState.Idle; entry.IdleSince = Stopwatch.GetTimestamp(); entry.CheckedAt = entry.IdleSince; entry.IdleNode = _idle.AddLast(entry);
                 }
                 Pump();
             }
@@ -218,20 +220,78 @@ internal sealed class PgSessionPool : IDisposable
     }
     void Prune()
     {
+        // The keepalive interval may be shorter than the pruning interval, so the heartbeat runs before the prune gate.
+        ProbeIdle();
         lock (_sync)
         {
             if (_disposed || Age(_lastPruned) < _pruningInterval) return;
             _lastPruned = Stopwatch.GetTimestamp();
             foreach (var entry in _idle.ToArray()) if (Expired(entry) || IdleExpired(entry) || !entry.Session!.IsUsable) MarkRetiring(entry);
         }
+        DrainRetired();
+        Reclaim();
+    }
+    // Claims idle entries whose last successful probe is older than Keep Alive, then probes them one at a time.
+    void ProbeIdle()
+    {
+        if (_keepAlive == 0) return;
+        List<Entry>? claimed = null;
+        lock (_sync)
+        {
+            if (_disposed) return;
+            foreach (var entry in _idle)
+                if (Age(entry.CheckedAt) >= _keepAlive) (claimed ??= new()).Add(entry);
+            if (claimed is null) return;
+            foreach (var entry in claimed)
+            {
+                _idle.Remove(entry.IdleNode!); entry.IdleNode = null; entry.State = EntryState.Validating;
+            }
+        }
+        _ = ProbeIdleAsync(claimed);
+    }
+    async Task ProbeIdleAsync(List<Entry> claimed)
+    {
+        // Probe concurrently: a black-holed network would otherwise block the whole pool for one timeout per session.
+        var probes = new Task[claimed.Count];
+        for (var index = 0; index < claimed.Count; index++) probes[index] = Probe(claimed[index]);
+        await Task.WhenAll(probes).ConfigureAwait(false);
         DrainRetired(); Reclaim();
+
+        async Task Probe(Entry entry)
+        {
+            var alive = false;
+            try
+            {
+                if (entry.Session is { IsUsable: true } session)
+                {
+                    using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Min(_timeout > 0 ? _timeout : 30, 86_400)));
+                    await Validate(session, budget.Token).ConfigureAwait(false);
+                    alive = true;
+                }
+            }
+            catch { }
+            lock (_sync)
+            {
+                if (entry.State != EntryState.Validating) return; // Already retired by a clear, prune or lease.
+                if (alive && entry.Session is { IsUsable: true } && entry.Generation == _generation && !_disposed)
+                {
+                    entry.CheckedAt = Stopwatch.GetTimestamp();
+                    entry.State = EntryState.Idle; entry.IdleNode = _idle.AddLast(entry);
+                }
+                else MarkRetiring(entry);
+                if (!_disposed) Pump();
+            }
+        }
     }
     internal void Clear()
     {
         lock (_sync)
         {
             if (_disposed) return;
-            _generation++; foreach (var entry in _idle.ToArray()) MarkRetiring(entry); Pump();
+            _generation++;
+            foreach (var entry in _entries.ToArray())
+                if (entry.State is EntryState.Idle or EntryState.Validating) MarkRetiring(entry);
+            Pump();
         }
         DrainRetired(); Reclaim();
     }
@@ -241,7 +301,8 @@ internal sealed class PgSessionPool : IDisposable
         {
             if (_disposed) return;
             _disposed = true; _configuration = ""; _generation++;
-            foreach (var entry in _idle.ToArray()) MarkRetiring(entry);
+            foreach (var entry in _entries.ToArray())
+                if (entry.State is EntryState.Idle or EntryState.Validating) MarkRetiring(entry);
             foreach (var waiter in _waiters) { waiter.Node = null; waiter.Completion.TrySetException(new ObjectDisposedException(nameof(KingbaseDataSource))); }
             _waiters.Clear();
         }

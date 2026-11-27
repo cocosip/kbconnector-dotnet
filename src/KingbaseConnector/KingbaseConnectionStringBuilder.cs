@@ -34,6 +34,7 @@ public sealed class KingbaseConnectionStringBuilder : DbConnectionStringBuilder
         ["Connection Idle Lifetime"] = 300,
         ["Connection Pruning Interval"] = 10,
         ["Connection Lifetime"] = 0,
+        ["Keep Alive"] = 0,
         ["Application Name"] = "",
         ["Search Path"] = "",
         ["Client Encoding"] = "UTF8",
@@ -86,6 +87,7 @@ public sealed class KingbaseConnectionStringBuilder : DbConnectionStringBuilder
     public int ConnectionIdleLifetime { get => (int)this["Connection Idle Lifetime"]; set => this["Connection Idle Lifetime"] = value; }
     public int ConnectionPruningInterval { get => (int)this["Connection Pruning Interval"]; set => this["Connection Pruning Interval"] = value; }
     public int ConnectionLifetime { get => (int)this["Connection Lifetime"]; set => this["Connection Lifetime"] = value; }
+    public int KeepAlive { get => (int)this["Keep Alive"]; set => this["Keep Alive"] = value; }
     public string ApplicationName { get => (string)this["Application Name"]; set => this["Application Name"] = value; }
     public string SearchPath { get => (string)this["Search Path"]; set => this["Search Path"] = value; }
     public string ClientEncoding { get => (string)this["Client Encoding"]; set => this["Client Encoding"] = value; }
