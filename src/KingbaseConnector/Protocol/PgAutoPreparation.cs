@@ -20,22 +20,24 @@ internal sealed partial class PgQuerySession
     // The same gate covers lookup, candidate accounting, Close/Parse and execution.
     internal Task<(IReadOnlyList<PgTextResult> Results, PgPreparedStatement? Statement)> ExecuteAutoPreparedAsync(
         string sql, PgTypeCatalog catalog, IReadOnlyList<PgQueryParameter> parameters, CancellationToken token = default,
-        Action? validateSession = null, Action<PgPreparedStatement>? attachStatement = null) =>
+        Action? validateSession = null, Action<PgPreparedStatement>? attachStatement = null, CancellationToken callerToken = default) =>
         OwnAsync(async () =>
         {
             var plan = await CreateAutoPlanOwnedAsync(sql, catalog, parameters, token, validateSession, attachStatement).ConfigureAwait(false);
             return (await ExecutePlanOwnedAsync(plan, token).ConfigureAwait(false), plan.Statement);
-        }, token);
+        }, token, callerToken);
 
     async Task<ExecutionPlan> CreateAutoPlanOwnedAsync(string sql, PgTypeCatalog catalog, IReadOnlyList<PgQueryParameter> parameters,
         CancellationToken token, Action? validateSession, Action<PgPreparedStatement>? attachStatement)
     {
         if (parameters is null) throw new ArgumentNullException(nameof(parameters));
-        if (_maxAutoPrepare == 0) return new ExecutionPlan(this, await PgExtendedRequest.CreateAsync(sql, catalog, parameters, token).ConfigureAwait(false), PgQueryExchange.Extended, null);
+        using var staging = LinkStaging(token);
+        var stageToken = staging is null ? token : staging.Token;
+        if (_maxAutoPrepare == 0) return new ExecutionPlan(this, await PgExtendedRequest.CreateAsync(sql, catalog, parameters, stageToken).ConfigureAwait(false), PgQueryExchange.Extended, null);
         var snapshot = parameters.Take(1025).ToArray();
         if (snapshot.Length != parameters.Count) throw InvalidSignature();
         // Validate all current inputs and the ordinary aggregate frame bound before retaining SQL.
-        var request = await PgExtendedRequest.CreateAsync(sql, catalog, snapshot, token).ConfigureAwait(false);
+        var request = await PgExtendedRequest.CreateAsync(sql, catalog, snapshot, stageToken).ConfigureAwait(false);
         try
         {
             var oids = snapshot.Select(p => p.TypeOid).ToArray();

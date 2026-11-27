@@ -43,18 +43,33 @@ internal sealed partial class PgQuerySession : IDisposable
     const int MaxResults = 256;
     const int MaxRows = 1024;
     const int MaxColumns = 1024;
+    internal const string CanceledSqlState = "57014";
+    internal static readonly TimeSpan DefaultDrainGrace = TimeSpan.FromSeconds(5);
+    static readonly TimeSpan MaxDrainGrace = TimeSpan.FromMilliseconds(int.MaxValue - 1);
     readonly PgWire _wire;
+    readonly Func<CancellationToken, Task>? _cancelSender;
+    readonly TimeSpan _drainGrace;
     readonly Dictionary<string, string> _parameters;
     int _parameterBytes;
     int _busy;
     int _disposed;
+    int _cancellationRequested;
+    CancellationToken _callerCancellation;
+    CancellationTokenSource? _drainDeadline;
 
-    internal PgQuerySession(PgWire wire, PgStartupResult startup, int maxAutoPrepare = 0, int autoPrepareMinUsages = 5)
+    // cancelSender: sends the backend-key cancel on a fresh connection.
+    // Without one, a caller cancellation keeps the legacy abort-and-retire behavior.
+    internal PgQuerySession(PgWire wire, PgStartupResult startup, int maxAutoPrepare = 0, int autoPrepareMinUsages = 5,
+        Func<CancellationToken, Task>? cancelSender = null, TimeSpan? drainGrace = null)
     {
         if (wire is null) throw new ArgumentNullException(nameof(wire));
         if (startup is null) throw new ArgumentNullException(nameof(startup));
         if (maxAutoPrepare is < 0 or > MaxPreparedStatements) throw new ArgumentOutOfRangeException(nameof(maxAutoPrepare));
         if (autoPrepareMinUsages < 1) throw new ArgumentOutOfRangeException(nameof(autoPrepareMinUsages));
+        _cancelSender = cancelSender;
+        var grace = drainGrace ?? DefaultDrainGrace;
+        if (grace <= TimeSpan.Zero || grace > MaxDrainGrace) grace = DefaultDrainGrace;
+        _drainGrace = grace;
         _maxAutoPrepare = maxAutoPrepare;
         _autoPrepareMinUsages = autoPrepareMinUsages;
         if (!startup.Parameters.TryGetValue("client_encoding", out var encoding) || encoding != "UTF8")
@@ -76,17 +91,64 @@ internal sealed partial class PgQuerySession : IDisposable
     internal PgServerError? UncertainError { get; private set; }
     internal PgTransactionStatus TransactionStatus { get; private set; } = PgTransactionStatus.Idle;
     internal void ResetCommandOutcome() { CommandRejection = null; UncertainError = null; }
+    internal bool CancelRequested => Volatile.Read(ref _cancellationRequested) != 0;
+
+    // One backend-key cancel per exchange. The bounded drain deadline retires a session the server never completes.
+    void RequestCallerCancel()
+    {
+        if (IsDisposed || _cancelSender is null || Interlocked.Exchange(ref _cancellationRequested, 1) != 0) return;
+        var deadline = new CancellationTokenSource(_drainGrace);
+        if (Interlocked.Exchange(ref _drainDeadline, deadline) is { } previous)
+        {
+            try { previous.Dispose(); } catch { }
+        }
+        deadline.Token.Register(static state =>
+        {
+            var session = (PgQuerySession)state!;
+            if (!session.CancelRequested) return;
+            try { session.Dispose(); } catch { }
+        }, this);
+        _ = SendCancelAsync();
+    }
+
+    async Task SendCancelAsync()
+    {
+        // Delivery shares the drain budget: a channel that cannot deliver in time is covered by the drain grace.
+        using var delivery = new CancellationTokenSource(_drainGrace);
+        try { await _cancelSender!(delivery.Token).ConfigureAwait(false); }
+        catch { /* The drain deadline retires the session when the server therefore never answers. */ }
+    }
+
+    void ResetCancellation()
+    {
+        Volatile.Write(ref _cancellationRequested, 0);
+        if (Interlocked.Exchange(ref _drainDeadline, null) is { } deadline)
+        {
+            try { deadline.Dispose(); } catch { }
+        }
+    }
+
+    // Streaming inputs are staged before any frame reaches the server, so a caller cancellation during
+    // staging must abort that work directly instead of waiting for a server-side cancel to drain.
+    internal CancellationTokenSource? LinkStaging(CancellationToken abort)
+    {
+        var caller = _callerCancellation;
+        return caller.CanBeCanceled && abort.CanBeCanceled
+            ? CancellationTokenSource.CreateLinkedTokenSource(abort, caller) : null;
+    }
 
     internal IReadOnlyList<PgTextResult> Execute(string sql) => ExecuteAsync(sql).GetAwaiter().GetResult();
 
     internal IReadOnlyList<PgTextResult> ExecuteExtended(string sql, PgTypeCatalog catalog,
         IReadOnlyList<PgQueryParameter> parameters) => ExecuteExtendedAsync(sql, catalog, parameters).GetAwaiter().GetResult();
     internal Task<IReadOnlyList<PgTextResult>> ExecuteExtendedAsync(string sql, PgTypeCatalog catalog,
-        IReadOnlyList<PgQueryParameter> parameters, CancellationToken cancellationToken = default) =>
-        ExecuteCoreAsync(() => PgExtendedQuery.Encode(sql, catalog, parameters), PgQueryExchange.Extended, cancellationToken);
+        IReadOnlyList<PgQueryParameter> parameters, CancellationToken cancellationToken = default,
+        CancellationToken callerToken = default) =>
+        ExecuteCoreAsync(() => PgExtendedQuery.Encode(sql, catalog, parameters), PgQueryExchange.Extended, cancellationToken,
+            MaxRows, callerToken);
 
     internal Task<IReadOnlyList<PgTextResult>> DescribeAsync(string sql, PgTypeCatalog catalog,
-        IReadOnlyList<uint> typeOids, CancellationToken token = default) => OwnAsync(async () =>
+        IReadOnlyList<uint> typeOids, CancellationToken token = default, CancellationToken callerToken = default) => OwnAsync(async () =>
         {
             if (typeOids is null) throw new ArgumentNullException(nameof(typeOids));
             if (typeOids.Count > 1024) throw new ArgumentException("PG description exceeds the parameter limit.", nameof(typeOids));
@@ -96,28 +158,36 @@ internal sealed partial class PgQuerySession : IDisposable
             var codecs = new PgTextCodecs(catalog);
             foreach (var oid in snapshot) codecs.Encode(oid, null);
             return await ExchangeAsync(() => PgExtendedQuery.EncodeDescribe(sql, snapshot), PgQueryExchange.Describe, token, snapshot).ConfigureAwait(false);
-        }, token);
+        }, token, callerToken);
 
     // maxRows lets one bounded bootstrap read (the type catalog) request more than the ordinary exchange limit.
     internal Task<IReadOnlyList<PgTextResult>> ExecuteAsync(string sql,
-        CancellationToken cancellationToken = default, int maxRows = MaxRows) => ExecuteCoreAsync(() =>
+        CancellationToken cancellationToken = default, int maxRows = MaxRows, CancellationToken callerToken = default) =>
+        ExecuteCoreAsync(() =>
         {
             if (PgFrontendMessages.CStringLength(sql) > MaxPayload)
                 throw new ArgumentException("Oversized PG bootstrap query.", nameof(sql));
             return [PgFrontendMessages.Query(sql)];
-        }, PgQueryExchange.Simple, cancellationToken, maxRows);
+        }, PgQueryExchange.Simple, cancellationToken, maxRows, callerToken);
 
     Task<IReadOnlyList<PgTextResult>> ExecuteCoreAsync(Func<byte[][]> encode, PgQueryExchange exchange,
-        CancellationToken cancellationToken, int maxRows = MaxRows) =>
-        OwnAsync(() => ExchangeAsync(encode, exchange, cancellationToken, null, maxRows), cancellationToken);
+        CancellationToken cancellationToken, int maxRows = MaxRows, CancellationToken callerToken = default) =>
+        OwnAsync(() => ExchangeAsync(encode, exchange, cancellationToken, null, maxRows), cancellationToken, callerToken);
 
-    async Task<T> OwnAsync<T>(Func<Task<T>> operation, CancellationToken token)
+    async Task<T> OwnAsync<T>(Func<Task<T>> operation, CancellationToken token, CancellationToken callerToken = default)
     {
         token.ThrowIfCancellationRequested();
         if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
             throw new InvalidOperationException("A PG query exchange is already active.");
+        _callerCancellation = callerToken;
+        ResetCancellation();
         try { ThrowIfDisposed(); ResetCommandOutcome(); return await operation().ConfigureAwait(false); }
-        finally { Volatile.Write(ref _busy, 0); }
+        finally
+        {
+            _callerCancellation = default;
+            ResetCancellation();
+            Volatile.Write(ref _busy, 0);
+        }
     }
 
     Task<IReadOnlyList<PgTextResult>> ExchangeAsync(Func<byte[][]> encode, PgQueryExchange exchange,
@@ -131,6 +201,15 @@ internal sealed partial class PgQuerySession : IDisposable
         var control = exchange is PgQueryExchange.Prepare or PgQueryExchange.Close;
         var describe = exchange == PgQueryExchange.Describe;
         ResetCommandOutcome();
+        // The abort token ends the read; the caller token only asks the server to cancel and then drains.
+        // Sessions without a cancel channel keep the legacy abort-and-retire caller behavior.
+        var caller = _callerCancellation;
+        var draining = _cancelSender is not null && caller.CanBeCanceled;
+        CancellationTokenSource? mergedCancellation = !draining && caller.CanBeCanceled
+            ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, caller) : null;
+        var readToken = mergedCancellation is null ? cancellationToken : mergedCancellation.Token;
+        using CancellationTokenRegistration callerRegistration = draining
+            ? caller.Register(static state => ((PgQuerySession)state!).RequestCallerCancel(), this) : default;
         var started = false;
         var synchronized = false;
         PgExtendedRequest? outgoing = null;
@@ -154,7 +233,7 @@ internal sealed partial class PgQuerySession : IDisposable
             var extendedPhase = exchange == PgQueryExchange.PreparedExecution ? 1 : 0;
             for (var frame = 0; frame < MaxFrames; frame++)
             {
-                var message = await _wire.ReadMessageAsync(cancellationToken, MaxPayload - payloadBytes).ConfigureAwait(false);
+                var message = await _wire.ReadMessageAsync(readToken, MaxPayload - payloadBytes).ConfigureAwait(false);
                 payloadBytes += message.Payload.Length;
                 if (serverError is not null && message.Code != (byte)'Z' && message.Code != (byte)'N' && message.Code != (byte)'S' && message.Code != (byte)'A')
                     throw InvalidExchange();
@@ -267,6 +346,21 @@ internal sealed partial class PgQuerySession : IDisposable
                         TransactionStatus = PgBackendMessages.ParseReadyForQuery(message.Payload);
                         ThrowIfDisposed();
                         synchronized = true;
+                        if (CancelRequested && (serverError is null || serverError.SqlState == CanceledSqlState))
+                        {
+                            // The caller asked to stop: report cancellation rather than the server's 57014 error,
+                            // and keep the confirmed ReadyForQuery as the reusable synchronization point.
+                            CommandRejection = null;
+                            if (serverError is null)
+                            {
+                                // The statement finished before the cancel took effect, so delivery is ambiguous:
+                                // never let a late cancel reach the next command or lease.
+                                Dispose();
+                                throw new OperationCanceledException(caller);
+                            }
+                            ResetCancellation();
+                            throw new OperationCanceledException(caller);
+                        }
                         if (serverError is not null) throw new PgQueryException(serverError);
                         return results.AsReadOnly();
                     default:
@@ -348,6 +442,10 @@ internal sealed partial class PgQuerySession : IDisposable
     {
         NotificationHandler = null;
         NoticeHandler = null;
+        if (Interlocked.Exchange(ref _drainDeadline, null) is { } drain)
+        {
+            try { drain.Dispose(); } catch { }
+        }
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
             InvalidatePreparedStatements();

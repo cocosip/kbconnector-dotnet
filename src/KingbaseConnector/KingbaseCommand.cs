@@ -185,6 +185,11 @@ public sealed partial class KingbaseCommand : DbCommand
         using var deadline = new CancellationTokenSource();
         using var stop = new CancellationTokenSource();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(caller, cancel.Token, deadline.Token);
+        // The abort token ends the read. A draining caller token is excluded from it and instead delivers the
+        // out-of-band cancel; every other path keeps the caller here and retires promptly.
+        CancellationTokenSource? abort = null;
+        var abortToken = linked.Token;
+        var gracefulCaller = default(CancellationToken);
         var timer = timeout == 0 ? Task.CompletedTask : WatchDeadline((long)timeout * 1000, elapsed, deadline, stop.Token);
         PgPhysicalSession? session = null;
         long generation = 0;
@@ -215,7 +220,7 @@ public sealed partial class KingbaseCommand : DbCommand
                 lock (_sync) _prepared = null;
                 CheckCancellation();
                 if (prepared is not null && ReferenceEquals(prepared.Owner, queries) && preparedGeneration == generation)
-                    await queries.UnprepareAsync(prepared, linked.Token).ConfigureAwait(false);
+                    await queries.UnprepareAsync(prepared, abortToken, gracefulCaller).ConfigureAwait(false);
                 CheckMode();
                 connection.ObserveTransaction(this, session, generation, _transactionOperation, true, queries.TransactionStatus, false);
                 acknowledged = true;
@@ -230,12 +235,21 @@ public sealed partial class KingbaseCommand : DbCommand
             CheckMode();
             var bindings = PgParameterBindings.Create(text, _parameters, session.Catalog, session.Identity.EffectiveMode, conforming);
             largeObjectControl |= bindings.InvalidatesLargeObjects || bindings.ChangesLargeObjectScopes;
+            // Only ordinary statement text drains. Driver control operations and raw transaction-ending SQL
+            // (COMMIT/END/ABORT/ROLLBACK) keep the prompt abort-and-retire contract and their outcome rules.
+            gracefulCaller = operation == Operation.Execute && _transactionOperation == KingbaseTransactionOperation.None &&
+                !bindings.EndsTransaction ? caller : default;
+            if (gracefulCaller.CanBeCanceled)
+            {
+                abort = CancellationTokenSource.CreateLinkedTokenSource(cancel.Token, deadline.Token);
+                abortToken = abort.Token;
+            }
             CheckCancellation();
             if (operation == Operation.Prepare)
             {
                 lock (_sync) _prepared = null;
                 var statement = await queries.PrepareAsync(bindings.Sql, session.Catalog,
-                    bindings.Parameters.Select(p => p.TypeOid).ToArray(), linked.Token, CheckMode).ConfigureAwait(false);
+                    bindings.Parameters.Select(p => p.TypeOid).ToArray(), abortToken, CheckMode, gracefulCaller).ConfigureAwait(false);
                 CheckMode();
                 connection.ObserveTransaction(this, session, generation, _transactionOperation, true, queries.TransactionStatus, false);
                 acknowledged = true;
@@ -251,26 +265,26 @@ public sealed partial class KingbaseCommand : DbCommand
             IReadOnlyList<PgTextResult>? metadataBefore = null;
             if ((behavior & CommandBehavior.KeyInfo) != 0)
             {
-                var discovery = await queries.DescribeAsync(bindings.Sql, session.Catalog, bindings.Parameters.Select(p => p.TypeOid).ToArray(), linked.Token).ConfigureAwait(false);
+                var discovery = await queries.DescribeAsync(bindings.Sql, session.Catalog, bindings.Parameters.Select(p => p.TypeOid).ToArray(), abortToken, gracefulCaller).ConfigureAwait(false);
                 metadataBefore = await EnrichMetadataAsync(connection, session, generation, discovery, bindings.Sql, linked.Token, CheckMode).ConfigureAwait(false);
                 CheckCancellation();
             }
             if (!schemaOnly && !usePrepared) lock (_sync) _prepared = null;
             IReadOnlyList<PgTextResult> results;
             if (schemaOnly)
-                results = await queries.DescribeAsync(bindings.Sql, session.Catalog, bindings.Parameters.Select(p => p.TypeOid).ToArray(), linked.Token).ConfigureAwait(false);
+                results = await queries.DescribeAsync(bindings.Sql, session.Catalog, bindings.Parameters.Select(p => p.TypeOid).ToArray(), abortToken, gracefulCaller).ConfigureAwait(false);
             else if (usePrepared)
-                results = await queries.ExecutePreparedAsync(prepared!, session.Catalog, bindings.Parameters, linked.Token).ConfigureAwait(false);
+                results = await queries.ExecutePreparedAsync(prepared!, session.Catalog, bindings.Parameters, abortToken, gracefulCaller).ConfigureAwait(false);
             else if (_transactionOperation == KingbaseTransactionOperation.None)
             {
-                var automatic = await queries.ExecuteAutoPreparedAsync(bindings.Sql, session.Catalog, bindings.Parameters, linked.Token, CheckMode,
+                var automatic = await queries.ExecuteAutoPreparedAsync(bindings.Sql, session.Catalog, bindings.Parameters, abortToken, CheckMode,
                     statement =>
                     {
                         lock (_sync) if (!_disposed) { _prepared = statement; _preparedGeneration = generation; }
-                    }).ConfigureAwait(false);
+                    }, gracefulCaller).ConfigureAwait(false);
                 results = automatic.Results;
             }
-            else results = await queries.ExecuteExtendedAsync(bindings.Sql, session.Catalog, bindings.Parameters, linked.Token).ConfigureAwait(false);
+            else results = await queries.ExecuteExtendedAsync(bindings.Sql, session.Catalog, bindings.Parameters, abortToken, gracefulCaller).ConfigureAwait(false);
             var rolledBack = false;
             if (_transactionOperation != KingbaseTransactionOperation.None)
             {
@@ -349,13 +363,15 @@ public sealed partial class KingbaseCommand : DbCommand
                 }
             }
             if (_transactionOperation != KingbaseTransactionOperation.None && acknowledged) throw;
-            CheckCancellation();
+            // A confirmed, synchronized server rejection keeps its identity even when the caller also canceled.
+            if (error is not PgQueryException) CheckCancellation();
             if (error is PgQueryException query) throw new KingbaseException(query.ServerError,
                 _batch?.FailedCommandIndex is { } index ? batchCommands![index] : null);
             throw;
         }
         finally
         {
+            abort?.Dispose();
             if (session is not null) connection.EndExecution(this, session, generation);
             stop.Cancel();
             await timer.ConfigureAwait(false);

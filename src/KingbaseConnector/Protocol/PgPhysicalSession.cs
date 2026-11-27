@@ -114,7 +114,14 @@ internal sealed class PgPhysicalSession : IDisposable
             wire = new PgWire(transport.Stream);
             var startup = await PgStartup.RunAsync(wire, startupMessage, settings.Username, password, linked.Token).ConfigureAwait(false);
             CheckDeadline();
-            queries = new PgQuerySession(wire, startup, settings.MaxAutoPrepare, settings.AutoPrepareMinUsages);
+            // Caller cancellation sends the backend-key cancel on a fresh plaintext connection and drains;
+            // the drain grace reuses the bounded cleanup budget before retiring an unresponsive session.
+            var cancelHost = settings.Host;
+            var cancelPort = settings.Port;
+            var backendKey = startup.BackendKey;
+            queries = new PgQuerySession(wire, startup, settings.MaxAutoPrepare, settings.AutoPrepareMinUsages,
+                token => PgCancelChannel.SendAsync(cancelHost, cancelPort, backendKey.ProcessId, backendKey.SecretKey, token),
+                TimeSpan.FromSeconds(settings.CleanupTimeout));
             var identity = await PgIdentityProbe.RunAsync(queries, settings.CompatibilityMode, linked.Token).ConfigureAwait(false);
             CheckDeadline();
             var catalog = await PgTypeCatalog.LoadAsync(queries, identity, linked.Token).ConfigureAwait(false);

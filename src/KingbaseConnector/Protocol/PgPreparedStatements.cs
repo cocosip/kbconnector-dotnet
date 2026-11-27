@@ -26,8 +26,8 @@ internal sealed partial class PgQuerySession
     ulong _statementSequence;
 
     internal Task<PgPreparedStatement> PrepareAsync(string sql, PgTypeCatalog catalog, IReadOnlyList<uint> typeOids,
-        CancellationToken token = default, Action? validateSession = null) =>
-        OwnAsync(() => PrepareOwnedAsync(sql, catalog, typeOids, false, token, validateSession), token);
+        CancellationToken token = default, Action? validateSession = null, CancellationToken callerToken = default) =>
+        OwnAsync(() => PrepareOwnedAsync(sql, catalog, typeOids, false, token, validateSession), token, callerToken);
 
     async Task<PgPreparedStatement> PrepareOwnedAsync(string sql, PgTypeCatalog catalog, IReadOnlyList<uint> typeOids,
         bool automatic, CancellationToken token, Action? validateSession)
@@ -89,8 +89,8 @@ internal sealed partial class PgQuerySession
     }
 
     internal Task<IReadOnlyList<PgTextResult>> ExecutePreparedAsync(PgPreparedStatement statement, PgTypeCatalog catalog,
-        IReadOnlyList<PgQueryParameter> parameters, CancellationToken token = default) =>
-        OwnAsync(() => ExecutePreparedOwnedAsync(statement, catalog, parameters, token), token);
+        IReadOnlyList<PgQueryParameter> parameters, CancellationToken token = default, CancellationToken callerToken = default) =>
+        OwnAsync(() => ExecutePreparedOwnedAsync(statement, catalog, parameters, token), token, callerToken);
 
     async Task<IReadOnlyList<PgTextResult>> ExecutePreparedOwnedAsync(PgPreparedStatement statement, PgTypeCatalog catalog,
         IReadOnlyList<PgQueryParameter> parameters, CancellationToken token) =>
@@ -107,15 +107,16 @@ internal sealed partial class PgQuerySession
         if (snapshot.Length != statement.TypeOids.Count || snapshot.Where((p, i) => p is null || p.TypeOid != statement.TypeOids[i]).Any())
             throw InvalidSignature();
         lock (_preparedStatements) { ThrowIfDisposed(); Touch(statement); }
-        return new ExecutionPlan(this, await PgExtendedRequest.CreateAsync("", catalog, snapshot, token, statement.Name).ConfigureAwait(false), PgQueryExchange.PreparedExecution, statement);
+        using var staging = LinkStaging(token);
+        return new ExecutionPlan(this, await PgExtendedRequest.CreateAsync("", catalog, snapshot, staging is null ? token : staging.Token, statement.Name).ConfigureAwait(false), PgQueryExchange.PreparedExecution, statement);
     }
 
-    internal Task UnprepareAsync(PgPreparedStatement statement, CancellationToken token = default) => OwnAsync(async () =>
+    internal Task UnprepareAsync(PgPreparedStatement statement, CancellationToken token = default, CancellationToken callerToken = default) => OwnAsync(async () =>
         {
             CheckOwner(statement);
             await CloseOwnedAsync(statement, token).ConfigureAwait(false);
             return true;
-        }, token);
+        }, token, callerToken);
 
     // Reset's physical owner has revoked all logical users; disposal may also call concurrently.
     internal void InvalidatePreparedStatements(bool forget = true)
