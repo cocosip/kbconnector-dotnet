@@ -23,6 +23,7 @@ public sealed partial class KingbaseConnection : DbConnection
     long _generation;
     bool _disposed;
     bool _opened;
+    bool _reloading;
     public KingbaseConnection() { }
     public KingbaseConnection(string connectionString) => ConnectionString = connectionString;
     public static void ClearPool(KingbaseConnection connection)
@@ -172,7 +173,8 @@ public sealed partial class KingbaseConnection : DbConnection
             _callbackFailure = null;
             lease = _lease; _lease = null;
             opening = _opening; _opening = null;
-            hadCommand = _command is not null;
+            // A reload also holds the wire, so closing while it runs must not hand the session back as reusable.
+            hadCommand = _command is not null || _reloading;
             _command = null;
             _transaction = null;
             InvalidateLargeObjects();
@@ -217,7 +219,7 @@ public sealed partial class KingbaseConnection : DbConnection
         {
             OpenSession();
             if (_owner is not null) throw new InvalidOperationException("A DataSource connection has immutable configuration; create another source.");
-            if (_command is not null || _reader is not null) throw ActiveOperation();
+            if (_command is not null || _reader is not null || _reloading) throw ActiveOperation();
             if (_transaction is not null || _session!.Queries.TransactionStatus != PgTransactionStatus.Idle)
                 throw new InvalidOperationException("Cannot change databases while a transaction is active.");
             var settings = new KingbaseConnectionStringBuilder(_settings.ConnectionString) { Database = databaseName };
@@ -228,6 +230,42 @@ public sealed partial class KingbaseConnection : DbConnection
         Open();
     }
     protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel) => BeginLocalTransactionAsync(isolationLevel, CancellationToken.None).GetAwaiter().GetResult();
+    /// <summary>Re-reads the server type catalog, for example after a type was dropped and recreated.</summary>
+    public void ReloadTypes() => ReloadTypesAsync(CancellationToken.None).GetAwaiter().GetResult();
+    /// <summary>Re-reads the server type catalog, for example after a type was dropped and recreated.</summary>
+    public async Task ReloadTypesAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        PgPhysicalSession physical;
+        long generation;
+        lock (_sync)
+        {
+            physical = OpenSession();
+            if (_command is not null || _reader is not null || _reloading) throw ActiveOperation();
+            if (_closing is not null) throw new InvalidOperationException("Kingbase connection cleanup is still active.");
+            if (_transaction is not null || physical.Queries.TransactionStatus != PgTransactionStatus.Idle)
+                throw new InvalidOperationException("The type catalog can only be reloaded while no transaction is active.");
+            _reloading = true;
+            generation = _generation;
+        }
+        try
+        {
+            await physical.ReloadTypesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            // A failed catalog load leaves the protocol state unknown, so retire the session before releasing the gate.
+            try { RetireIfBroken(physical); } catch { }
+            lock (_sync) _reloading = false;
+            throw;
+        }
+        lock (_sync)
+        {
+            _reloading = false;
+            if (!ReferenceEquals(_session, physical) || _generation != generation)
+                throw new InvalidOperationException("The Kingbase connection changed while its type catalog was reloading.");
+        }
+    }
     public new KingbaseTransaction BeginTransaction() => (KingbaseTransaction)BeginDbTransaction(IsolationLevel.Unspecified);
     public new KingbaseTransaction BeginTransaction(IsolationLevel isolationLevel) => (KingbaseTransaction)BeginDbTransaction(isolationLevel);
     /// <summary>Begins a local transaction with an explicit transaction-scoped access mode.</summary>
@@ -300,7 +338,7 @@ public sealed partial class KingbaseConnection : DbConnection
         lock (_sync)
         {
             var physical = OpenSession();
-            if (_command is not null || _reader is not null) throw ActiveOperation();
+            if (_command is not null || _reader is not null || _reloading) throw ActiveOperation();
             if (operation == KingbaseTransactionOperation.Begin)
             {
                 if (_transaction is not null || physical.Queries.TransactionStatus != PgTransactionStatus.Idle)

@@ -32,6 +32,12 @@ internal sealed class PgPhysicalSession : IDisposable
     internal PgQuerySession Queries => Volatile.Read(ref _disposed) == 0 ? _queries
         : throw new ObjectDisposedException(nameof(PgPhysicalSession));
     internal void ValidateReportedBaseline() => (_resetState ?? throw new InvalidOperationException("This physical session has no pool baseline.")).ValidateReported(Queries);
+    // Called only while the connection owns this physical session's execution gate.
+    internal async Task ReloadTypesAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Catalog = await PgTypeCatalog.LoadAsync(Queries, Identity, cancellationToken).ConfigureAwait(false);
+    }
     // Called only while the public command owns this physical session's execution gate.
     internal async Task<int> GetMaxIdentifierLengthAsync(CancellationToken token)
     {
