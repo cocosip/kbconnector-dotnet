@@ -181,6 +181,8 @@ Catalog enum and `SET` values are read as `String` in all four PG-wire modes. Th
 
 MySQL-mode `sys.binary`/`sys.varbinary` and SQL Server-mode `sys.binary`/`sys.varbinary` values are read as `Byte[]`: the server emits `0x` plus the stored bytes as lowercase hex, so the decoder requires that prefix and an even hex length and rejects a bare hex string or the bytea escape. Fixed-width `binary(n)` keeps the server's padding. Typed binary COPY uses `KingbaseDbType.Binary`/`VarBinary` and the bytea field layout (`int32` length plus raw bytes) for both fixed and variable widths. A `Byte[]` scalar write is refused with `NotSupportedException` (NULL is still writable; a `Stream` value fails the CLR check): the server stores the literal characters of a text parameter and rejects the PG binary parameter format (`08P01`) for every extended Bind on the tested installation, so these values enter through binary COPY import only. A `Byte[]` without a selector still infers `bytea`.
 
+`pg_catalog.money` reads as `decimal` from the tested "C"-locale text form (`$1,234.56` and `-$12.50`), and SQL Server mode's native `sys.money` reads its own plain four-decimal form; scalar parameters send the invariant unformatted decimal so the server applies its rounding, and binary COPY carries an 8-byte int64 of cents (`KingbaseDbType.Money`) or ten-thousandths (`KingbaseDbType.SqlServerMoney`). Only the "C" locale text shape is verified.
+
 Native temporal selectors use the detected mode and actual `sys` catalog rather than treating same-named types as PG types:
 
 | Selector | Mapping and input contract |
